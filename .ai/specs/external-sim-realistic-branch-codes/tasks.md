@@ -28,6 +28,8 @@
      hippodb, `:655/679/690-691` mammothdb) and `ReferencePre`/`SaleCode`/
      `PolicyYear` literals untouched.
      Satisfies: REQ-1 (all criteria), REQ-2 (all criteria), REQ-3.1, REQ-4 (all
+     criteria), REQ-5 (all criteria — non-regression), REQ-6 (all criteria —
+     non-regression), REQ-7 (all criteria — self-check regression).
 
 - [x] 2. Integration.Tests — re-pin literals/comments the value swap and column
      removal moved

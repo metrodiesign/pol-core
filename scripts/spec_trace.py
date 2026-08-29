@@ -11,6 +11,8 @@ import re
 import sys
 from pathlib import Path
 
+import spec_contract as sc
+
 REQ_HEADING_RE = re.compile(r"^## REQ-(\d+):")
 CRITERION_RE = re.compile(r"^- (\d+)\.(\d+) ")
 NEAR_MISS_RE = re.compile(r"^- \d+\.\d+")
@@ -99,24 +101,70 @@ def design_traceability_text(design_text: str) -> str | None:
 
 
 def satisfies_text(tasks_text: str) -> str:
+    """Return explicit Satisfies refs plus migrated bare REQ lines.
+
+    Historical migration removed task metadata labels while preserving each
+    trace line as an indented line beginning with ``REQ-``. Keep this reader
+    compatible with both shapes; canonical validation stays in spec_contract.
+    """
     segments: list[str] = []
-    lines = tasks_text.splitlines()
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        index += 1
-        if "Satisfies:" not in line:
+    visible, _diagnostics = sc._outside_fence(
+        tasks_text.splitlines(), Path("tasks.md")
+    )
+    in_comment = False
+    current_task = False
+    collecting_satisfies = False
+
+    for _number, raw in visible:
+        line = ""
+        rest = raw
+        while rest:
+            if in_comment:
+                marker = rest.find("-->")
+                if marker < 0:
+                    rest = ""
+                    continue
+                in_comment = False
+                rest = rest[marker + 3:]
+                continue
+            marker = rest.find("<!--")
+            if marker < 0:
+                line += rest
+                break
+            line += rest[:marker]
+            rest = rest[marker + 4:]
+            in_comment = True
+
+        if (
+            sc.TASK_OPENING_RE.match(line)
+            or re.match(r"^##\s+- \[[ x]\]\s+\S+", line)
+            or line.startswith("- Historical task (")
+        ):
+            current_task = True
+            collecting_satisfies = False
             continue
-        parts = [line.split("Satisfies:", 1)[1]]
-        while index < len(lines):
-            following = lines[index]
-            if not following.strip() or not following[0].isspace():
-                break
-            if following.lstrip().startswith(("- [ ]", "- [x]")):
-                break
-            parts.append(following.strip())
-            index += 1
-        segments.append(re.split(r"Depends on:|Verify:|Batch:", " ".join(parts))[0])
+        if re.match(r"^\s*(?:[-+*]|\d+[.)])\s*\[", line):
+            current_task = False
+            collecting_satisfies = False
+            continue
+        if re.match(r"^\s{0,3}#", line):
+            current_task = False
+            collecting_satisfies = False
+            continue
+        if not current_task:
+            continue
+        if "Satisfies:" in line:
+            segment = line.split("Satisfies:", 1)[1]
+            collecting_satisfies = True
+        elif collecting_satisfies and line[:1].isspace() and line.strip():
+            segment = line.strip()
+        elif re.match(r"^ {5}(?:REQ-\d+|\d+\.\d+)", line):
+            segment = line.strip()
+        else:
+            if not line.strip() or not line[:1].isspace():
+                collecting_satisfies = False
+            continue
+        segments.append(re.split(r"Depends on:|Verify:|Batch:", segment)[0])
     return "\n".join(segments)
 
 
@@ -130,23 +178,33 @@ def ears_ok(text: str) -> bool:
 
 def run(feature: str, specs_dir: Path) -> int:
     """Run the historical trace contract for one feature."""
-    feature_dir = specs_dir / feature
-    if not feature_dir.is_dir():
+    feature_dir, resolver_diagnostics = sc.resolve_feature_directory(specs_dir, feature)
+    if resolver_diagnostics or feature_dir is None:
+        if resolver_diagnostics:
+            sc._print_diagnostics(resolver_diagnostics)
+            return 2 if any(
+                diagnostic.verdict == "engine-fail"
+                for diagnostic in resolver_diagnostics
+            ) else 1
         existing = ", ".join(sorted(path.name for path in specs_dir.iterdir() if path.is_dir())) if specs_dir.is_dir() else "-"
         print(f"ไม่พบ feature '{feature}' ใต้ {specs_dir} (ที่มี: {existing})", file=sys.stderr)
         print("ใช้: scripts/spec-trace.sh <feature>", file=sys.stderr)
         return 1
 
-    requirements_path = feature_dir / "requirements.md"
-    if not requirements_path.is_file():
+    requirements_data, requirements_diagnostics = sc._read_canonical_artifact(
+        feature_dir, "requirements.md", specs_dir
+    )
+    if requirements_data is None:
         if (feature_dir / "bugfix.md").is_file():
             print(f"'{feature}' เป็น bugfix spec (มี bugfix.md ไม่มี requirements.md) — ข้ามการตรวจ traceability")
             return 0
-        print(f"ไม่พบไฟล์ {requirements_path}", file=sys.stderr)
-        print("ใช้: scripts/spec-trace.sh <feature>", file=sys.stderr)
-        return 1
+        sc._print_diagnostics(requirements_diagnostics)
+        return 2 if any(
+            diagnostic.verdict == "engine-fail"
+            for diagnostic in requirements_diagnostics
+        ) else 1
 
-    criteria, has_headings = parse_requirements(requirements_path.read_text(encoding="utf-8"))
+    criteria, has_headings = parse_requirements(requirements_data.decode("utf-8"))
     if not has_headings:
         print(f"requirements.md ของ '{feature}' ไม่ใช่รูปแบบ REQ-based (ไม่มีหัวข้อ '## REQ-N:') — ข้ามการตรวจ traceability")
         return 0
@@ -164,11 +222,15 @@ def run(feature: str, specs_dir: Path) -> int:
         criteria_by_req.setdefault(major, set()).add(minor)
     all_ids = [(major, minor) for major, minor, _ in criteria]
 
-    design_path = feature_dir / "design.md"
-    if not design_path.is_file():
-        print(f"ไม่พบไฟล์ {design_path} (spec แบบ REQ-based ต้องมี design.md)", file=sys.stderr)
-        return 1
-    trace = design_traceability_text(design_path.read_text(encoding="utf-8"))
+    design_data, design_diagnostics = sc._read_canonical_artifact(
+        feature_dir, "design.md", specs_dir
+    )
+    if design_data is None:
+        sc._print_diagnostics(design_diagnostics)
+        return 2 if any(
+            diagnostic.verdict == "engine-fail" for diagnostic in design_diagnostics
+        ) else 1
+    trace = design_traceability_text(design_data.decode("utf-8"))
     if trace is None:
         problems.append(("design.md ไม่มี section '## Requirement Traceability' — ถือว่าทุกเกณฑ์ยังไม่ถูกอ้าง:", [f"{major}.{minor}" for major, minor in all_ids]))
     else:
@@ -177,11 +239,15 @@ def run(feature: str, specs_dir: Path) -> int:
         if missing:
             problems.append(("เกณฑ์ที่ไม่ถูกอ้างใน design.md (section Requirement Traceability):", missing))
 
-    tasks_path = feature_dir / "tasks.md"
-    if not tasks_path.is_file():
-        print(f"ไม่พบไฟล์ {tasks_path} (spec แบบ REQ-based ต้องมี tasks.md)", file=sys.stderr)
-        return 1
-    tasks_covered = expand_refs(satisfies_text(tasks_path.read_text(encoding="utf-8")), criteria_by_req)
+    tasks_data, tasks_diagnostics = sc._read_canonical_artifact(
+        feature_dir, "tasks.md", specs_dir
+    )
+    if tasks_data is None:
+        sc._print_diagnostics(tasks_diagnostics)
+        return 2 if any(
+            diagnostic.verdict == "engine-fail" for diagnostic in tasks_diagnostics
+        ) else 1
+    tasks_covered = expand_refs(satisfies_text(tasks_data.decode("utf-8")), criteria_by_req)
     missing = [f"{major}.{minor}" for major, minor in all_ids if (major, minor) not in tasks_covered]
     if missing:
         problems.append(("เกณฑ์ที่ไม่ถูกอ้างใน tasks.md (บรรทัด Satisfies:):", missing))
@@ -198,11 +264,25 @@ def run(feature: str, specs_dir: Path) -> int:
     return 0
 
 
+def run_compatible_all(specs_dir: Path) -> int:
+    """Run compatibility trace across every requirements directory."""
+    features = sorted(
+        path.name
+        for path in specs_dir.iterdir()
+        if path.is_dir() and (path / "requirements.md").is_file()
+    )
+    failures = [feature for feature in features if run(feature, specs_dir)]
+    print(f"compatibility trace: checked {len(features)} / failures {len(failures)}")
+    return 1 if failures else 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) not in (2, 3):
-        print("ใช้: scripts/spec-trace.sh <feature> [<specs-dir>]", file=sys.stderr)
+        print("ใช้: scripts/spec-trace.sh <feature|--all-compatible> [<specs-dir>]", file=sys.stderr)
         return 1
     specs_dir = Path(argv[2]) if len(argv) == 3 else Path(__file__).resolve().parent.parent / ".ai" / "specs"
+    if argv[1] == "--all-compatible":
+        return run_compatible_all(specs_dir)
     return run(argv[1], specs_dir)
 
 

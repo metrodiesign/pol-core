@@ -106,14 +106,42 @@ def _diag(code: str, path: Path, line: int, message: str, verdict: str = "policy
     return Diagnostic(code, verdict, SourceLocation(_path(path), line), message)
 
 
+def _validated_specs_root(specs_root: Path) -> tuple[Path | None, tuple[Diagnostic, ...]]:
+    """ตรวจ repo/.ai/specs แบบ lexical ด้วย lstat โดยไม่ตาม symlink component."""
+    candidate = specs_root.absolute()
+    if candidate.name != "specs" or candidate.parent.name != ".ai":
+        try:
+            root_stat = candidate.lstat()
+        except OSError:
+            return None, (_diag("ENGINE_INTERNAL", candidate, 1, "canonical specs root ใช้งานไม่ได้", "engine-fail"),)
+        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
+            return None, (_diag("ENGINE_INTERNAL", candidate, 1, "canonical specs root ต้องเป็น directory จริงและห้ามเป็น symlink", "engine-fail"),)
+        return candidate, ()
+    try:
+        repo_root = candidate.parent.parent.resolve(strict=True)
+    except OSError:
+        return None, (_diag("ENGINE_INTERNAL", candidate.parent.parent, 1, "resolved repo root ใช้งานไม่ได้", "engine-fail"),)
+    candidate = repo_root / ".ai" / "specs"
+    for current in (repo_root, repo_root / ".ai", candidate):
+        try:
+            current_stat = current.lstat()
+        except OSError:
+            return None, (_diag("ENGINE_INTERNAL", current, 1, "canonical path component ใช้งานไม่ได้", "engine-fail"),)
+        if stat.S_ISLNK(current_stat.st_mode) or not stat.S_ISDIR(current_stat.st_mode):
+            return None, (_diag("ENGINE_INTERNAL", current, 1, "canonical path component ต้องเป็น directory จริงและห้ามเป็น symlink", "engine-fail"),)
+    return candidate, ()
+
+
 def resolve_feature_directory(specs_root: Path, feature: str) -> tuple[Path | None, tuple[Diagnostic, ...]]:
     """Resolve one direct, real spec child without traversal or symlink escape."""
+    safe_root, root_diagnostics = _validated_specs_root(specs_root)
+    if root_diagnostics or safe_root is None:
+        return None, root_diagnostics
+    specs_root = safe_root
     if feature == "archive" or not re.fullmatch(TASK_ID_PATTERN, feature):
         return None, (_diag("SLICE_FEATURE_UNKNOWN", specs_root / feature, 1, "feature ต้องเป็น canonical direct child"),)
-    if specs_root.is_symlink() or not specs_root.is_dir():
-        return None, (_diag("ENGINE_INTERNAL", specs_root, 1, "canonical specs root ใช้งานไม่ได้", "engine-fail"),)
     directory = specs_root / feature
-    if not directory.is_dir() or directory.is_symlink():
+    if directory.is_symlink() or not directory.is_dir():
         return None, (_diag("SLICE_FEATURE_UNKNOWN", directory, 1, "ไม่พบ canonical spec directory"),)
     return directory, ()
 
@@ -640,6 +668,14 @@ def _read_canonical_artifact(
     """Read one regular direct child without following an artifact symlink."""
     specs_root = canonical_specs_root or feature_dir.parent
     path = feature_dir / name
+    if canonical_specs_root is not None:
+        feature_relative = Path(feature_dir.name)
+        safe_root, root_diagnostics = _validated_specs_root(specs_root)
+        if root_diagnostics or safe_root is None:
+            return None, root_diagnostics
+        specs_root = safe_root
+        feature_dir = specs_root / feature_relative
+        path = feature_dir / name
     if (
         Path(name).name != name
         or specs_root.is_symlink()
@@ -811,14 +847,16 @@ def _print_contract_diagnostics(feature: str, diagnostics: Sequence[Diagnostic])
     print(f"[{feature}] strict contract ไม่ผ่าน:")
     for diagnostic in sorted(diagnostics, key=lambda value: (value.location.path, value.location.line, value.code, value.message)):
         print(f"  - {diagnostic.code}: {diagnostic.message}")
-    return 1
+    return 2 if any(diagnostic.verdict == "engine-fail" for diagnostic in diagnostics) else 1
 
 
 def trace_run(feature: str, specs_dir: Path) -> int:
     feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, feature)
     if resolver_diagnostics or feature_dir is None:
         _print_diagnostics(resolver_diagnostics)
-        return 1
+        return 2 if any(
+            diagnostic.verdict == "engine-fail" for diagnostic in resolver_diagnostics
+        ) else 1
     workflow = "bugfix" if (feature_dir / "bugfix.md").is_file() and not (feature_dir / "requirements.md").is_file() else "requirements-first"
     _, diagnostics = check_phase_gate(feature_dir, "implement", workflow, specs_dir)
     if diagnostics:
@@ -1166,13 +1204,18 @@ def _task_evidence_problems(task: TaskBlock) -> list[Diagnostic]:
 
 
 def _marker_leads(segments) -> bool:
-    """Unfinished verdict iff the FIRST token of an observed-result/value is the
-    marker itself (e.g. `-> TODO`, `deviations: TBD`). Words appearing later in
-    prose/test-names (`x5: pending/all/json`) are data, never status."""
+    """Bare pending is unfinished only as the first verdict token; stronger
+    TODO/TBD/??? markers remain unfinished anywhere in an observed result."""
     strip_spans_re = re.compile(r"`[^`]*`|\([^)]*\)|\[[^\]]*\]")
     for segment in segments:
-        scrubbed = strip_spans_re.sub(" ", segment)
-        if _contains_unfinished_marker(scrubbed):
+        scrubbed = strip_spans_re.sub(" ", segment).lstrip()
+        while scrubbed and scrubbed[0] != "?" and unicodedata.category(scrubbed[0])[0] in {"P", "S"}:
+            scrubbed = scrubbed[1:].lstrip()
+        if not _contains_unfinished_marker(scrubbed):
+            continue
+        if _UNFINISHED_MARKER_RE.match(scrubbed) or any(
+            match.group(0).lower() != "pending" for match in _UNFINISHED_MARKER_RE.finditer(scrubbed)
+        ):
             return True
     return False
 
@@ -1462,6 +1505,10 @@ def _state_directories(specs_root: Path) -> tuple[Path, ...]:
 
 
 def active_summary(specs_root: Path) -> tuple[str, tuple[Diagnostic, ...]]:
+    safe_root, root_diagnostics = _validated_specs_root(specs_root)
+    if root_diagnostics or safe_root is None:
+        return "Active specs: none. Blocked specs: 0.\n", root_diagnostics
+    specs_root = safe_root
     active: list[str] = []
     blocked = 0
     diagnostics: list[Diagnostic] = []
@@ -1479,6 +1526,10 @@ def active_summary(specs_root: Path) -> tuple[str, tuple[Diagnostic, ...]]:
 def _print_diagnostics(diagnostics: Sequence[Diagnostic]) -> None:
     for diagnostic in sorted(diagnostics, key=lambda value: (value.location.path, value.location.line, value.code, value.message)):
         print(f"{diagnostic.code}: {diagnostic.message}", file=sys.stderr)
+
+
+def _diagnostic_exit_code(diagnostics: Sequence[Diagnostic]) -> int:
+    return 2 if any(diagnostic.verdict == "engine-fail" for diagnostic in diagnostics) else 1
 
 
 def _print_gate_evidence_envelope(
@@ -1534,15 +1585,16 @@ def _cli(argv: Sequence[str]) -> int:
         feature_dir, resolver_diagnostics = resolve_feature_directory(root_dir, args.feature)
         if resolver_diagnostics or feature_dir is None:
             _print_diagnostics(resolver_diagnostics)
-            return 1
-        tasks_data = _read_canonical_artifact(feature_dir, "tasks.md", root_dir)[0]
+            return _diagnostic_exit_code(resolver_diagnostics)
+        tasks_data, read_diagnostics = _read_canonical_artifact(feature_dir, "tasks.md", root_dir)
         if tasks_data is None:
-            print("TASK_ARTIFACT_MISSING: no tasks.md", file=sys.stderr)
-            return 1
+            _print_diagnostics(read_diagnostics)
+            return _diagnostic_exit_code(read_diagnostics)
         tasks, parse_problems = parse_task_blocks(tasks_data, feature_dir / "tasks.md")
-        if parse_problems or validate_task_graph(tasks):
-            _print_diagnostics(tuple(parse_problems))
-            return 1
+        task_diagnostics = tuple(parse_problems) + validate_task_graph(tasks)
+        if task_diagnostics:
+            _print_diagnostics(task_diagnostics)
+            return _diagnostic_exit_code(task_diagnostics)
         if args.selector:
             resolved, selector_problems = resolve_task_selector(tasks, args.selector)
             if selector_problems:
@@ -1668,7 +1720,7 @@ def _cli(argv: Sequence[str]) -> int:
         feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, args.feature)
         if resolver_diagnostics or feature_dir is None:
             _print_diagnostics(resolver_diagnostics)
-            return 1
+            return _diagnostic_exit_code(resolver_diagnostics)
         _, diagnostics = check_phase_gate(feature_dir, args.phase, args.workflow, specs_dir)
         if diagnostics:
             return _print_contract_diagnostics(args.feature, diagnostics)
@@ -1682,13 +1734,13 @@ def _cli(argv: Sequence[str]) -> int:
         feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, args.feature)
         if resolver_diagnostics or feature_dir is None:
             _print_diagnostics(resolver_diagnostics)
-            return 1
+            return _diagnostic_exit_code(resolver_diagnostics)
         text, diagnostics = build_spec_slice(feature_dir, args.task, specs_dir)
         if text:
             print(text, end="")
         if diagnostics and any(diagnostic.code != "SLICE_MAPPING_MISSING" and diagnostic.code not in {"TRACE_SECTION_UNKNOWN", "TRACE_REF_UNKNOWN"} for diagnostic in diagnostics):
             _print_diagnostics(diagnostics)
-            return 1
+            return _diagnostic_exit_code(diagnostics)
         return 0
     if argv and argv[0] == "state":
         parser = argparse.ArgumentParser(add_help=False)
@@ -1697,19 +1749,22 @@ def _cli(argv: Sequence[str]) -> int:
         parser.add_argument("--format", choices=("summary", "text"), default="text")
         args = parser.parse_args(argv[1:])
         if args.all:
-            summary, _ = active_summary(specs_dir)
+            summary, diagnostics = active_summary(specs_dir)
             print(summary, end="")
+            if diagnostics:
+                _print_diagnostics(diagnostics)
+                return _diagnostic_exit_code(diagnostics)
             return 0
         if args.feature:
             feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, args.feature)
             if resolver_diagnostics or feature_dir is None:
                 _print_diagnostics(resolver_diagnostics)
-                return 1
+                return _diagnostic_exit_code(resolver_diagnostics)
             state, diagnostics = derive_spec_state(feature_dir, specs_dir)
             print(state)
             if diagnostics:
                 _print_diagnostics(diagnostics)
-                return 1
+                return _diagnostic_exit_code(diagnostics)
             return 0
         print("ใช้: spec_contract.py state --all --format summary หรือ --feature FEATURE", file=sys.stderr)
         return 2
@@ -1719,8 +1774,7 @@ def _cli(argv: Sequence[str]) -> int:
     parser.add_argument("--feature", dest="named_feature")
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--all", action="store_true",
-                        help="strict trace over the active spec corpus "
-                             "(ledger-dispositioned legacy chains skipped)")
+                        help="strict trace over every direct spec directory")
     parser.add_argument("--specs-root", default=None,
                         help="test seam: alternate .ai/specs root")
     args = parser.parse_args(argv)
@@ -1740,20 +1794,23 @@ LEDGER_DISPOSITION_SKIP = {"trace-header-canonical", "active-authoring-exempt",
 LEDGER_REL = Path("sdd-operating-layer-parity") / "migration-resolutions.json"
 
 
-def ledger_legacy_features(specs_dir: Path) -> set[str]:
-    """Feature dirs whose trace tables / authoring chains carry a committed
-    human-checkpoint decision (option-K recorded residual). Strict all-spec
-    scope is active-first; these re-enter via the verify scope when tasks say
-    so. Reading the JSON directly keeps this module free of retrofit imports."""
-    path = specs_dir / LEDGER_REL
-    if not path.is_file():
-        return set()
-    import json as _json
+def ledger_legacy_fields(specs_dir: Path) -> dict[str, set[str]]:
+    """Return explicit human-checkpoint legacy fields by direct feature."""
+    owner, resolver_diagnostics = resolve_feature_directory(
+        specs_dir, LEDGER_REL.parent.name
+    )
+    if resolver_diagnostics or owner is None:
+        return {}
+    data, read_diagnostics = _read_canonical_artifact(
+        owner, LEDGER_REL.name, specs_dir
+    )
+    if data is None or read_diagnostics:
+        return {}
     try:
-        payload = _json.loads(path.read_text(encoding="utf-8"))
-    except ValueError:
-        return set()
-    legacy: set[str] = set()
+        payload = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return {}
+    legacy: dict[str, set[str]] = {}
     for entry in payload.get("decisions", []):
         if entry.get("field") in ("trace.table", "authoring.chain") and \
                 entry.get("disposition") in LEDGER_DISPOSITION_SKIP:
@@ -1761,27 +1818,168 @@ def ledger_legacy_features(specs_dir: Path) -> set[str]:
             if parent.parent.name == ".ai" or len(parent.parts) >= 2:
                 name = parent.name if parent.name != ".ai" else ""
                 if name:
-                    legacy.add(name)
+                    legacy.setdefault(name, set()).add(entry["field"])
     return legacy
 
 
+def ledger_legacy_features(specs_dir: Path) -> set[str]:
+    """Feature dirs carrying an explicit human-checkpoint legacy decision."""
+    return set(ledger_legacy_fields(specs_dir))
+
+
+def all_tree_trace_run(feature: str, specs_dir: Path) -> int:
+    """Validate one direct spec directory under all-tree cutover rules.
+
+    Canonical features keep the strict phase/section contract. Historical
+    features with an explicit human-checkpoint ledger decision still run real
+    criteria/EARS/design/tasks coverage; they are not removed from inventory.
+    """
+    legacy_fields = ledger_legacy_fields(specs_dir).get(feature, set())
+    if not legacy_fields:
+        return trace_run(feature, specs_dir)
+
+    feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, feature)
+    if resolver_diagnostics or feature_dir is None:
+        _print_diagnostics(resolver_diagnostics)
+        return _diagnostic_exit_code(resolver_diagnostics)
+
+    if (feature_dir / "bugfix.md").exists() and "authoring.chain" in legacy_fields:
+        bugfix_data, bugfix_diagnostics = _read_canonical_artifact(
+            feature_dir, "bugfix.md", specs_dir
+        )
+        tasks_data, tasks_diagnostics = _read_canonical_artifact(
+            feature_dir, "tasks.md", specs_dir
+        )
+        if bugfix_data is None or tasks_data is None:
+            return _print_contract_diagnostics(
+                feature, bugfix_diagnostics + tasks_diagnostics
+            )
+        bugfix_status, bugfix_status_diagnostics = _read_status(
+            feature_dir, "bugfix.md", specs_dir
+        )
+        tasks_status, tasks_status_diagnostics = _read_status(
+            feature_dir, "tasks.md", specs_dir
+        )
+        status_diagnostics = bugfix_status_diagnostics + tasks_status_diagnostics
+        if status_diagnostics or bugfix_status is None or tasks_status is None or \
+                bugfix_status.kind != "superseded" or tasks_status.kind != "superseded" or \
+                bugfix_status.superseded_by != tasks_status.superseded_by:
+            return _print_contract_diagnostics(
+                feature,
+                status_diagnostics or (_diag(
+                    "PHASE_UPSTREAM_NOT_APPROVED", feature_dir, 1,
+                    "historical bugfix exemption ต้องมี superseded status ตรงกัน",
+                ),),
+            )
+        criteria, criteria_diagnostics = parse_bugfix_criteria(
+            bugfix_data, feature_dir / "bugfix.md"
+        )
+        if criteria_diagnostics or not criteria:
+            return _print_contract_diagnostics(
+                feature,
+                criteria_diagnostics or (_diag(
+                    "BUGFIX_CRITERIA_MISSING", feature_dir / "bugfix.md", 1,
+                    "historical bugfix ต้องมี F/B criteria จริง",
+                ),),
+            )
+        print(
+            f"OK: '{feature}' historical-ledger superseded bugfix "
+            f"เกณฑ์ F/B {len(criteria)} ข้อผ่าน syntax/status validation"
+        )
+        return 0
+
+    if (feature_dir / "bugfix.md").exists():
+        diagnostics = _bugfix_trace(feature_dir, specs_dir)
+        if diagnostics:
+            return _print_contract_diagnostics(feature, diagnostics)
+        data, read_diagnostics = _read_canonical_artifact(
+            feature_dir, "bugfix.md", specs_dir
+        )
+        if data is None:
+            return _print_contract_diagnostics(feature, read_diagnostics)
+        criteria, _ = parse_bugfix_criteria(data, feature_dir / "bugfix.md")
+        print(
+            f"OK: '{feature}' historical-ledger เกณฑ์ F/B {len(criteria)} ข้อ "
+            "ถูกอ้างครบใน tasks.md"
+        )
+        return 0
+
+    if "authoring.chain" in legacy_fields and not (feature_dir / "requirements.md").exists():
+        design_data, design_diagnostics = _read_canonical_artifact(
+            feature_dir, "design.md", specs_dir
+        )
+        tasks_data, tasks_diagnostics = _read_canonical_artifact(
+            feature_dir, "tasks.md", specs_dir
+        )
+        if design_data is None or tasks_data is None:
+            return _print_contract_diagnostics(
+                feature, design_diagnostics + tasks_diagnostics
+            )
+        print(
+            f"OK: '{feature}' historical-ledger active authoring chain "
+            "มี design.md/tasks.md regular files และไม่มี fabricated requirements"
+        )
+        return 0
+
+    requirements_data, read_diagnostics = _read_canonical_artifact(
+        feature_dir, "requirements.md", specs_dir
+    )
+    if requirements_data is None:
+        return _print_contract_diagnostics(feature, read_diagnostics)
+
+    from spec_trace import parse_requirements, run as compatibility_trace_run
+
+    criteria, has_headings = parse_requirements(requirements_data.decode("utf-8"))
+    if not has_headings or not criteria:
+        print(
+            f"[{feature}] historical-ledger contract ไม่ผ่าน: "
+            "requirements ต้องมี REQ headings และ criteria จริง"
+        )
+        return 1
+
+    return compatibility_trace_run(feature, specs_dir)
+
+
+def _all_spec_directories(specs_dir: Path) -> tuple[Path, ...]:
+    """Direct spec directories; archive เป็น container ไม่ใช่ spec."""
+    return tuple(sorted(
+        (
+            path
+            for path in specs_dir.iterdir()
+            if path.name != "archive" and (path.is_symlink() or path.is_dir())
+        ),
+        key=lambda path: path.name,
+    ))
+
+
 def _check_all_strict(specs_dir: Path) -> int:
-    """Strict trace across the ACTIVE corpus (option-K scoping)."""
-    features = sorted(path.name for path in specs_dir.iterdir()
-                      if path.is_dir() and (path / "requirements.md").is_file())
-    features += sorted(path.name for path in specs_dir.iterdir()
-                       if path.is_dir() and (path / "bugfix.md").is_file()
-                       and not (path / "requirements.md").is_file())
-    skipped = ledger_legacy_features(specs_dir)
-    active = [f for f in features if f not in skipped]
+    """Strict trace ทุก direct spec directory โดยไม่มี ledger skip."""
+    safe_root, root_diagnostics = _validated_specs_root(specs_dir)
+    if root_diagnostics or safe_root is None:
+        _print_diagnostics(root_diagnostics)
+        print("check --all --strict: 0 checked / 0 failing / 1 unchecked")
+        return 2
+    specs_dir = safe_root
+    directories = _all_spec_directories(specs_dir)
     failures = 0
-    for feature in active:
-        print(f"::group::strict-trace {feature}")
-        if trace_run(feature, specs_dir) != 0:
-            failures += 1
+    unchecked = 0
+    for directory in directories:
+        print(f"::group::strict-trace {directory.name}")
+        try:
+            code = all_tree_trace_run(directory.name, specs_dir)
+        except (OSError, ValueError) as error:
+            unchecked += 1
+            print(f"ENGINE_INTERNAL: {error}")
+        else:
+            if code == 2:
+                unchecked += 1
+            elif code != 0:
+                failures += 1
         print("::endgroup::")
-    print(f"check --all --strict: {len(active)} active / "
-          f"{len(skipped)} legacy-residual dirs / {failures} failing")
+    print(f"check --all --strict: {len(directories) - unchecked} checked / "
+          f"{failures} failing / {unchecked} unchecked")
+    if unchecked:
+        return 2
     return 0 if failures == 0 else 1
 
 

@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
+import ctypes
+import errno
+import fcntl
 import hashlib
+import io
 import json
 import os
 import re
-import shutil
+import secrets
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -31,10 +37,75 @@ if str(SCRIPTS) not in sys.path:
 
 import spec_contract as sc  # noqa: E402
 
-EXCLUDED_FEATURES = {"sdd-operating-layer-parity"}
+CURRENT_FEATURE = "sdd-operating-layer-parity"
 ARCHIVE_CONTAINER = "archive"
 ARTIFACT_FILES = ("requirements.md", "design.md", "tasks.md", "bugfix.md", "handoff.md")
-HISTORICAL_COUNT = 61
+CANONICAL_HISTORICAL_FEATURES = (
+    "admin-account-management",
+    "admin-actor-rename",
+    "admin-console-real-api",
+    "admin-merchant-provisioning-contract",
+    "admin-oidc-session",
+    "admin-role-rbac",
+    "admin-workforce-jit",
+    "api-route-scheme",
+    "bugfix-host-test-tenant-pin",
+    "bugfix-merchant-prebind-wiring",
+    "bugfix-merchant-spa-runtime-origin",
+    "bugfix-merchant-tier1-dev-oidc",
+    "bugfix-offices-403",
+    "bugfix-order-paid-link",
+    "bugfix-producer-ticket-dedup",
+    "bugfix-scalar-return-to",
+    "bugfix-sim-guardrails",
+    "captive-payment-alignment",
+    "checkout-chain-document-fields",
+    "console-auth-config-contract",
+    "db-rename-vcentralpay",
+    "demo-seed-data",
+    "entra-scoped-preprovision",
+    "enum-one-based-storage",
+    "extended-login-session-lifetime",
+    "external-sim-documentno-format",
+    "external-sim-realistic-branch-codes",
+    "external-sim-separate-containers",
+    "external-sim-shared-agent-network",
+    "foundation-scaffold",
+    "frontend-real-api-integration",
+    "hierarchical-naming",
+    "host-test-config-precedence",
+    "identity-rbac",
+    "insurance-pivot",
+    "local-api-port-5001",
+    "masterdata-module",
+    "masterdata-split",
+    "merchant-commerce-erd-reset",
+    "merchant-local-http-callback",
+    "merchant-user-payment-method-access",
+    "microsoft-oidc-ciam-alignment",
+    "multi-tier-deployment",
+    "openapi-documents",
+    "policy-reference-record",
+    "probe-dependency-failure-mapping",
+    "producer-google-sso",
+    "production-hardening",
+    "products-external-source-of-truth",
+    "products-sp-53-alignment",
+    "products-sp-gateway",
+    "purchase-flow-completion",
+    "registration-attempt-history",
+    "rf1-schema-reset",
+    "rf2-iam-rbac",
+    "rls-to-query-filter",
+    "search-filter-sort",
+    "sim-seed-date-stability",
+    "system-completion",
+    "tenant",
+    "tier-0-microsoft-canonical-email",
+)
+HISTORICAL_FEATURES = CANONICAL_HISTORICAL_FEATURES
+HISTORICAL_COUNT = len(HISTORICAL_FEATURES)
+assert HISTORICAL_COUNT == 61
 MAX_COMMIT_VISITS = 80
 
 MIGRATION_BATCHES = (
@@ -67,6 +138,22 @@ def git_dir() -> Path:
 
 
 class GitFailure(RuntimeError):
+    pass
+
+
+class EngineFailure(RuntimeError):
+    pass
+
+
+class MigrationFileChanged(EngineFailure):
+    pass
+
+
+class MigrationRecoveryFailure(EngineFailure):
+    pass
+
+
+class MigrationRecoveryRequired(EngineFailure):
     pass
 
 
@@ -169,8 +256,1343 @@ class RetrofitBlocker:
         }
 
 
+def _unsafe_path(path: Path, detail: str) -> EngineFailure:
+    try:
+        display = path.relative_to(repo_root()).as_posix()
+    except ValueError:
+        display = path.as_posix()
+    return EngineFailure(f"PATH_UNSAFE: {display}: {detail}")
+
+
+def _repo_candidate(path: str | Path) -> Path:
+    root = repo_root()
+    raw = Path(path)
+    candidate = raw if raw.is_absolute() else root / raw
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as error:
+        raise _unsafe_path(candidate, "path อยู่นอก resolved repo root") from error
+    if ".." in relative.parts:
+        raise _unsafe_path(candidate, "path traversal อยู่นอก canonical tree")
+    return candidate
+
+
+def _guard_repo_path(
+    path: str | Path,
+    *,
+    leaf_kind: str,
+    allow_missing_leaf: bool = False,
+) -> Path:
+    """ใช้ lstat ทุก component และไม่ตาม symlink ภายใต้ resolved repo root."""
+    root = repo_root()
+    candidate = _repo_candidate(path)
+    try:
+        root_stat = os.lstat(root)
+    except OSError as error:
+        raise _unsafe_path(root, f"resolved repo root ใช้งานไม่ได้: {error}") from error
+    if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
+        raise _unsafe_path(root, "resolved repo root ต้องเป็น directory จริง")
+
+    relative = candidate.relative_to(root)
+    current = root
+    for index, part in enumerate(relative.parts):
+        current = current / part
+        is_leaf = index == len(relative.parts) - 1
+        try:
+            current_stat = os.lstat(current)
+        except FileNotFoundError:
+            if is_leaf and allow_missing_leaf:
+                break
+            raise _unsafe_path(current, "path component ไม่มีอยู่")
+        except OSError as error:
+            raise _unsafe_path(current, f"lstat ไม่สำเร็จ: {error}") from error
+        if stat.S_ISLNK(current_stat.st_mode):
+            raise _unsafe_path(current, "path component เป็น symlink")
+        if not is_leaf and not stat.S_ISDIR(current_stat.st_mode):
+            raise _unsafe_path(current, "parent component ต้องเป็น directory")
+        if is_leaf:
+            valid_leaf = (
+                leaf_kind == "directory" and stat.S_ISDIR(current_stat.st_mode)
+                or leaf_kind == "file" and stat.S_ISREG(current_stat.st_mode)
+            )
+            if not valid_leaf:
+                raise _unsafe_path(
+                    current,
+                    "leaf ต้องเป็น directory จริง" if leaf_kind == "directory"
+                    else "leaf ต้องเป็น regular file",
+                )
+
+    try:
+        candidate.resolve(strict=False).relative_to(root)
+    except ValueError as error:
+        raise _unsafe_path(candidate, "resolved path escape จาก repo root") from error
+    return candidate
+
+
+def _guard_repo_directory(path: str | Path, *, allow_missing: bool = False) -> Path:
+    return _guard_repo_path(
+        path, leaf_kind="directory", allow_missing_leaf=allow_missing
+    )
+
+
+def _guard_repo_file(path: str | Path, *, allow_missing: bool = False) -> Path:
+    return _guard_repo_path(path, leaf_kind="file", allow_missing_leaf=allow_missing)
+
+
+def _open_trusted_directory(
+    path: Path,
+    trusted_root: Path,
+    *,
+    create: bool = False,
+    missing_ok: bool = False,
+) -> int | None:
+    """เปิด directory chain ด้วย dir fd + O_NOFOLLOW ใต้ trusted root เท่านั้น."""
+    root = trusted_root.absolute()
+    candidate = path.absolute()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as error:
+        raise _unsafe_path(candidate, "directory escape จาก trusted root") from error
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parts = root.parts
+    fd = os.open(parts[0], flags)
+    try:
+        for part in parts[1:]:
+            next_fd = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        for part in relative.parts:
+            try:
+                next_fd = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    if missing_ok:
+                        os.close(fd)
+                        return None
+                    raise
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                next_fd = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        if not stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise _unsafe_path(candidate, "trusted directory ต้องเป็น directory จริง")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _open_child_directory(
+    parent_fd: int,
+    name: str,
+    *,
+    create: bool = False,
+    missing_ok: bool = False,
+) -> int | None:
+    if Path(name).name != name:
+        raise EngineFailure("directory entry ต้องเป็น basename เท่านั้น")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        return os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if not create:
+            if missing_ok:
+                return None
+            raise
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        return os.open(name, flags, dir_fd=parent_fd)
+
+
+def _entry_stat(directory_fd: int, name: str, *, allow_missing: bool = False) -> os.stat_result | None:
+    if Path(name).name != name:
+        raise EngineFailure("filesystem entry ต้องเป็น basename เท่านั้น")
+    try:
+        entry_stat = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISREG(entry_stat.st_mode):
+        raise EngineFailure(f"filesystem entry ต้องเป็น regular file และห้ามเป็น symlink: {name}")
+    return entry_stat
+
+
+def _same_inode(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+_DISPOSABLE_DIRECTORY = "sdd-retrofit-disposables/v1"
+
+
+def _disposable_root() -> Path:
+    return git_dir() / _DISPOSABLE_DIRECTORY
+
+
+def _mount_identity(directory_fd: int) -> tuple[str, int]:
+    if sys.platform.startswith("linux"):
+        statx = getattr(ctypes.CDLL(None, use_errno=True), "statx", None)
+        if statx is None:
+            raise MigrationRecoveryFailure(
+                "DISPOSABLE_RETENTION_MOUNT_ID_UNAVAILABLE"
+            )
+        statx.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+        )
+        statx.restype = ctypes.c_int
+        buffer = ctypes.create_string_buffer(256)
+        ctypes.set_errno(0)
+        if statx(
+            directory_fd,
+            b"",
+            0x1000 | 0x4000,
+            0x1000,
+            ctypes.byref(buffer),
+        ) != 0:
+            error_number = ctypes.get_errno() or errno.EIO
+            raise MigrationRecoveryFailure(
+                f"DISPOSABLE_RETENTION_MOUNT_ID_UNAVAILABLE: {error_number}"
+            )
+        returned_mask = ctypes.c_uint32.from_buffer(buffer, 0).value
+        if returned_mask & 0x1000 == 0:
+            raise MigrationRecoveryFailure(
+                "DISPOSABLE_RETENTION_MOUNT_ID_UNAVAILABLE"
+            )
+        return "linux-statx", ctypes.c_uint64.from_buffer(buffer, 144).value
+    if sys.platform == "darwin":
+        return "darwin-mount-device", os.fstat(directory_fd).st_dev
+    raise MigrationRecoveryFailure(
+        "DISPOSABLE_RETENTION_MOUNT_ID_UNAVAILABLE"
+    )
+
+
+def _require_disposable_retention_device(directory_fd: int) -> None:
+    retention_path = git_dir()
+    retention_fd = _open_trusted_directory(
+        retention_path, retention_path
+    )
+    assert retention_fd is not None
+    try:
+        if _mount_identity(directory_fd) != _mount_identity(retention_fd):
+            raise MigrationRecoveryFailure(
+                "DISPOSABLE_RETENTION_CROSS_DEVICE"
+            )
+    finally:
+        os.close(retention_fd)
+
+
+def _claim_disposable_generation(operation: str) -> tuple[int, int]:
+    base_fd = _open_trusted_directory(
+        _disposable_root(), git_dir(), create=True
+    )
+    assert base_fd is not None
+    root_fd: int | None = None
+    lock_fd: int | None = None
+    try:
+        with _recovery_mutation_lock(base_fd, operation):
+            token = f".retained-{secrets.token_hex(16)}"
+            os.mkdir(token, mode=0o700, dir_fd=base_fd)
+            os.fsync(base_fd)
+            root_fd = os.open(
+                token,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=base_fd,
+            )
+            _ensure_private_directory(root_fd, operation)
+            lock_fd = os.open(
+                _OWNER_LOCK,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=root_fd,
+            )
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.fchmod(lock_fd, 0o600)
+            os.fsync(lock_fd)
+            os.fsync(root_fd)
+        claimed = (root_fd, lock_fd)
+        root_fd = None
+        lock_fd = None
+        return claimed
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+        if root_fd is not None:
+            os.close(root_fd)
+        os.close(base_fd)
+
+
+def _unlink_disposable_entry(
+    directory_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> None:
+    _require_disposable_retention_device(directory_fd)
+    if expected.st_nlink != 1:
+        raise MigrationRecoveryFailure(
+            f"disposable entry identity ไม่ตรง: {name}"
+        )
+    current = _entry_stat(directory_fd, name)
+    assert current is not None
+    if current.st_nlink != 1 or not _same_inode(current, expected):
+        raise MigrationRecoveryFailure(
+            f"disposable entry identity ไม่ตรง: {name}"
+        )
+    root_fd, lock_fd = _claim_disposable_generation(
+        "disposable retention"
+    )
+    retired = False
+    try:
+        _atomic_rename_noreplace(
+            directory_fd,
+            name,
+            "entry",
+            target_directory_fd=root_fd,
+        )
+        os.fsync(directory_fd)
+        os.fsync(root_fd)
+        retained = _entry_stat(root_fd, "entry")
+        assert retained is not None
+        matched = retained.st_nlink == 1 and _same_inode(retained, expected)
+        _retire_claimed_recovery_root(root_fd, lock_fd, "disposable")
+        retired = True
+        if not matched:
+            raise MigrationRecoveryFailure(
+                f"disposable entry foreign ถูกเก็บใน recovery: {name}"
+            )
+    except FileNotFoundError:
+        raise
+    except MigrationRecoveryFailure:
+        raise
+    except OSError as error:
+        raise MigrationRecoveryFailure(
+            f"disposable entry เก็บใน recovery ไม่สำเร็จ: {name}"
+        ) from error
+    finally:
+        if root_fd is not None and lock_fd is not None and not retired:
+            _retire_claimed_recovery_root(root_fd, lock_fd, "disposable-error")
+        os.close(lock_fd)
+        os.close(root_fd)
+
+
+_RECOVERY_MUTATION_LOCK = ".mutation.lock"
+_RETIRED_MARKER = ".retired-v1"
+_HELD_RECOVERY_MUTATION_BASES: set[tuple[int, int]] = set()
+
+
+def _recovery_entry_names(base_fd: int) -> list[str]:
+    return [
+        name for name in os.listdir(base_fd)
+        if name != _RECOVERY_MUTATION_LOCK
+    ]
+
+
+def _ensure_private_directory(directory_fd: int, operation: str) -> None:
+    directory = os.fstat(directory_fd)
+    if not stat.S_ISDIR(directory.st_mode):
+        raise MigrationRecoveryFailure(f"{operation}: recovery root ไม่ใช่ directory")
+    if stat.S_IMODE(directory.st_mode) != 0o700:
+        try:
+            os.fchmod(directory_fd, 0o700)
+            os.fsync(directory_fd)
+        except OSError as error:
+            raise MigrationRecoveryFailure(
+                f"{operation}: ตั้ง recovery root mode 0700 ไม่สำเร็จ"
+            ) from error
+
+
+@contextlib.contextmanager
+def _recovery_mutation_lock(base_fd: int, operation: str):
+    _ensure_private_directory(base_fd, operation)
+    base_stat = os.fstat(base_fd)
+    base_identity = (base_stat.st_dev, base_stat.st_ino)
+    if base_identity in _HELD_RECOVERY_MUTATION_BASES:
+        yield
+        return
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
+    try:
+        lock_fd = os.open(_RECOVERY_MUTATION_LOCK, flags, 0o600, dir_fd=base_fd)
+    except OSError as error:
+        raise MigrationRecoveryFailure(
+            f"{operation}: parent mutation lock เปิดไม่ได้"
+        ) from error
+    try:
+        try:
+            entry = os.stat(
+                _RECOVERY_MUTATION_LOCK,
+                dir_fd=base_fd,
+                follow_symlinks=False,
+            )
+            opened = os.fstat(lock_fd)
+        except OSError as error:
+            raise MigrationRecoveryFailure(
+                f"{operation}: parent mutation lock ตรวจไม่ได้"
+            ) from error
+        if (
+            stat.S_ISLNK(entry.st_mode)
+            or not stat.S_ISREG(entry.st_mode)
+            or entry.st_nlink != 1
+            or not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or not _same_inode(entry, opened)
+        ):
+            raise MigrationRecoveryFailure(
+                f"{operation}: parent mutation lock ไม่ใช่ regular single-link file"
+            )
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED") from error
+        os.fchmod(lock_fd, 0o600)
+        os.fsync(lock_fd)
+        _HELD_RECOVERY_MUTATION_BASES.add(base_identity)
+        try:
+            yield
+        finally:
+            _HELD_RECOVERY_MUTATION_BASES.discard(base_identity)
+    finally:
+        os.close(lock_fd)
+
+
+def _require_claimed_directory(
+    base_fd: int,
+    name: str,
+    claimed_fd: int,
+    operation: str,
+) -> None:
+    try:
+        basename = os.stat(name, dir_fd=base_fd, follow_symlinks=False)
+        claimed = os.fstat(claimed_fd)
+    except OSError as error:
+        raise MigrationRecoveryFailure(f"{operation}: claimed basename ตรวจไม่ได้") from error
+    if (
+        stat.S_ISLNK(basename.st_mode)
+        or not stat.S_ISDIR(basename.st_mode)
+        or not stat.S_ISDIR(claimed.st_mode)
+        or not _same_inode(basename, claimed)
+    ):
+        raise MigrationRecoveryFailure(f"{operation}: claimed basename identity ไม่ตรง")
+
+
+def _retired_marker_state(claimed_fd: int) -> bool:
+    try:
+        entry = os.stat(
+            _RETIRED_MARKER, dir_fd=claimed_fd, follow_symlinks=False
+        )
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise MigrationRecoveryFailure("retirement marker ตรวจไม่ได้") from error
+    if (
+        stat.S_ISLNK(entry.st_mode)
+        or not stat.S_ISREG(entry.st_mode)
+        or entry.st_nlink != 1
+        or entry.st_size != 0
+        or stat.S_IMODE(entry.st_mode) != 0o600
+    ):
+        raise MigrationRecoveryFailure("retirement marker malformed")
+    try:
+        marker_fd = os.open(
+            _RETIRED_MARKER, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=claimed_fd
+        )
+    except OSError as error:
+        raise MigrationRecoveryFailure("retirement marker เปิดแบบ no-follow ไม่สำเร็จ") from error
+    try:
+        opened = os.fstat(marker_fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_size != 0
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or not _same_inode(entry, opened)
+        ):
+            raise MigrationRecoveryFailure("retirement marker inode ไม่ตรง directory entry")
+    finally:
+        os.close(marker_fd)
+    return True
+
+
+def _validate_claimed_owner_lock(claimed_fd: int, owner_lock_fd: int) -> None:
+    try:
+        entry = os.stat(_OWNER_LOCK, dir_fd=claimed_fd, follow_symlinks=False)
+        opened = os.fstat(owner_lock_fd)
+    except OSError as error:
+        raise MigrationRecoveryFailure("retirement owner lock ตรวจไม่ได้") from error
+    if (
+        stat.S_ISLNK(entry.st_mode)
+        or not stat.S_ISREG(entry.st_mode)
+        or entry.st_nlink != 1
+        or not stat.S_ISREG(opened.st_mode)
+        or opened.st_nlink != 1
+        or not _same_inode(entry, opened)
+    ):
+        raise MigrationRecoveryFailure("retirement owner lock identity ไม่ตรง")
+    try:
+        fcntl.flock(owner_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED") from error
+
+
+def _retire_claimed_recovery_root(
+    claimed_fd: int, owner_lock_fd: int | None, operation: str
+) -> None:
+    if not operation:
+        raise MigrationRecoveryFailure("retirement operation ว่างไม่ได้")
+    if owner_lock_fd is None and operation != "create-error":
+        raise MigrationRecoveryFailure(
+            "retirement ที่ไม่มี owner lock อนุญาตเฉพาะ create-error"
+        )
+    claimed = os.fstat(claimed_fd)
+    if not stat.S_ISDIR(claimed.st_mode):
+        raise MigrationRecoveryFailure("retirement root ไม่ใช่ claimed directory")
+    acquired_lock_fd: int | None = None
+    try:
+        if owner_lock_fd is None:
+            try:
+                acquired_lock_fd = os.open(
+                    _OWNER_LOCK,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=claimed_fd,
+                )
+            except FileExistsError:
+                raise MigrationRecoveryFailure(
+                    "retirement ที่ไม่มี owner lock พบ owner lock เดิม"
+                )
+            except OSError as error:
+                raise MigrationRecoveryFailure(
+                    "retirement owner lock สร้างไม่ได้"
+                ) from error
+            else:
+                try:
+                    fcntl.flock(
+                        acquired_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB
+                    )
+                    os.fchmod(acquired_lock_fd, 0o600)
+                    os.fsync(acquired_lock_fd)
+                except BlockingIOError as error:
+                    raise MigrationRecoveryRequired(
+                        "MIGRATION_RECOVERY_REQUIRED"
+                    ) from error
+            owner_lock_fd = acquired_lock_fd
+        if owner_lock_fd is not None:
+            _validate_claimed_owner_lock(claimed_fd, owner_lock_fd)
+        if _retired_marker_state(claimed_fd):
+            return
+        _write_phase_hook("retire-before-marker")
+        try:
+            marker_fd = os.open(
+                _RETIRED_MARKER,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=claimed_fd,
+            )
+        except FileExistsError:
+            if not _retired_marker_state(claimed_fd):
+                raise MigrationRecoveryFailure("retirement marker publish ไม่สำเร็จ")
+            return
+        except OSError as error:
+            raise MigrationRecoveryFailure("retirement marker create ไม่สำเร็จ") from error
+        try:
+            os.fchmod(marker_fd, 0o600)
+            _write_phase_hook("retire-marker-entry")
+            os.fsync(marker_fd)
+            _write_phase_hook("retire-marker-fsync")
+        finally:
+            os.close(marker_fd)
+        os.fsync(claimed_fd)
+        _write_phase_hook("retire-directory-fsync")
+        if not _retired_marker_state(claimed_fd):
+            raise MigrationRecoveryFailure("retirement marker durability ยืนยันไม่ได้")
+    finally:
+        if acquired_lock_fd is not None:
+            os.close(acquired_lock_fd)
+
+
+def _read_regular_snapshot_at(
+    directory_fd: int,
+    name: str,
+    *,
+    require_single_link: bool = False,
+) -> tuple[bytes, os.stat_result]:
+    entry_stat = _entry_stat(directory_fd, name)
+    assert entry_stat is not None
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+    try:
+        opened_stat = os.fstat(fd)
+        if not stat.S_ISREG(opened_stat.st_mode) or not _same_inode(entry_stat, opened_stat):
+            raise EngineFailure(f"filesystem entry ถูกสลับระหว่างเปิด: {name}")
+        if require_single_link and opened_stat.st_nlink != 1:
+            raise EngineFailure(f"filesystem entry ต้องเป็น regular file แบบ link เดียว: {name}")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 1024):
+            chunks.append(chunk)
+        final_stat = os.fstat(fd)
+        if (
+            not _same_inode(opened_stat, final_stat)
+            or opened_stat.st_size != final_stat.st_size
+            or opened_stat.st_mtime_ns != final_stat.st_mtime_ns
+            or opened_stat.st_ctime_ns != final_stat.st_ctime_ns
+        ):
+            raise EngineFailure(f"filesystem entry เปลี่ยนระหว่างอ่าน: {name}")
+        return b"".join(chunks), final_stat
+    finally:
+        os.close(fd)
+
+
+def _read_regular_at(directory_fd: int, name: str) -> bytes:
+    return _read_regular_snapshot_at(directory_fd, name)[0]
+
+
+_WRITE_INTENT_SCHEMA = 3
+_WRITE_INTENT_TOKEN_RE = re.compile(r"[0-9a-f]{32}")
+_WRITE_INTENT_FILE = "intent.json"
+_WRITE_INTENT_DIRECTORY = "sdd-retrofit-write-intents/v1"
+
+
+@dataclass
+class WriteIntentClaim:
+    token: str
+    base_fd: int
+    root_fd: int
+    lock_fd: int
+
+    def close(self) -> None:
+        for field_name in ("lock_fd", "root_fd", "base_fd"):
+            fd = getattr(self, field_name)
+            if fd >= 0:
+                os.close(fd)
+                setattr(self, field_name, -1)
+
+
+def _write_intent_root() -> Path:
+    return git_dir() / _WRITE_INTENT_DIRECTORY
+
+
+def _write_phase_hook(phase: str) -> None:
+    if os.environ.get("SDD_RETROFIT_TEST_STOP_PHASE") != phase:
+        return
+    try:
+        ready_fd = int(os.environ["SDD_RETROFIT_TEST_READY_FD"])
+        gate_fd = int(os.environ["SDD_RETROFIT_TEST_GATE_FD"])
+    except (KeyError, ValueError) as error:
+        raise EngineFailure("write phase test handshake ไม่สมบูรณ์") from error
+    os.write(ready_fd, b"R")
+    os.read(gate_fd, 1)
+
+
+def _write_new_regular_at(
+    directory_fd: int,
+    name: str,
+    payload: bytes,
+    mode: int,
+    *,
+    before_write=None,
+) -> tuple[int, os.stat_result]:
+    fd = os.open(
+        name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        mode,
+        dir_fd=directory_fd,
+    )
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+            raise EngineFailure(f"temporary entry ต้องเป็น regular file แบบ link เดียว: {name}")
+        if before_write is not None:
+            before_write(opened)
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise EngineFailure("atomic write ไม่คืบหน้า")
+            view = view[written:]
+        os.fchmod(fd, mode)
+        os.fsync(fd)
+        final = os.fstat(fd)
+        if not _same_inode(opened, final) or final.st_nlink != 1:
+            raise EngineFailure(f"temporary entry เปลี่ยนระหว่างเขียน: {name}")
+        return fd, final
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _atomic_exchange(directory_fd: int, left: str, right: str) -> None:
+    if Path(left).name != left or Path(right).name != right:
+        raise EngineFailure("atomic exchange รับเฉพาะ canonical basename")
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        symbol_name = "renameatx_np"
+    elif sys.platform.startswith("linux"):
+        symbol_name = "renameat2"
+    else:
+        raise EngineFailure(f"ATOMIC_EXCHANGE_UNSUPPORTED: platform={sys.platform}")
+    try:
+        exchange = getattr(library, symbol_name)
+    except AttributeError as error:
+        raise EngineFailure(f"ATOMIC_EXCHANGE_UNSUPPORTED: missing {symbol_name}") from error
+    exchange.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    exchange.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    if exchange(
+        directory_fd,
+        os.fsencode(left),
+        directory_fd,
+        os.fsencode(right),
+        0x2,
+    ) != 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number))
+
+
+def _atomic_rename_noreplace(
+    directory_fd: int,
+    source: str,
+    target: str,
+    *,
+    target_directory_fd: int | None = None,
+) -> None:
+    if Path(source).name != source or Path(target).name != target:
+        raise EngineFailure("atomic no-replace รับเฉพาะ canonical basename")
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        symbol_name = "renameatx_np"
+        flags = 0x4
+    elif sys.platform.startswith("linux"):
+        symbol_name = "renameat2"
+        flags = 0x1
+    else:
+        raise EngineFailure(f"ATOMIC_NOREPLACE_UNSUPPORTED: platform={sys.platform}")
+    try:
+        rename_noreplace = getattr(library, symbol_name)
+    except AttributeError as error:
+        raise EngineFailure(
+            f"ATOMIC_NOREPLACE_UNSUPPORTED: missing {symbol_name}"
+        ) from error
+    rename_noreplace.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    rename_noreplace.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    if rename_noreplace(
+        directory_fd,
+        os.fsencode(source),
+        directory_fd if target_directory_fd is None else target_directory_fd,
+        os.fsencode(target),
+        flags,
+    ) != 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number))
+
+
+def _probe_atomic_exchange(directory_fd: int) -> None:
+    _require_disposable_retention_device(directory_fd)
+    root_fd, lock_fd = _claim_disposable_generation(
+        "atomic exchange probe"
+    )
+    left = "probe-a"
+    right = "probe-b"
+    left_fd: int | None = None
+    right_fd: int | None = None
+    retired = False
+    try:
+        left_fd, left_stat = _write_new_regular_at(
+            root_fd, left, b"a", 0o600
+        )
+        right_fd, right_stat = _write_new_regular_at(
+            root_fd, right, b"b", 0o600
+        )
+        try:
+            _atomic_exchange(root_fd, left, right)
+            exchanged_left = os.stat(
+                left, dir_fd=root_fd, follow_symlinks=False
+            )
+            exchanged_right = os.stat(
+                right, dir_fd=root_fd, follow_symlinks=False
+            )
+            if not _same_inode(exchanged_left, right_stat) or not _same_inode(
+                exchanged_right, left_stat
+            ):
+                raise EngineFailure("ATOMIC_EXCHANGE_UNSUPPORTED: probe identity mismatch")
+            _atomic_exchange(root_fd, left, right)
+            restored_left = os.stat(
+                left, dir_fd=root_fd, follow_symlinks=False
+            )
+            restored_right = os.stat(
+                right, dir_fd=root_fd, follow_symlinks=False
+            )
+            if not _same_inode(restored_left, left_stat) or not _same_inode(
+                restored_right, right_stat
+            ):
+                raise EngineFailure("ATOMIC_EXCHANGE_UNSUPPORTED: probe restore mismatch")
+        except (EngineFailure, OSError) as error:
+            raise EngineFailure(
+                f"ATOMIC_EXCHANGE_UNSUPPORTED: {error}"
+            ) from error
+        os.fsync(root_fd)
+        _retire_claimed_recovery_root(
+            root_fd, lock_fd, "atomic-exchange-probe"
+        )
+        retired = True
+    finally:
+        if left_fd is not None:
+            os.close(left_fd)
+        if right_fd is not None:
+            os.close(right_fd)
+        try:
+            if not retired:
+                _retire_claimed_recovery_root(
+                    root_fd, lock_fd, "atomic-exchange-probe-error"
+                )
+        finally:
+            os.close(lock_fd)
+            os.close(root_fd)
+
+
+def _open_owner_lock(directory_fd: int) -> int:
+    try:
+        entry = os.stat(_OWNER_LOCK, dir_fd=directory_fd, follow_symlinks=False)
+    except (FileNotFoundError, OSError) as error:
+        raise MigrationRecoveryFailure("owner lock ไม่มีหรือเปิดไม่ได้") from error
+    if stat.S_ISLNK(entry.st_mode) or not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1:
+        raise MigrationRecoveryFailure("owner lock ต้องเป็น regular file แบบ link เดียว")
+    try:
+        lock_fd = os.open(_OWNER_LOCK, os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory_fd)
+    except OSError as error:
+        raise MigrationRecoveryFailure("owner lock เปิดแบบ no-follow ไม่สำเร็จ") from error
+    opened = os.fstat(lock_fd)
+    if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or not _same_inode(
+        entry, opened
+    ):
+        os.close(lock_fd)
+        raise MigrationRecoveryFailure("owner lock inode ไม่ตรง directory entry")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        os.close(lock_fd)
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED") from error
+    return lock_fd
+
+
+def _intent_locator(anchor: str, path: str) -> tuple[Path, str]:
+    if anchor not in {"repo", "git"}:
+        raise MigrationRecoveryFailure("write intent anchor ไม่รู้จัก")
+    relative = Path(path)
+    if (
+        not path
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or relative.as_posix() != path
+        or relative.name in {"", ".", ".."}
+    ):
+        raise MigrationRecoveryFailure("write intent path ไม่เป็น canonical relative path")
+    root = repo_root() if anchor == "repo" else git_dir()
+    return root / relative.parent, relative.name
+
+
+def _create_write_intent(
+    *,
+    directory_fd: int,
+    anchor: str,
+    path: str,
+    expected_payload: bytes | None,
+    expected_stat: os.stat_result | None,
+    planned_payload: bytes,
+    mode: int,
+) -> tuple[WriteIntentClaim, str, os.stat_result]:
+    _intent_locator(anchor, path)
+    expected_missing = expected_stat is None
+    if expected_missing != (expected_payload is None):
+        raise EngineFailure("write intent expected snapshot ไม่สมบูรณ์")
+    token = secrets.token_hex(16)
+    swap_name = f".sdd-retrofit-swap-{secrets.token_hex(16)}"
+    base_fd = _open_trusted_directory(_write_intent_root(), git_dir(), create=True)
+    assert base_fd is not None
+    root_fd: int | None = None
+    lock_fd: int | None = None
+    planned_stat: os.stat_result | None = None
+    swap_created = False
+    created = False
+    intent_published = False
+    claim: WriteIntentClaim | None = None
+    mutation_lock = _recovery_mutation_lock(base_fd, "write intent create")
+    mutation_lock_entered = False
+    try:
+        mutation_lock.__enter__()
+        mutation_lock_entered = True
+        os.mkdir(token, mode=0o700, dir_fd=base_fd)
+        created = True
+        os.fsync(base_fd)
+        root_fd = os.open(
+            token,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=base_fd,
+        )
+        _ensure_private_directory(root_fd, "write intent create")
+        lock_fd = os.open(
+            _OWNER_LOCK,
+            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=root_fd,
+        )
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.fchmod(lock_fd, 0o600)
+        os.fsync(lock_fd)
+        os.fsync(root_fd)
+
+        def publish_intent(opened: os.stat_result) -> None:
+            nonlocal intent_published, mutation_lock, mutation_lock_entered, planned_stat
+            assert root_fd is not None
+            planned_stat = opened
+            intent_payload = (json.dumps({
+                "anchor": anchor,
+                "expectedDevice": None if expected_missing else expected_stat.st_dev,
+                "expectedInode": None if expected_missing else expected_stat.st_ino,
+                "expectedMissing": expected_missing,
+                "expectedSha256": None if expected_missing else sha256(expected_payload),
+                "path": path,
+                "plannedDevice": opened.st_dev,
+                "plannedInode": opened.st_ino,
+                "plannedSha256": sha256(planned_payload),
+                "schemaVersion": _WRITE_INTENT_SCHEMA,
+                "swapName": swap_name,
+            }, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            intent_fd, _intent_stat = _write_new_regular_at(
+                root_fd, _WRITE_INTENT_FILE, intent_payload, 0o600
+            )
+            os.close(intent_fd)
+            os.fsync(root_fd)
+            os.fsync(base_fd)
+            intent_published = True
+            mutation_lock.__exit__(None, None, None)
+            mutation_lock_entered = False
+            mutation_lock = None
+
+        swap_created = True
+        planned_fd, planned_stat = _write_new_regular_at(
+            directory_fd,
+            swap_name,
+            planned_payload,
+            mode,
+            before_write=publish_intent,
+        )
+        os.close(planned_fd)
+        os.fsync(directory_fd)
+        claim = WriteIntentClaim(token, base_fd, root_fd, lock_fd)
+        base_fd = -1
+        root_fd = None
+        lock_fd = None
+        _write_phase_hook("planned-fsync")
+        _write_phase_hook("intent-fsync")
+        return claim, swap_name, planned_stat
+    except BaseException:
+        if mutation_lock_entered:
+            mutation_lock.__exit__(*sys.exc_info())
+            mutation_lock_entered = False
+            mutation_lock = None
+        if not intent_published and created and root_fd is not None:
+            _retire_claimed_recovery_root(root_fd, lock_fd, "create-error")
+        if not intent_published and swap_created and planned_stat is not None:
+            try:
+                _unlink_disposable_entry(
+                    directory_fd, swap_name, planned_stat
+                )
+                os.fsync(directory_fd)
+            except (FileNotFoundError, EngineFailure, OSError):
+                pass
+        if claim is not None:
+            claim.close()
+        if lock_fd is not None:
+            os.close(lock_fd)
+        if root_fd is not None:
+            os.close(root_fd)
+        raise
+    finally:
+        if mutation_lock_entered:
+            mutation_lock.__exit__(None, None, None)
+        if base_fd >= 0:
+            os.close(base_fd)
+
+
+def _delete_write_intent(claim: WriteIntentClaim, operation: str) -> None:
+    if claim.root_fd < 0 or claim.lock_fd < 0:
+        raise MigrationRecoveryFailure("write intent claim ถูกปิดก่อน retirement")
+    _retire_claimed_recovery_root(claim.root_fd, claim.lock_fd, operation)
+
+
+def write_intents_pending() -> bool:
+    base_fd = _open_trusted_directory(
+        _write_intent_root(), git_dir(), missing_ok=True
+    )
+    if base_fd is None:
+        return False
+    try:
+        pending = False
+        for token in sorted(_recovery_entry_names(base_fd)):
+            if _WRITE_INTENT_TOKEN_RE.fullmatch(token) is None:
+                raise MigrationRecoveryFailure("write intent token ไม่เป็น canonical basename")
+            try:
+                root_fd = os.open(
+                    token,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=base_fd,
+                )
+            except OSError as error:
+                raise MigrationRecoveryFailure(
+                    "write intent root ไม่ใช่ trusted directory"
+                ) from error
+            lock_fd: int | None = None
+            try:
+                if not _retired_marker_state(root_fd):
+                    _load_preintent_state(root_fd)
+                    lock_fd = _open_structural_owner_lock(root_fd)
+                    pending = True
+            finally:
+                if lock_fd is not None:
+                    os.close(lock_fd)
+                os.close(root_fd)
+        return pending
+    finally:
+        os.close(base_fd)
+
+
+def _load_write_intent(root_fd: int) -> dict[str, object]:
+    try:
+        payload, _payload_stat = _read_regular_snapshot_at(
+            root_fd, _WRITE_INTENT_FILE, require_single_link=True
+        )
+        intent = json.loads(payload.decode("utf-8"))
+    except (EngineFailure, OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise MigrationRecoveryFailure(f"write intent validation failed: {error}") from error
+    required = {
+        "anchor", "expectedDevice", "expectedInode", "expectedMissing",
+        "expectedSha256", "path", "plannedDevice", "plannedInode",
+        "plannedSha256", "schemaVersion", "swapName",
+    }
+    if not isinstance(intent, dict) or set(intent) != required:
+        raise MigrationRecoveryFailure("write intent fields ไม่ตรง schema")
+    if intent["schemaVersion"] != _WRITE_INTENT_SCHEMA:
+        raise MigrationRecoveryFailure("write intent schemaVersion ไม่รองรับ")
+    if type(intent["expectedMissing"]) is not bool:
+        raise MigrationRecoveryFailure("write intent expectedMissing ไม่ถูกต้อง")
+    for field_name in ("plannedDevice", "plannedInode"):
+        if type(intent[field_name]) is not int or intent[field_name] < 0:
+            raise MigrationRecoveryFailure(f"write intent {field_name} ไม่ถูกต้อง")
+    if intent["expectedMissing"]:
+        if any(intent[field_name] is not None for field_name in (
+            "expectedDevice", "expectedInode", "expectedSha256"
+        )):
+            raise MigrationRecoveryFailure("write intent missing snapshot ต้องเป็น null")
+    else:
+        for field_name in ("expectedDevice", "expectedInode"):
+            if type(intent[field_name]) is not int or intent[field_name] < 0:
+                raise MigrationRecoveryFailure(f"write intent {field_name} ไม่ถูกต้อง")
+        if not isinstance(intent["expectedSha256"], str) or re.fullmatch(
+            r"[0-9a-f]{64}", intent["expectedSha256"]
+        ) is None:
+            raise MigrationRecoveryFailure("write intent expectedSha256 ไม่ถูกต้อง")
+    if not isinstance(intent["plannedSha256"], str) or re.fullmatch(
+        r"[0-9a-f]{64}", intent["plannedSha256"]
+    ) is None:
+        raise MigrationRecoveryFailure("write intent plannedSha256 ไม่ถูกต้อง")
+    if not isinstance(intent["anchor"], str) or not isinstance(intent["path"], str):
+        raise MigrationRecoveryFailure("write intent locator ไม่ถูกต้อง")
+    _intent_locator(intent["anchor"], intent["path"])
+    if not isinstance(intent["swapName"], str) or Path(intent["swapName"]).name != intent[
+        "swapName"
+    ]:
+        raise MigrationRecoveryFailure("write intent swapName ไม่ถูกต้อง")
+    return intent
+
+
+def _intent_entry_state(
+    directory_fd: int,
+    name: str,
+    intent: dict[str, object],
+) -> tuple[str, bytes | None, os.stat_result | None]:
+    try:
+        payload, entry = _read_regular_snapshot_at(
+            directory_fd, name, require_single_link=True
+        )
+    except FileNotFoundError:
+        return "missing", None, None
+    except (EngineFailure, OSError) as error:
+        raise MigrationRecoveryFailure(f"write intent entry ไม่ปลอดภัย: {name}: {error}") from error
+    digest = sha256(payload)
+    for state in ("expected", "planned"):
+        if intent[f"{state}Sha256"] is not None and (
+            digest == intent[f"{state}Sha256"]
+            and entry.st_dev == intent[f"{state}Device"]
+            and entry.st_ino == intent[f"{state}Inode"]
+        ):
+            return state, payload, entry
+    return "foreign", payload, entry
+
+
+def _snapshot_matches(
+    payload: bytes | None,
+    entry: os.stat_result | None,
+    expected_payload: bytes | None,
+    expected_entry: os.stat_result | None,
+) -> bool:
+    return (
+        payload is not None
+        and entry is not None
+        and expected_payload is not None
+        and expected_entry is not None
+        and payload == expected_payload
+        and _same_inode(entry, expected_entry)
+    )
+
+
+def _reconcile_one_write_intent(
+    claim: WriteIntentClaim,
+    intent: dict[str, object] | None,
+) -> None:
+    if intent is None:
+        _delete_write_intent(claim, "uncommitted")
+        return
+    parent, name = _intent_locator(str(intent["anchor"]), str(intent["path"]))
+    trusted_root = repo_root() if intent["anchor"] == "repo" else git_dir()
+    directory_fd = _open_trusted_directory(parent, trusted_root)
+    assert directory_fd is not None
+    swap_name = str(intent["swapName"])
+    try:
+        canonical = _intent_entry_state(directory_fd, name, intent)
+        swap = _intent_entry_state(directory_fd, swap_name, intent)
+        state = (canonical[0], swap[0])
+        if bool(intent["expectedMissing"]):
+            if state == ("missing", "planned"):
+                try:
+                    _atomic_rename_noreplace(directory_fd, swap_name, name)
+                except FileExistsError as error:
+                    raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}") from error
+                os.fsync(directory_fd)
+                _delete_write_intent(claim, "committed")
+                return
+            if state == ("planned", "missing"):
+                _delete_write_intent(claim, "committed")
+                return
+            if state == ("foreign", "planned"):
+                assert swap[2] is not None
+                _unlink_disposable_entry(directory_fd, swap_name, swap[2])
+                os.fsync(directory_fd)
+                _delete_write_intent(claim, "foreign-conflict")
+                raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+            raise MigrationRecoveryFailure(
+                f"missing write intent state กำกวม: canonical={state[0]} swap={state[1]}"
+            )
+
+        if state == ("expected", "planned"):
+            assert swap[2] is not None
+            _unlink_disposable_entry(directory_fd, swap_name, swap[2])
+            os.fsync(directory_fd)
+            _delete_write_intent(claim, "uncommitted")
+            return
+        if state == ("planned", "expected"):
+            assert swap[2] is not None
+            _unlink_disposable_entry(directory_fd, swap_name, swap[2])
+            os.fsync(directory_fd)
+            _delete_write_intent(claim, "committed")
+            return
+        if state == ("planned", "missing"):
+            _delete_write_intent(claim, "committed")
+            return
+        if state == ("expected", "missing"):
+            _delete_write_intent(claim, "uncommitted")
+            return
+        if state == ("planned", "foreign"):
+            _atomic_exchange(directory_fd, name, swap_name)
+            os.fsync(directory_fd)
+            restored = _intent_entry_state(directory_fd, name, intent)
+            planned_swap = _intent_entry_state(directory_fd, swap_name, intent)
+            if not _snapshot_matches(
+                restored[1], restored[2], swap[1], swap[2]
+            ) or planned_swap[0] != "planned":
+                raise MigrationRecoveryFailure("write intent atomic swap-back ยืนยันไม่ได้")
+            assert planned_swap[2] is not None
+            _unlink_disposable_entry(directory_fd, swap_name, planned_swap[2])
+            os.fsync(directory_fd)
+            _delete_write_intent(claim, "foreign-conflict")
+            raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+        if state == ("foreign", "planned"):
+            assert swap[2] is not None
+            _unlink_disposable_entry(directory_fd, swap_name, swap[2])
+            os.fsync(directory_fd)
+            _delete_write_intent(claim, "foreign-conflict")
+            raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+        raise MigrationRecoveryFailure(
+            f"write intent state กำกวม: canonical={state[0]} swap={state[1]}"
+        )
+    finally:
+        os.close(directory_fd)
+
+
+def _reconcile_write_intents() -> None:
+    with _preflight_recovery_state() as recovery:
+        _reconcile_claimed_write_intents(recovery.write_intents)
+
+
+def _atomic_write_at(
+    directory_fd: int,
+    name: str,
+    payload: bytes,
+    *,
+    default_mode: int = 0o666,
+    expected_sha256: str | None = None,
+    expected_missing: bool = False,
+    intent_anchor: str | None = None,
+    intent_path: str | None = None,
+) -> None:
+    """ติดตั้ง payload แบบ no-clobber หรือ crash-consistent existing-file exchange."""
+    if intent_anchor is None or intent_path is None:
+        raise EngineFailure("atomic writer ต้องมี durable intent locator")
+    _require_disposable_retention_device(directory_fd)
+    existing = _entry_stat(directory_fd, name, allow_missing=True)
+    existing_payload: bytes | None = None
+    if existing is not None:
+        if expected_missing:
+            raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+        existing_payload, opened = _read_regular_snapshot_at(
+            directory_fd, name, require_single_link=True
+        )
+        if not _same_inode(existing, opened):
+            raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+        observed_sha256 = sha256(existing_payload)
+        if expected_sha256 is not None and observed_sha256 != expected_sha256:
+            raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+        expected_sha256 = observed_sha256
+    elif expected_sha256 is not None:
+        raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+
+    mode = stat.S_IMODE(existing.st_mode) if existing is not None else default_mode
+    if existing is not None:
+        _probe_atomic_exchange(directory_fd)
+    intent_claim, swap_name, planned_stat = _create_write_intent(
+        directory_fd=directory_fd,
+        anchor=intent_anchor,
+        path=intent_path,
+        expected_payload=existing_payload,
+        expected_stat=existing,
+        planned_payload=payload,
+        mode=mode,
+    )
+    try:
+        intent = _load_write_intent(intent_claim.root_fd)
+        if existing is None:
+            try:
+                _atomic_rename_noreplace(directory_fd, swap_name, name)
+            except FileExistsError as error:
+                _unlink_disposable_entry(directory_fd, swap_name, planned_stat)
+                os.fsync(directory_fd)
+                _delete_write_intent(intent_claim, "foreign-conflict")
+                raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}") from error
+            _write_phase_hook("no-clobber-publish")
+            canonical = _intent_entry_state(directory_fd, name, intent)
+            if canonical[0] != "planned":
+                raise MigrationRecoveryFailure("no-clobber publication identity ไม่ตรง")
+            os.fsync(directory_fd)
+            _delete_write_intent(intent_claim, "committed")
+            return
+
+        assert existing_payload is not None
+        current_payload, current_stat = _read_regular_snapshot_at(
+            directory_fd, name, require_single_link=True
+        )
+        if not _same_inode(current_stat, existing) or sha256(current_payload) != expected_sha256:
+            _unlink_disposable_entry(directory_fd, swap_name, planned_stat)
+            os.fsync(directory_fd)
+            _delete_write_intent(intent_claim, "uncommitted")
+            raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+
+        _atomic_exchange(directory_fd, name, swap_name)
+        _write_phase_hook("exchange")
+        canonical = _intent_entry_state(directory_fd, name, intent)
+        displaced = _intent_entry_state(directory_fd, swap_name, intent)
+        if canonical[0] != "planned":
+            raise MigrationRecoveryFailure("existing-file exchange ไม่ได้ planned canonical")
+        if displaced[0] == "foreign":
+            _atomic_exchange(directory_fd, name, swap_name)
+            os.fsync(directory_fd)
+            restored = _read_regular_snapshot_at(
+                directory_fd, name, require_single_link=True
+            )
+            planned_swap = _intent_entry_state(directory_fd, swap_name, intent)
+            if not _snapshot_matches(
+                restored[0], restored[1], displaced[1], displaced[2]
+            ) or planned_swap[0] != "planned":
+                raise MigrationRecoveryFailure("foreign swap-back ยืนยันไม่ได้")
+            assert planned_swap[2] is not None
+            _unlink_disposable_entry(directory_fd, swap_name, planned_swap[2])
+            os.fsync(directory_fd)
+            _delete_write_intent(intent_claim, "foreign-conflict")
+            raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {name}")
+        if displaced[0] != "expected":
+            raise MigrationRecoveryFailure("existing-file displaced entry ไม่ใช่ expected")
+        assert displaced[2] is not None
+        os.fsync(directory_fd)
+        _write_phase_hook("directory-fsync")
+        _unlink_disposable_entry(directory_fd, swap_name, displaced[2])
+        _write_phase_hook("displaced-unlink")
+        os.fsync(directory_fd)
+        _delete_write_intent(intent_claim, "committed")
+    finally:
+        intent_claim.close()
+
+
+def _repo_parent_fd(path: str | Path, *, create: bool = False) -> tuple[Path, int]:
+    target = _repo_candidate(path)
+    parent_fd = _open_trusted_directory(target.parent, repo_root(), create=create)
+    assert parent_fd is not None
+    return target, parent_fd
+
+
+def _atomic_write_repo_file(
+    path: str | Path,
+    payload: bytes,
+    *,
+    create_parents: bool = False,
+    expected_sha256: str | None = None,
+) -> Path:
+    target, parent_fd = _repo_parent_fd(path, create=create_parents)
+    try:
+        _atomic_write_at(
+            parent_fd,
+            target.name,
+            payload,
+            expected_sha256=expected_sha256,
+            intent_anchor="repo",
+            intent_path=target.relative_to(repo_root()).as_posix(),
+        )
+    except MigrationFileChanged as error:
+        raise MigrationFileChanged(f"MIGRATION_FILE_CHANGED: {rel(target)}") from error
+    finally:
+        os.close(parent_fd)
+    return target
+
+
 def abs_repo(path_str: str) -> Path:
-    return repo_root() / path_str
+    return _repo_candidate(path_str)
 
 
 def sha256(data: bytes) -> str:
@@ -185,7 +1607,11 @@ def rel(path: Path) -> str:
 
 
 def read_bytes(path: Path) -> bytes:
-    return path.read_bytes()
+    target, parent_fd = _repo_parent_fd(path)
+    try:
+        return _read_regular_at(parent_fd, target.name)
+    finally:
+        os.close(parent_fd)
 
 
 # ---------------------------------------------------------------------------
@@ -301,23 +1727,59 @@ def historical_canonical_status_line(repo_path: str) -> tuple[bytes | None, Proo
 # ---------------------------------------------------------------------------
 
 
-def historical_directories() -> list[Path]:
-    """All spec directories except this feature and the archive container."""
+@dataclass(frozen=True)
+class HistoricalMembership:
+    expected: tuple[str, ...]
+    present: tuple[str, ...]
+    missing: tuple[str, ...]
+    outside_scope: tuple[str, ...]
+    inventory: tuple[str, ...]
+
+
+def historical_membership() -> HistoricalMembership:
+    """เทียบ direct all-spec inventory กับ canonical named set ที่ตรึงไว้."""
     root = specs_root()
-    if not root.is_dir():
-        return []
-    dirs = []
-    for child in sorted(root.iterdir()):
-        if not child.is_dir():
-            continue
-        if child.name in EXCLUDED_FEATURES or child.name == ARCHIVE_CONTAINER:
-            continue
-        dirs.append(child)
-    return dirs
+    ai_root = repo_root() / ".ai"
+    _guard_repo_directory(ai_root, allow_missing=True)
+    if not ai_root.exists():
+        entries = ()
+    else:
+        _guard_repo_directory(root, allow_missing=True)
+        entries = sc._all_spec_directories(root) if root.exists() else ()
+    expected = tuple(HISTORICAL_FEATURES)
+    if root.exists():
+        _guard_repo_directory(root / CURRENT_FEATURE, allow_missing=True)
+        for feature in expected:
+            _guard_repo_directory(root / feature, allow_missing=True)
+    inventory = tuple(path.name for path in entries)
+    regular_directories = {
+        path.name for path in entries if not path.is_symlink() and path.is_dir()
+    }
+    expected_set = set(expected)
+    present = tuple(feature for feature in expected if feature in regular_directories)
+    missing = tuple(feature for feature in expected if feature not in regular_directories)
+    outside = tuple(sorted(set(inventory) - expected_set - {CURRENT_FEATURE}))
+    return HistoricalMembership(expected, present, missing, outside, inventory)
+
+
+def historical_directories() -> tuple[Path, ...]:
+    """คืนเฉพาะ canonical historical directories ที่มีอยู่จริง."""
+    membership = historical_membership()
+    return tuple(specs_root() / feature for feature in HISTORICAL_FEATURES
+                 if feature in membership.present)
 
 
 def feature_files(directory: Path) -> list[Path]:
-    return [directory / name for name in ARTIFACT_FILES if (directory / name).is_file()]
+    _guard_repo_directory(directory)
+    files: list[Path] = []
+    for name in ARTIFACT_FILES:
+        path = directory / name
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            continue
+        files.append(_guard_repo_file(path))
+    return files
 
 
 def dir_tags(directory: Path) -> set[str]:
@@ -433,25 +1895,48 @@ _LEDGER_CACHE: dict[str, tuple[float, dict[tuple[str, str, str], dict]]] = {}
 
 def load_resolution_ledger() -> dict[tuple[str, str, str], dict]:
     path = resolution_ledger_path()
-    stamp = f"{path}:{path.stat().st_mtime_ns if path.is_file() else 0}"
+    ai_root = _guard_repo_directory(repo_root() / ".ai", allow_missing=True)
+    if not ai_root.exists():
+        return {}
+    specs = _guard_repo_directory(specs_root(), allow_missing=True)
+    if not specs.exists():
+        return {}
+    owner = path.parent
+    _guard_repo_directory(owner, allow_missing=True)
+    if not owner.exists():
+        return {}
+    safe_path = _guard_repo_file(path, allow_missing=True)
+    stamp = f"{safe_path}:{os.lstat(safe_path).st_mtime_ns if safe_path.exists() else 0}"
     cached = _LEDGER_CACHE.get(stamp)
     if cached is not None:
         return cached[1]
     ledger: dict[tuple[str, str, str], dict] = {}
-    if path.is_file():
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        for index, entry in enumerate(payload.get("decisions", [])):
-            scoped_id = entry.get("taskId", "")
-            if not scoped_id and entry.get("line"):
-                scoped_id = f"@{entry['line']}"  # line-scoped decision
-            key = (entry["path"], entry["field"], scoped_id)
-            if key in ledger:
-                raise SystemExit(f"resolution ledger duplicate entry {key}")
-            if entry["disposition"] not in LEDGER_DISPOSITIONS:
-                raise SystemExit(f"resolution ledger unknown disposition {entry['disposition']}")
-            item = dict(entry)
-            item["_line"] = index + 1
-            ledger[key] = item
+    if safe_path.exists():
+        try:
+            payload = json.loads(read_bytes(safe_path).decode("utf-8"))
+            decisions = payload["decisions"] if "decisions" in payload else []
+            if not isinstance(payload, dict) or not isinstance(decisions, list):
+                raise TypeError("root หรือ decisions มีรูปแบบไม่ถูกต้อง")
+            for index, entry in enumerate(decisions):
+                if not isinstance(entry, dict):
+                    raise TypeError(f"decision {index + 1} ต้องเป็น object")
+                scoped_id = entry.get("taskId", "")
+                if not scoped_id and entry.get("line"):
+                    scoped_id = f"@{entry['line']}"  # line-scoped decision
+                key = (entry["path"], entry["field"], scoped_id)
+                if key in ledger:
+                    raise EngineFailure(f"resolution ledger duplicate entry {key}")
+                if entry["disposition"] not in LEDGER_DISPOSITIONS:
+                    raise EngineFailure(
+                        f"resolution ledger unknown disposition {entry['disposition']}"
+                    )
+                item = dict(entry)
+                item["_line"] = index + 1
+                ledger[key] = item
+        except EngineFailure:
+            raise
+        except (KeyError, TypeError, UnicodeDecodeError, ValueError) as error:
+            raise EngineFailure(f"resolution ledger malformed: {error}") from error
     _LEDGER_CACHE.clear()
     _LEDGER_CACHE[stamp] = (0.0, ledger)
     return ledger
@@ -603,7 +2088,7 @@ def plan_status_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAc
         if len([entry for entry in status_entries if not sc.STATUS_RE.match(entry[1].strip())]) >= 2:
             # alias+alias or alias+unknown mess: not uniquely mappable
             blockers.append(RetrofitBlocker(
-                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "status.line", "", 
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "status.line", "",
                 status_entries[0][0] if status_entries else 1,
                 "หลายบรรทัดสถานะที่ไม่ canonical พร้อมกัน — mapping ไม่ unique",
                 "; ".join(entry[1].strip() for entry in status_entries[:3]),
@@ -694,13 +2179,19 @@ def _human_status_line(path_str: str) -> bytes | None:
         return b"> Status: unknown\n"
     date = entry.get("date", "")
     if not _DATE_RE.match(date):
-        raise SystemExit(f"resolution ledger bad date for {path_str}: {date!r}")
+        raise EngineFailure(f"resolution ledger bad date for {path_str}: {date!r}")
     if disposition == "status-approved":
         return f"> Status: approved {date}\n".encode("utf-8")
     by_task = entry.get("byTaskId", "")
     feature = Path(path_str).parent.name
-    if not (specs_root() / by_task / "tasks.md").is_file():
-        raise SystemExit(f"resolution ledger superseded-byTaskId has no spec dir: {by_task!r}")
+    target_directory = _guard_repo_directory(
+        specs_root() / by_task, allow_missing=True
+    )
+    target_tasks = _guard_repo_file(
+        target_directory / "tasks.md", allow_missing=True
+    )
+    if not target_directory.exists() or not target_tasks.exists():
+        raise EngineFailure(f"resolution ledger superseded-byTaskId has no spec dir: {by_task!r}")
     assert by_task != feature
     return f"> Status: superseded {date} by {by_task}\n".encode("utf-8")
 
@@ -1543,7 +3034,7 @@ def _append_criteria_block_action(actions, batch_id, path_str, data) -> None:
         if sc.BUGFIX_CRITERION_RE.match(line) or line.startswith("## ")
     ]
     if not any(sc.BUGFIX_CRITERION_RE.match(line) for line in block_lines):
-        raise SystemExit(f"resolution ledger criteria-block without criterion: {path_str}")
+        raise EngineFailure(f"resolution ledger criteria-block without criterion: {path_str}")
     tail = b"" if data.endswith(b"\n") else b"\n"
     block = (tail + "\n" + entry["block"].rstrip() + "\n").encode("utf-8")
     actions.append(RetrofitAction(
@@ -1665,92 +3156,1130 @@ class Journal:
     batch_id: str
     captured_head: str
     targets: list[JournalTarget] = field(default_factory=list)
+    manifest_sha256: str = field(default="", repr=False)
 
     def to_json(self) -> dict:
         return {
             "batchId": self.batch_id,
             "capturedHead": self.captured_head,
             "schemaVersion": 1,
+            "state": "preparing",
             "targets": [target.to_json() for target in self.targets],
         }
 
 
+def _journal_batch_id(batch_id: str) -> str:
+    if Path(batch_id).name != batch_id or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", batch_id):
+        raise EngineFailure("journal batch id ไม่เป็น canonical basename")
+    return batch_id
+
+
 def journal_root(batch_id: str) -> Path:
-    return git_dir() / "sdd-retrofit-recovery" / "v1" / batch_id
+    batch_id = _journal_batch_id(batch_id)
+    names = _journal_root_names_for_batch(batch_id)
+    if len(names) > 1:
+        raise MigrationRecoveryFailure("logical batch มี unretired generation ซ้ำ")
+    if names:
+        return _journal_base() / names[0]
+    return _journal_base() / batch_id
+
+
+def _journal_base() -> Path:
+    return git_dir() / "sdd-retrofit-recovery" / "v1"
+
+
+_CLEANING_PREFIX = ".clearing-"
+_JOURNAL_GENERATION_RE = re.compile(r"\.journal-[0-9a-f]{32}")
+_OWNER_LOCK = ".owner.lock"
+_HASH_RE = re.compile(r"[0-9a-f]{64}")
+
+
+@dataclass
+class JournalClaim:
+    batch_id: str
+    root_name: str
+    root_fd: int
+    lock_fd: int
+
+    def close(self) -> None:
+        if self.lock_fd >= 0:
+            os.close(self.lock_fd)
+            self.lock_fd = -1
+        if self.root_fd >= 0:
+            os.close(self.root_fd)
+            self.root_fd = -1
+
+    def __enter__(self) -> JournalClaim:
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        self.close()
+
+
+def _validate_journal_claim(claim: JournalClaim, batch_id: str) -> None:
+    if claim.batch_id != _journal_batch_id(batch_id):
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+    root_stat = os.fstat(claim.root_fd)
+    lock_stat = os.fstat(claim.lock_fd)
+    entry_stat = os.stat(_OWNER_LOCK, dir_fd=claim.root_fd, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(root_stat.st_mode)
+        or not stat.S_ISREG(lock_stat.st_mode)
+        or lock_stat.st_nlink != 1
+        or not _same_inode(lock_stat, entry_stat)
+    ):
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+
+
+def _read_journal_manifest_header(root_fd: int) -> dict[str, object] | None:
+    try:
+        payload, _entry = _read_regular_snapshot_at(
+            root_fd, "manifest.json", require_single_link=True
+        )
+    except FileNotFoundError:
+        return None
+    except (EngineFailure, OSError) as error:
+        raise MigrationRecoveryFailure("journal manifest เปิดไม่สำเร็จ") from error
+    try:
+        manifest = json.loads(payload.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise MigrationRecoveryFailure("journal manifest parse ไม่สำเร็จ") from error
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schemaVersion") != 1
+        or manifest.get("state") != "preparing"
+        or not isinstance(manifest.get("batchId"), str)
+        or not isinstance(manifest.get("capturedHead"), str)
+        or not isinstance(manifest.get("targets"), list)
+    ):
+        raise MigrationRecoveryFailure("journal manifest contract ไม่ถูกต้อง")
+    _journal_batch_id(str(manifest["batchId"]))
+    return manifest
+
+
+def _journal_root_names_for_batch(batch_id: str) -> list[str]:
+    batch_id = _journal_batch_id(batch_id)
+    base_fd = _open_trusted_directory(_journal_base(), git_dir(), missing_ok=True)
+    if base_fd is None:
+        return []
+    names: list[str] = []
+    try:
+        for name in sorted(_recovery_entry_names(base_fd)):
+            try:
+                root_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=base_fd,
+                )
+            except OSError as error:
+                raise MigrationRecoveryFailure(
+                    "journal root ไม่ใช่ trusted directory"
+                ) from error
+            try:
+                if _retired_marker_state(root_fd) or name.startswith(_CLEANING_PREFIX):
+                    continue
+                manifest = _read_journal_manifest_header(root_fd)
+                if manifest is not None and manifest["batchId"] == batch_id:
+                    names.append(name)
+            finally:
+                os.close(root_fd)
+        return names
+    finally:
+        os.close(base_fd)
+
+
+def _claim_new_journal(batch_id: str) -> JournalClaim:
+    batch_id = _journal_batch_id(batch_id)
+    with _preflight_recovery_state() as recovery:
+        _process_claimed_recovery_roots(recovery)
+        _rescan_recovery_state(recovery)
+        base_fd = recovery.journal_base_fd
+        if base_fd < 0:
+            raise MigrationRecoveryFailure("journal parent claim ไม่มี fd")
+        root_name = f".journal-{secrets.token_hex(16)}"
+        root_fd: int | None = None
+        lock_fd: int | None = None
+        try:
+            os.mkdir(root_name, mode=0o700, dir_fd=base_fd)
+            os.fsync(base_fd)
+            root_fd = os.open(
+                root_name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=base_fd,
+            )
+            _ensure_private_directory(root_fd, "journal create")
+            lock_fd = os.open(
+                _OWNER_LOCK,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=root_fd,
+            )
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.fchmod(lock_fd, 0o600)
+            os.fsync(lock_fd)
+            os.fsync(root_fd)
+            claim = JournalClaim(batch_id, root_name, root_fd, lock_fd)
+            root_fd = None
+            lock_fd = None
+            preparing = Journal(batch_id=batch_id, captured_head="")
+            payload = json.dumps(
+                preparing.to_json(), sort_keys=True, indent=1
+            ).encode()
+            manifest_fd, _manifest_stat = _write_new_regular_at(
+                claim.root_fd, "manifest.json", payload, 0o600
+            )
+            os.close(manifest_fd)
+            _write_phase_hook("no-clobber-publish")
+            os.fsync(claim.root_fd)
+            _validate_journal_claim(claim, batch_id)
+            return claim
+        except BaseException:
+            if root_fd is not None:
+                _retire_claimed_recovery_root(root_fd, lock_fd, "create-error")
+            raise
+        finally:
+            if lock_fd is not None:
+                os.close(lock_fd)
+            if root_fd is not None:
+                os.close(root_fd)
+
+
+def _claim_existing_journal(batch_id: str) -> JournalClaim:
+    batch_id = _journal_batch_id(batch_id)
+    names = _journal_root_names_for_batch(batch_id)
+    if len(names) != 1:
+        if len(names) > 1:
+            raise MigrationRecoveryFailure("logical batch มี unretired generation ซ้ำ")
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+    root_name = names[0]
+    base_fd = _open_trusted_directory(_journal_base(), git_dir())
+    assert base_fd is not None
+    root_fd: int | None = None
+    lock_fd: int | None = None
+    try:
+        root_fd = os.open(
+            root_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=base_fd,
+        )
+        lock_fd = _open_owner_lock(root_fd)
+        claim = JournalClaim(batch_id, root_name, root_fd, lock_fd)
+        _validate_journal_claim(claim, batch_id)
+        root_fd = None
+        lock_fd = None
+        return claim
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+        if root_fd is not None:
+            os.close(root_fd)
+        os.close(base_fd)
+
+
+@dataclass
+class CleanupClaim:
+    name: str
+    root_fd: int
+    lock_fd: int
+
+    def close(self) -> None:
+        for field_name in ("lock_fd", "root_fd"):
+            fd = getattr(self, field_name)
+            if fd >= 0:
+                os.close(fd)
+                setattr(self, field_name, -1)
+
+
+@dataclass
+class RecoveryJournalClaim:
+    name: str
+    kind: str
+    claim: JournalClaim
+    manifest: dict[str, object] | None
+
+    def close(self) -> None:
+        self.claim.close()
+
+
+@dataclass
+class RecoveryPreflight:
+    write_intents: list[tuple[WriteIntentClaim, dict[str, object] | None]]
+    tombstones: list[CleanupClaim]
+    journals: list[RecoveryJournalClaim]
+    intent_base_fd: int
+    journal_base_fd: int
+    locks: contextlib.ExitStack
+
+    def close(self) -> None:
+        for claim, _intent in self.write_intents:
+            claim.close()
+        for claim in self.tombstones:
+            claim.close()
+        for journal in self.journals:
+            journal.close()
+        self.locks.close()
+        for field_name in ("intent_base_fd", "journal_base_fd"):
+            fd = getattr(self, field_name)
+            if fd >= 0:
+                os.close(fd)
+                setattr(self, field_name, -1)
+
+    def __enter__(self) -> RecoveryPreflight:
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        self.close()
+
+
+def _load_preintent_state(root_fd: int) -> dict[str, object] | None:
+    entries = set(os.listdir(root_fd))
+    if _WRITE_INTENT_FILE in entries:
+        _require_exact_child_inventory(
+            root_fd,
+            {_OWNER_LOCK, _WRITE_INTENT_FILE},
+            "write intent root",
+        )
+        return _load_write_intent(root_fd)
+    if entries != {_OWNER_LOCK}:
+        raise MigrationRecoveryFailure("pre-intent root มี entry ที่พิสูจน์ไม่ได้")
+    return None
+
+
+def _open_structural_owner_lock(root_fd: int) -> int:
+    try:
+        entry = os.stat(_OWNER_LOCK, dir_fd=root_fd, follow_symlinks=False)
+        lock_fd = os.open(_OWNER_LOCK, os.O_RDWR | os.O_NOFOLLOW, dir_fd=root_fd)
+    except OSError as error:
+        raise MigrationRecoveryFailure("owner lock ไม่มีหรือเปิดไม่ได้") from error
+    opened = os.fstat(lock_fd)
+    if (
+        stat.S_ISLNK(entry.st_mode)
+        or not stat.S_ISREG(entry.st_mode)
+        or entry.st_nlink != 1
+        or not stat.S_ISREG(opened.st_mode)
+        or opened.st_nlink != 1
+        or not _same_inode(entry, opened)
+    ):
+        os.close(lock_fd)
+        raise MigrationRecoveryFailure("owner lock ต้องเป็น regular single-link file")
+    return lock_fd
+
+
+def _require_exact_child_inventory(
+    directory_fd: int,
+    expected: set[str],
+    operation: str,
+    *,
+    allowed: set[str] | None = None,
+) -> None:
+    try:
+        actual = set(os.listdir(directory_fd))
+    except OSError as error:
+        raise MigrationRecoveryFailure(
+            f"{operation}: อ่าน direct child inventory ไม่สำเร็จ"
+        ) from error
+    allowed = set() if allowed is None else allowed
+    if not expected.issubset(actual) or actual - expected - allowed:
+        raise MigrationRecoveryFailure(
+            f"{operation}: direct child inventory ไม่ตรง contract: "
+            f"expected={sorted(expected)} actual={sorted(actual)}"
+        )
+
+
+def _claim_write_intent_states(
+    base_fd: int | None,
+    *,
+    claim_stale: bool = True,
+) -> list[tuple[WriteIntentClaim, dict[str, object] | None]]:
+    if base_fd is None:
+        return []
+    claims: list[tuple[WriteIntentClaim, dict[str, object] | None]] = []
+    malformed: list[str] = []
+    active = False
+    unretired = False
+    for token in sorted(_recovery_entry_names(base_fd)):
+        root_fd: int | None = None
+        lock_fd: int | None = None
+        try:
+            if _WRITE_INTENT_TOKEN_RE.fullmatch(token) is None:
+                raise MigrationRecoveryFailure("write intent token ไม่เป็น canonical basename")
+            root_fd = os.open(
+                token,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=base_fd,
+            )
+            if _retired_marker_state(root_fd):
+                continue
+            unretired = True
+            intent = _load_preintent_state(root_fd)
+            lock_fd = _open_structural_owner_lock(root_fd)
+            if not claim_stale:
+                continue
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                active = True
+                continue
+            claim = WriteIntentClaim(token, os.dup(base_fd), root_fd, lock_fd)
+            root_fd = None
+            lock_fd = None
+            _require_claimed_directory(
+                claim.base_fd, claim.token, claim.root_fd, "write intent preflight"
+            )
+            claims.append((claim, intent))
+        except (MigrationRecoveryFailure, OSError) as error:
+            malformed.append(f"{token}: {error}")
+        finally:
+            if lock_fd is not None:
+                os.close(lock_fd)
+            if root_fd is not None:
+                os.close(root_fd)
+    if malformed:
+        for claim, _intent in claims:
+            claim.close()
+        raise MigrationRecoveryFailure("; ".join(malformed))
+    if active:
+        for claim, _intent in claims:
+            claim.close()
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+    if not claim_stale and unretired:
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+    return claims
+
+
+def _journal_swap_allowlist(
+    write_intents: list[tuple[WriteIntentClaim, dict[str, object] | None]],
+) -> dict[str, dict[str, set[str]]]:
+    allowed: dict[str, dict[str, set[str]]] = {}
+    base_relative = _journal_base().relative_to(git_dir())
+    for _claim, intent in write_intents:
+        if intent is None or intent.get("anchor") != "git":
+            continue
+        try:
+            relative = Path(str(intent["path"])).relative_to(base_relative)
+        except (KeyError, ValueError):
+            continue
+        parts = relative.parts
+        if len(parts) == 2:
+            child = ""
+        elif len(parts) == 3 and parts[1] == "originals":
+            child = "originals"
+        else:
+            continue
+        allowed.setdefault(parts[0], {}).setdefault(child, set()).add(
+            str(intent["swapName"])
+        )
+    return allowed
+
+
+def _canonical_journal_root_name(name: str) -> tuple[str, bool]:
+    if name.startswith(_CLEANING_PREFIX):
+        return _journal_batch_id(name.removeprefix(_CLEANING_PREFIX)), True
+    if _JOURNAL_GENERATION_RE.fullmatch(name):
+        return "", False
+    return _journal_batch_id(name), False
+
+
+def _claim_journal_states(
+    base_fd: int,
+    *,
+    claim_stale: bool = True,
+    allowed_swaps: dict[str, dict[str, set[str]]] | None = None,
+) -> tuple[list[CleanupClaim], list[RecoveryJournalClaim]]:
+    tombstones: list[CleanupClaim] = []
+    journals: list[RecoveryJournalClaim] = []
+    structural: list[tuple[str, str, bool, int, int]] = []
+    malformed: list[str] = []
+    active = False
+    unretired = False
+    batches: dict[str, list[str]] = {}
+    allowed_swaps = {} if allowed_swaps is None else allowed_swaps
+
+    for name in sorted(_recovery_entry_names(base_fd)):
+        root_fd: int | None = None
+        lock_fd: int | None = None
+        try:
+            root_fd = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=base_fd,
+            )
+            if _retired_marker_state(root_fd):
+                continue
+            legacy_batch, cleanup = _canonical_journal_root_name(name)
+            unretired = True
+            lock_fd = _open_structural_owner_lock(root_fd)
+            if claim_stale:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    active = True
+                    continue
+            structural.append((name, legacy_batch, cleanup, root_fd, lock_fd))
+            root_fd = None
+            lock_fd = None
+        except (MigrationRecoveryFailure, EngineFailure, OSError) as error:
+            malformed.append(f"{name}: {error}")
+        finally:
+            if lock_fd is not None:
+                os.close(lock_fd)
+            if root_fd is not None:
+                os.close(root_fd)
+
+    for name, legacy_batch, cleanup, root_fd, lock_fd in structural:
+        try:
+            if cleanup:
+                _require_exact_child_inventory(
+                    root_fd, {_OWNER_LOCK}, "legacy cleanup root"
+                )
+                tombstones.append(CleanupClaim(name, root_fd, lock_fd))
+                continue
+
+            manifest = _read_journal_manifest_header(root_fd)
+            batch_id = legacy_batch
+            kind = "opaque"
+            if manifest is None:
+                _require_exact_child_inventory(
+                    root_fd, {_OWNER_LOCK}, "opaque journal root"
+                )
+            else:
+                batch_id = str(manifest["batchId"])
+                kind = "manifest"
+                claim = JournalClaim(batch_id, name, root_fd, lock_fd)
+                _read_journal(
+                    batch_id,
+                    claim=claim,
+                    allowed_entries=allowed_swaps.get(name),
+                )
+                batches.setdefault(batch_id, []).append(name)
+            claim = JournalClaim(batch_id, name, root_fd, lock_fd)
+            journals.append(RecoveryJournalClaim(name, kind, claim, manifest))
+        except (MigrationRecoveryFailure, EngineFailure, OSError) as error:
+            malformed.append(f"{name}: {error}")
+            os.close(lock_fd)
+            os.close(root_fd)
+
+    duplicates = sorted(batch for batch, names in batches.items() if len(names) > 1)
+    if malformed or active or duplicates or not claim_stale and unretired:
+        for claim in tombstones:
+            claim.close()
+        for journal in journals:
+            journal.close()
+    if malformed:
+        raise MigrationRecoveryFailure("; ".join(malformed))
+    if active:
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+    if duplicates:
+        raise MigrationRecoveryFailure(
+            "logical batch มี unretired generation ซ้ำ: " + ",".join(duplicates)
+        )
+    if not claim_stale and unretired:
+        raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+    return tombstones, journals
+
+
+def _preflight_recovery_state() -> RecoveryPreflight:
+    locks = contextlib.ExitStack()
+    intent_base_fd = -1
+    journal_base_fd = -1
+    write_intents: list[tuple[WriteIntentClaim, dict[str, object] | None]] = []
+    tombstones: list[CleanupClaim] = []
+    journals: list[RecoveryJournalClaim] = []
+    try:
+        opened_intent = _open_trusted_directory(
+            _write_intent_root(), git_dir(), missing_ok=True
+        )
+        if opened_intent is not None:
+            intent_base_fd = opened_intent
+            locks.enter_context(
+                _recovery_mutation_lock(intent_base_fd, "write intent resolver")
+            )
+        opened_journal = _open_trusted_directory(
+            _journal_base(), git_dir(), create=True
+        )
+        assert opened_journal is not None
+        journal_base_fd = opened_journal
+        locks.enter_context(
+            _recovery_mutation_lock(journal_base_fd, "journal resolver")
+        )
+        write_intents = _claim_write_intent_states(
+            None if intent_base_fd < 0 else intent_base_fd
+        )
+        tombstones, journals = _claim_journal_states(
+            journal_base_fd,
+            allowed_swaps=_journal_swap_allowlist(write_intents),
+        )
+        return RecoveryPreflight(
+            write_intents,
+            tombstones,
+            journals,
+            intent_base_fd,
+            journal_base_fd,
+            locks,
+        )
+    except BaseException:
+        for claim, _intent in write_intents:
+            claim.close()
+        for claim in tombstones:
+            claim.close()
+        for journal in journals:
+            journal.close()
+        locks.close()
+        if intent_base_fd >= 0:
+            os.close(intent_base_fd)
+        if journal_base_fd >= 0:
+            os.close(journal_base_fd)
+        raise
+
+
+def _reconcile_claimed_write_intents(
+    claims: list[tuple[WriteIntentClaim, dict[str, object] | None]],
+) -> None:
+    for claim, intent in claims:
+        _reconcile_one_write_intent(claim, intent)
+
+
+def _remove_cleanup_tombstone(claim: CleanupClaim) -> None:
+    if claim.root_fd < 0 or claim.lock_fd < 0:
+        raise MigrationRecoveryFailure("cleanup claim ถูกปิดก่อน retirement")
+    _retire_claimed_recovery_root(
+        claim.root_fd, claim.lock_fd, "legacy-cleaning"
+    )
+
+
+def _remove_cleanup_claim(claim: CleanupClaim) -> None:
+    _remove_cleanup_tombstone(claim)
+
+
+def _remove_claimed_tombstones(claims: list[CleanupClaim]) -> None:
+    for claim in claims:
+        _remove_cleanup_tombstone(claim)
+
+
+def _remove_incomplete_journals(journals: list[RecoveryJournalClaim]) -> None:
+    for journal in journals:
+        if journal.kind == "opaque":
+            _retire_claimed_recovery_root(
+                journal.claim.root_fd,
+                journal.claim.lock_fd,
+                "incomplete-before-manifest",
+            )
+
+
+def _process_claimed_recovery_roots(recovery: RecoveryPreflight) -> None:
+    _reconcile_claimed_write_intents(recovery.write_intents)
+    roots: list[tuple[str, str, object]] = [
+        (claim.name, "cleanup", claim) for claim in recovery.tombstones
+    ] + [
+        (journal.name, journal.kind, journal) for journal in recovery.journals
+    ]
+    for _name, kind, item in sorted(roots, key=lambda row: row[0]):
+        if kind == "cleanup":
+            _remove_cleanup_tombstone(item)
+            continue
+        journal = item
+        if kind == "opaque":
+            _remove_incomplete_journals([journal])
+            continue
+        targets = journal.manifest.get("targets", []) if journal.manifest else []
+        if not any(
+            isinstance(target, dict)
+            and (target.get("pending") is True or target.get("applied") is True)
+            for target in targets
+        ):
+            clear_journal(
+                journal.claim.batch_id,
+                claim=journal.claim,
+                preflighted=True,
+                operation="uncommitted",
+            )
+            continue
+        recovered, failures = restore_from_journal(
+            journal.claim.batch_id,
+            claim=journal.claim,
+            recovery_preflighted=True,
+        )
+        if not recovered:
+            raise MigrationRecoveryFailure(
+                "journal restore hash guard failed: " + ",".join(failures)
+            )
+
+
+def _rescan_recovery_state(recovery: RecoveryPreflight) -> None:
+    _claim_write_intent_states(
+        None if recovery.intent_base_fd < 0 else recovery.intent_base_fd,
+        claim_stale=False,
+    )
+    _claim_journal_states(recovery.journal_base_fd, claim_stale=False)
+
+
+def _prepare_for_new_journal() -> None:
+    with _preflight_recovery_state() as recovery:
+        _process_claimed_recovery_roots(recovery)
+        _rescan_recovery_state(recovery)
+
+
+def _finish_pending_cleanup(_base_fd: int) -> None:
+    _resume_pending_cleanup()
+
+
+def _resume_pending_cleanup() -> None:
+    with _preflight_recovery_state() as recovery:
+        _process_claimed_recovery_roots(recovery)
+        _rescan_recovery_state(recovery)
 
 
 def journal_exists(batch_id: str | None = None) -> bool:
-    base = git_dir() / "sdd-retrofit-recovery" / "v1"
-    if not base.exists():
+    canonical = None if batch_id is None else _journal_batch_id(batch_id)
+    base_fd = _open_trusted_directory(
+        _journal_base(), git_dir(), missing_ok=True
+    )
+    if base_fd is None:
         return False
-    if batch_id:
-        return (base / batch_id / "manifest.json").is_file()
-    return any((child / "manifest.json").is_file() for child in base.iterdir())
+    matches = False
+    malformed: list[str] = []
+    batches: dict[str, list[str]] = {}
+    try:
+        for name in sorted(_recovery_entry_names(base_fd)):
+            root_fd: int | None = None
+            lock_fd: int | None = None
+            try:
+                root_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=base_fd,
+                )
+                if _retired_marker_state(root_fd):
+                    continue
+                legacy_batch, cleanup = _canonical_journal_root_name(name)
+                manifest = None if cleanup else _read_journal_manifest_header(root_fd)
+                logical_batch = legacy_batch
+                if manifest is not None:
+                    logical_batch = str(manifest["batchId"])
+                    batches.setdefault(logical_batch, []).append(name)
+                lock_fd = _open_structural_owner_lock(root_fd)
+                if manifest is not None:
+                    _read_journal(
+                        logical_batch,
+                        claim=JournalClaim(logical_batch, name, root_fd, lock_fd),
+                    )
+                if canonical is None or manifest is None or logical_batch == canonical:
+                    matches = True
+            except (MigrationRecoveryFailure, EngineFailure, OSError) as error:
+                malformed.append(f"{name}: {error}")
+            finally:
+                if lock_fd is not None:
+                    os.close(lock_fd)
+                if root_fd is not None:
+                    os.close(root_fd)
+        duplicates = sorted(
+            logical_batch
+            for logical_batch, names in batches.items()
+            if len(names) > 1
+        )
+        if malformed:
+            raise MigrationRecoveryFailure("; ".join(malformed))
+        if duplicates:
+            raise MigrationRecoveryFailure(
+                "logical batch มี unretired generation ซ้ำ: "
+                + ",".join(duplicates)
+            )
+        return matches
+    finally:
+        os.close(base_fd)
 
 
-def _fsync_write(path: Path, payload: bytes) -> None:
-    with open(path, "wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
+def _validate_hash(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or _HASH_RE.fullmatch(value) is None:
+        raise MigrationRecoveryFailure(f"journal {field_name} ต้องเป็น SHA-256 lowercase 64 ตัว")
+    return value
 
 
-def write_journal(batch_id: str, journal: Journal, originals: dict[str, bytes]) -> Path:
-    root = journal_root(batch_id)
-    originals_dir = root / "originals"
-    originals_dir.mkdir(parents=True, exist_ok=True)
-    for target, path_str in zip(journal.targets, originals.keys()):
-        idx = _stable_index(path_str)
-        original_path = originals_dir / f"{idx}.bin"
-        _fsync_write(original_path, originals[path_str])
-        target.original_file = f"{idx}.bin"
-    _fsync_write(root / "manifest.json", json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
-    return root
+def _validate_target_path(path_str: object) -> str:
+    if not isinstance(path_str, str) or not path_str or Path(path_str).is_absolute():
+        raise MigrationRecoveryFailure("journal target path ต้องเป็น repo-relative canonical path")
+    target = _repo_candidate(path_str)
+    if rel(target) != path_str or path_str == ".":
+        raise MigrationRecoveryFailure("journal target path ต้องเป็น repo-relative canonical path")
+    return path_str
+
+
+def _prepare_journal_write(journal: Journal, originals: dict[str, bytes]) -> None:
+    if journal.batch_id != _journal_batch_id(journal.batch_id):
+        raise MigrationRecoveryFailure("journal batch id ไม่ตรง canonical contract")
+    if not isinstance(journal.captured_head, str):
+        raise MigrationRecoveryFailure("journal capturedHead ต้องเป็น string")
+    paths: set[str] = set()
+    original_names: set[str] = set()
+    for target in journal.targets:
+        target.path = _validate_target_path(target.path)
+        _validate_hash(target.before_sha256, "beforeSha256")
+        _validate_hash(target.planned_sha256, "plannedSha256")
+        if type(target.pending) is not bool or type(target.applied) is not bool:
+            raise MigrationRecoveryFailure("journal pending/applied ต้องเป็น boolean")
+        if target.pending and target.applied:
+            raise MigrationRecoveryFailure("journal target ห้าม pending และ applied พร้อมกัน")
+        if target.path in paths:
+            raise MigrationRecoveryFailure("journal target path ซ้ำ")
+        paths.add(target.path)
+        target.original_file = f"{_stable_index(target.path)}.bin"
+        if target.original_file in original_names:
+            raise MigrationRecoveryFailure("journal originalFile mapping ชนกัน")
+        original_names.add(target.original_file)
+    if set(originals) != paths:
+        raise MigrationRecoveryFailure("journal originals mapping ไม่ตรง target ทั้งชุด")
+    for target in journal.targets:
+        if sha256(originals[target.path]) != target.before_sha256:
+            raise MigrationRecoveryFailure("journal original bytes ไม่ตรง beforeSha256")
+
+
+def write_journal(
+    batch_id: str,
+    journal: Journal,
+    originals: dict[str, bytes],
+    *,
+    claim: JournalClaim | None = None,
+) -> Path:
+    batch_id = _journal_batch_id(batch_id)
+    if journal.batch_id != batch_id:
+        raise MigrationRecoveryFailure("journal batchId ไม่ตรง caller")
+    _prepare_journal_write(journal, originals)
+    owns_claim = claim is None
+    if claim is None:
+        claim = _claim_new_journal(batch_id)
+    originals_fd: int | None = None
+    try:
+        _validate_journal_claim(claim, batch_id)
+        entries = set(os.listdir(claim.root_fd))
+        if entries != {_OWNER_LOCK, "manifest.json"}:
+            raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED")
+        current_manifest, _current_stat = _read_regular_snapshot_at(
+            claim.root_fd, "manifest.json", require_single_link=True
+        )
+        try:
+            os.mkdir("originals", mode=0o700, dir_fd=claim.root_fd)
+        except FileExistsError as error:
+            raise MigrationRecoveryRequired("MIGRATION_RECOVERY_REQUIRED") from error
+        originals_fd = os.open(
+            "originals",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=claim.root_fd,
+        )
+        for target in journal.targets:
+            _atomic_write_at(
+                originals_fd,
+                target.original_file,
+                originals[target.path],
+                default_mode=0o600,
+                expected_missing=True,
+                intent_anchor="git",
+                intent_path=(
+                    _journal_base()
+                    / claim.root_name
+                    / "originals"
+                    / target.original_file
+                ).relative_to(git_dir()).as_posix(),
+            )
+        manifest_payload = json.dumps(
+            journal.to_json(), sort_keys=True, indent=1
+        ).encode()
+        _atomic_write_at(
+            claim.root_fd,
+            "manifest.json",
+            manifest_payload,
+            default_mode=0o600,
+            expected_sha256=sha256(current_manifest),
+            intent_anchor="git",
+            intent_path=(
+                _journal_base() / claim.root_name / "manifest.json"
+            ).relative_to(git_dir()).as_posix(),
+        )
+        journal.manifest_sha256 = sha256(manifest_payload)
+        os.fsync(claim.root_fd)
+        return _journal_base() / claim.root_name
+    finally:
+        if originals_fd is not None:
+            os.close(originals_fd)
+        if owns_claim:
+            claim.close()
+
+
+def _write_journal_manifest(
+    batch_id: str,
+    journal: Journal,
+    *,
+    claim: JournalClaim | None = None,
+) -> None:
+    owns_fd = claim is None
+    root_fd: int | None = None
+    if claim is None:
+        root_path = journal_root(batch_id)
+        root_fd = _open_trusted_directory(root_path, git_dir())
+        assert root_fd is not None
+        root_name = root_path.name
+    else:
+        _validate_journal_claim(claim, batch_id)
+        root_fd = claim.root_fd
+        root_name = claim.root_name
+    try:
+        manifest_payload = json.dumps(
+            journal.to_json(), sort_keys=True, indent=1
+        ).encode()
+        _atomic_write_at(
+            root_fd,
+            "manifest.json",
+            manifest_payload,
+            default_mode=0o600,
+            expected_sha256=journal.manifest_sha256 or None,
+            intent_anchor="git",
+            intent_path=(
+                _journal_base() / root_name / "manifest.json"
+            ).relative_to(git_dir()).as_posix(),
+        )
+        journal.manifest_sha256 = sha256(manifest_payload)
+    finally:
+        if owns_fd and root_fd is not None:
+            os.close(root_fd)
 
 
 def _stable_index(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
-def load_journal(batch_id: str) -> Journal:
-    manifest = json.loads((journal_root(batch_id) / "manifest.json").read_text(encoding="utf-8"))
-    journal = Journal(batch_id=manifest["batchId"], captured_head=manifest["capturedHead"])
-    for entry in manifest["targets"]:
-        journal.targets.append(JournalTarget(**{
-            "path": entry["path"], "before_sha256": entry["beforeSha256"],
-            "planned_sha256": entry["plannedSha256"], "pending": entry["pending"],
-            "applied": entry["applied"], "original_file": entry["originalFile"],
-        }))
-    return journal
-
-
-def clear_journal(batch_id: str) -> None:
-    root = journal_root(batch_id)
-    if root.exists():
-        shutil.rmtree(root)
-
-
-def restore_from_journal(batch_id: str) -> tuple[bool, list[str]]:
-    """Hash-guarded compensating restore. Returns (all_guarded_ok, failures)."""
-    journal = load_journal(batch_id)
-    root = journal_root(batch_id)
-    failures: list[str] = []
-    interesting = [target for target in journal.targets if target.pending or target.applied]
-    for target in interesting:
-        current = read_bytes(abs_repo(target.path))
-        current_hash = sha256(current)
-        original = (root / "originals" / target.original_file).read_bytes()
-        if current_hash == target.planned_sha256:
-            tmp = abs_repo(target.path).with_suffix(".retrofit-restoring")
-            tmp.write_bytes(original)
-            os.replace(tmp, abs_repo(target.path))
-        elif current_hash == target.before_sha256:
-            continue  # someone restored already; nothing owed
+def _read_journal(
+    batch_id: str,
+    *,
+    claim: JournalClaim | None = None,
+    allowed_entries: dict[str, set[str]] | None = None,
+) -> tuple[Journal, dict[str, bytes]]:
+    batch_id = _journal_batch_id(batch_id)
+    owns_root_fd = claim is None
+    root_fd: int | None = None
+    originals_fd: int | None = None
+    try:
+        if claim is None:
+            root_fd = _open_trusted_directory(journal_root(batch_id), git_dir())
+            assert root_fd is not None
         else:
-            failures.append(target.path)  # concurrent owner: preserve current bytes
-    if not failures:
-        clear_journal(batch_id)
-    return not failures, failures
+            _validate_journal_claim(claim, batch_id)
+            root_fd = claim.root_fd
+        manifest_bytes, _manifest_stat = _read_regular_snapshot_at(
+            root_fd, "manifest.json", require_single_link=True
+        )
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("schemaVersion") != 1
+            or manifest.get("state") != "preparing"
+            or manifest.get("batchId") != batch_id
+            or not isinstance(manifest.get("capturedHead"), str)
+            or not isinstance(manifest.get("targets"), list)
+        ):
+            raise MigrationRecoveryFailure("journal manifest contract ไม่ถูกต้อง")
+
+        journal = Journal(
+            batch_id=batch_id,
+            captured_head=manifest["capturedHead"],
+            manifest_sha256=sha256(manifest_bytes),
+        )
+        paths: set[str] = set()
+        original_names: set[str] = set()
+        for entry in manifest["targets"]:
+            if not isinstance(entry, dict):
+                raise MigrationRecoveryFailure("journal target contract ไม่ถูกต้อง")
+            path_str = _validate_target_path(entry.get("path"))
+            before_sha256 = _validate_hash(entry.get("beforeSha256"), "beforeSha256")
+            planned_sha256 = _validate_hash(entry.get("plannedSha256"), "plannedSha256")
+            pending = entry.get("pending")
+            applied = entry.get("applied")
+            original_file = entry.get("originalFile")
+            if type(pending) is not bool or type(applied) is not bool or pending and applied:
+                raise MigrationRecoveryFailure("journal pending/applied contract ไม่ถูกต้อง")
+            expected_original = f"{_stable_index(path_str)}.bin"
+            if original_file != expected_original or Path(str(original_file)).name != original_file:
+                raise MigrationRecoveryFailure("journal originalFile mapping ไม่ถูกต้อง")
+            if path_str in paths or original_file in original_names:
+                raise MigrationRecoveryFailure("journal target/original mapping ต้อง unique")
+            paths.add(path_str)
+            original_names.add(original_file)
+            journal.targets.append(JournalTarget(
+                path=path_str,
+                before_sha256=before_sha256,
+                planned_sha256=planned_sha256,
+                pending=pending,
+                applied=applied,
+                original_file=original_file,
+            ))
+
+        allowed_entries = {} if allowed_entries is None else allowed_entries
+        root_inventory = {_OWNER_LOCK, "manifest.json"}
+        root_children = set(os.listdir(root_fd))
+        if journal.targets or "originals" in root_children:
+            root_inventory.add("originals")
+        _require_exact_child_inventory(
+            root_fd,
+            root_inventory,
+            "journal root",
+            allowed=allowed_entries.get("", set()),
+        )
+
+        originals: dict[str, bytes] = {}
+        if "originals" in root_inventory:
+            originals_fd = _open_child_directory(root_fd, "originals")
+            assert originals_fd is not None
+            _require_exact_child_inventory(
+                originals_fd,
+                original_names,
+                "journal originals",
+                allowed=allowed_entries.get("originals", set()),
+            )
+        original_inodes: set[tuple[int, int]] = set()
+        for target in journal.targets:
+            original, original_stat = _read_regular_snapshot_at(
+                originals_fd, target.original_file, require_single_link=True
+            )
+            inode = (original_stat.st_dev, original_stat.st_ino)
+            if inode in original_inodes:
+                raise MigrationRecoveryFailure("journal originals ห้าม share inode")
+            original_inodes.add(inode)
+            if sha256(original) != target.before_sha256:
+                raise MigrationRecoveryFailure("journal original ไม่ตรง beforeSha256")
+            originals[target.original_file] = original
+        return journal, originals
+    except MigrationRecoveryFailure:
+        raise
+    except (EngineFailure, KeyError, TypeError, UnicodeError, json.JSONDecodeError, OSError) as error:
+        raise MigrationRecoveryFailure(f"journal validation failed: {error}") from error
+    finally:
+        if originals_fd is not None:
+            os.close(originals_fd)
+        if owns_root_fd and root_fd is not None:
+            os.close(root_fd)
+
+
+def load_journal(batch_id: str) -> Journal:
+    return _read_journal(batch_id)[0]
+
+
+def _validate_loaded_journal_snapshot(
+    batch_id: str,
+    journal: Journal,
+    originals: dict[str, bytes],
+    *,
+    claim: JournalClaim | None = None,
+) -> None:
+    owns_root_fd = claim is None
+    root_fd: int | None = None
+    originals_fd: int | None = None
+    try:
+        if claim is None:
+            root_fd = _open_trusted_directory(journal_root(batch_id), git_dir())
+            assert root_fd is not None
+        else:
+            _validate_journal_claim(claim, batch_id)
+            root_fd = claim.root_fd
+        if journal.targets:
+            originals_fd = _open_child_directory(root_fd, "originals")
+            assert originals_fd is not None
+        manifest, _manifest_stat = _read_regular_snapshot_at(
+            root_fd, "manifest.json", require_single_link=True
+        )
+        if sha256(manifest) != journal.manifest_sha256:
+            raise MigrationFileChanged("MIGRATION_FILE_CHANGED: journal manifest")
+        for target in journal.targets:
+            original, _original_stat = _read_regular_snapshot_at(
+                originals_fd, target.original_file, require_single_link=True
+            )
+            if original != originals[target.original_file]:
+                raise MigrationRecoveryFailure("journal original เปลี่ยนหลัง validation")
+    except (MigrationFileChanged, MigrationRecoveryFailure):
+        raise
+    except (EngineFailure, OSError) as error:
+        raise MigrationRecoveryFailure(f"journal snapshot validation failed: {error}") from error
+    finally:
+        if originals_fd is not None:
+            os.close(originals_fd)
+        if owns_root_fd and root_fd is not None:
+            os.close(root_fd)
+
+
+def clear_journal(
+    batch_id: str,
+    *,
+    claim: JournalClaim | None = None,
+    preflighted: bool = False,
+    operation: str = "verified",
+) -> None:
+    batch_id = _journal_batch_id(batch_id)
+    owns_claim = False
+    if claim is None:
+        if not _journal_root_names_for_batch(batch_id):
+            return
+        claim = _claim_existing_journal(batch_id)
+        owns_claim = True
+    try:
+        _validate_journal_claim(claim, batch_id)
+        _read_journal(batch_id, claim=claim)
+        _retire_claimed_recovery_root(
+            claim.root_fd, claim.lock_fd, operation
+        )
+    finally:
+        if owns_claim:
+            claim.close()
+
+
+def restore_from_journal(
+    batch_id: str,
+    *,
+    claim: JournalClaim | None = None,
+    recovery_preflighted: bool = False,
+) -> tuple[bool, list[str]]:
+    """ตรวจ journal ทั้งก้อนก่อน restore และไม่แตะ foreign bytes."""
+    if claim is None:
+        with _claim_existing_journal(batch_id) as owned_claim:
+            return restore_from_journal(batch_id, claim=owned_claim)
+    _validate_journal_claim(claim, batch_id)
+    journal, originals = _read_journal(batch_id, claim=claim)
+    interesting = [target for target in journal.targets if target.pending or target.applied]
+    snapshots: list[tuple[JournalTarget, str]] = []
+    try:
+        for target in interesting:
+            target_path, parent_fd = _repo_parent_fd(target.path)
+            try:
+                current, _current_stat = _read_regular_snapshot_at(
+                    parent_fd, target_path.name, require_single_link=True
+                )
+            finally:
+                os.close(parent_fd)
+            snapshots.append((target, sha256(current)))
+    except (EngineFailure, OSError) as error:
+        raise MigrationRecoveryFailure(f"journal target validation failed: {error}") from error
+
+    failures = [
+        target.path
+        for target, current_hash in snapshots
+        if current_hash not in {target.before_sha256, target.planned_sha256}
+    ]
+    if failures:
+        return False, failures
+
+    _validate_loaded_journal_snapshot(
+        batch_id, journal, originals, claim=claim
+    )
+    for target, current_hash in snapshots:
+        if current_hash == target.planned_sha256:
+            _atomic_write_repo_file(
+                target.path,
+                originals[target.original_file],
+                expected_sha256=target.planned_sha256,
+            )
+    clear_journal(
+        batch_id,
+        claim=claim,
+        preflighted=recovery_preflighted,
+        operation="recovered",
+    )
+    return True, []
 
 
 # ---------------------------------------------------------------------------
@@ -1759,7 +4288,7 @@ def restore_from_journal(batch_id: str) -> tuple[bool, list[str]]:
 
 
 def enforce_journal_clear(mode: str) -> int | None:
-    if journal_exists():
+    if write_intents_pending() or journal_exists():
         print(json.dumps({
             "schemaVersion": 1,
             "verdict": "engine-fail",
@@ -1770,16 +4299,17 @@ def enforce_journal_clear(mode: str) -> int | None:
 
 
 def scope_check() -> list[RetrofitBlocker]:
-    if os.environ.get("SDD_RETROFIT_REPO"):   # fixture repos scope to their own files
+    membership = historical_membership()
+    if not membership.missing:
         return []
-    blockers: list[RetrofitBlocker] = []
-    directories = historical_directories()
-    if len(directories) != HISTORICAL_COUNT:
-        blockers.append(RetrofitBlocker(
-            "MIGRATION_SCOPE_MISMATCH", "-", ".ai/specs", "corpus.inventory", "", 1,
-            f"historical directories={len(directories)} expected={HISTORICAL_COUNT}", "", "",
-        ))
-    return blockers
+    return [RetrofitBlocker(
+        "MIGRATION_SCOPE_MISMATCH", "-", ".ai/specs", "corpus.inventory", "", 1,
+        f"missing={','.join(membership.missing)}; "
+        f"outsideScope={','.join(membership.outside_scope) or 'none'}; "
+        f"expected={len(membership.expected)}",
+        ",".join(membership.present),
+        ",".join(membership.outside_scope),
+    )]
 
 
 def envelope(mode: str, batch_id: str, actions: list[RetrofitAction],
@@ -1811,23 +4341,59 @@ def run_dry_run(batch_id: str, *, skip_journal_guard: bool = False) -> int:
     return 1 if blockers else 0
 
 
-def strict_check_features(features: list[str]) -> int:
-    """Active-first strict scope (option-K, human checkpoint): legacy chains
-    carrying a dispositioned trace-table / authoring-chain decision are
-    recorded residuals and re-enter only via the Tasks-9+ verify scope."""
+def strict_check_features(features: list[str]) -> list[dict]:
+    """รัน strict validator จริงทุก feature โดยรักษา policy/engine tri-state."""
+    return [_observed_strict_result(feature, set()) for feature in features]
+
+
+def _legacy_residual_features() -> set[str]:
     ledger = load_resolution_ledger()
-    legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s), entry
-                   in ledger.items() if field in {"trace.table", "authoring.chain"}
-                   and entry["disposition"]
-                   in {"trace-header-canonical", "active-authoring-exempt",
-                       "legacy-baseline-exempt"}}
-    failed = 0
-    for feature in features:
-        if feature in legacy_dirs:
-            continue
-        if sc.trace_run(feature, specs_root()) != 0:
-            failed += 1
-    return failed
+    return {
+        Path(path_str).parent.name
+        for (path_str, field, _scoped), entry in ledger.items()
+        if field in {"trace.table", "authoring.chain"}
+        and entry["disposition"] in {
+            "trace-header-canonical",
+            "active-authoring-exempt",
+            "legacy-baseline-exempt",
+        }
+    }
+
+
+def _observed_strict_result(feature: str, legacy_dirs: set[str]) -> dict:
+    """หนึ่ง invocation ต่อ feature; exception เป็น unchecked ไม่ใช่ strict pass."""
+    output = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            code = sc.all_tree_trace_run(feature, specs_root())
+    except (OSError, ValueError) as error:
+        return {
+            "checked": False,
+            "engineFailure": True,
+            "feature": feature,
+            "legacyResidual": feature in legacy_dirs,
+            "observedOutput": f"ENGINE_INTERNAL: {error}",
+            "strictOk": False,
+        }
+    if code == 2:
+        return {
+            "checked": False,
+            "engineFailure": True,
+            "exitCode": code,
+            "feature": feature,
+            "legacyResidual": feature in legacy_dirs,
+            "observedOutput": output.getvalue().strip(),
+            "strictOk": False,
+        }
+    return {
+        "checked": True,
+        "engineFailure": False,
+        "exitCode": code,
+        "feature": feature,
+        "legacyResidual": feature in legacy_dirs,
+        "observedOutput": output.getvalue().strip(),
+        "strictOk": code == 0,
+    }
 
 
 def run_check(batch_id: str) -> int:
@@ -1835,60 +4401,117 @@ def run_check(batch_id: str) -> int:
     if blocked is not None:
         return blocked
     if batch_id == "final-all-spec":
-        features = [rel(directory).split("/")[-1] for directory in historical_directories()]
-        directories = historical_directories()
-        results = []
-        rc_failed = 0
-        if len(directories) != HISTORICAL_COUNT:
+        membership = historical_membership()
+        if membership.missing:
             print(json.dumps({
-                "schemaVersion": 1, "verdict": "policy-fail",
-                "expectedDirectories": HISTORICAL_COUNT,
-                "foundDirectories": len(directories),
+                "batch": batch_id,
+                "expectedFeatures": list(membership.expected),
+                "missingFeatures": list(membership.missing),
+                "outsideHistoricalScope": list(membership.outside_scope),
                 "problem": "MIGRATION_SCOPE_MISMATCH",
+                "schemaVersion": 1,
+                "verdict": "policy-fail",
             }, sort_keys=True))
             return 1
-        ledger_paths = load_resolution_ledger()
-        legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s), entry
-                       in ledger_paths.items() if field in {"trace.table", "authoring.chain"}
-                       and entry["disposition"]
-                       in {"trace-header-canonical", "active-authoring-exempt",
-                           "legacy-baseline-exempt"}}
-        for feature in features:
-            # Option-K (human checkpoint): legacy chains whose trace tables are
-            # ledger-dispositioned are recorded residuals — excluded from the
-            # strict gate; they re-enter when Tasks 9+ verify scope says so.
-            code = 0 if feature in legacy_dirs else sc.trace_run(feature, specs_root())
-            results.append({"feature": feature, "strictOk": code == 0,
-                            "legacyResidual": feature in legacy_dirs})
-            if code != 0:
-                rc_failed += 1
+
+        legacy_dirs = _legacy_residual_features() & set(membership.expected)
+        historical_results = [
+            _observed_strict_result(feature, legacy_dirs)
+            for feature in membership.expected
+        ]
+        current_result = (
+            _observed_strict_result(CURRENT_FEATURE, set())
+            if CURRENT_FEATURE in membership.inventory
+            else {
+                "checked": False,
+                "engineFailure": False,
+                "feature": CURRENT_FEATURE,
+                "legacyResidual": False,
+                "observedOutput": "canonical current feature directory missing",
+                "strictOk": False,
+            }
+        )
+        outside_results = [
+            _observed_strict_result(feature, set())
+            for feature in membership.outside_scope
+        ]
+        checked_count = sum(result["checked"] for result in historical_results)
+        unchecked = [result["feature"] for result in historical_results if not result["checked"]]
+        historical_strict_ok = (
+            checked_count == len(membership.expected)
+            and all(result["strictOk"] for result in historical_results)
+        )
+        aggregate_results = historical_results + [current_result] + outside_results
+        engine_failures = [
+            result["feature"] for result in aggregate_results if result["engineFailure"]
+        ]
+        aggregate_strict_ok = (
+            historical_strict_ok
+            and current_result["strictOk"]
+            and all(result["strictOk"] for result in outside_results)
+        )
+        verdict = (
+            "engine-fail" if engine_failures
+            else "allow" if aggregate_strict_ok
+            else "policy-fail"
+        )
         print(json.dumps({
             "batch": batch_id,
-            "featuresFailing": rc_failed,
-            "results": results,
+            "currentFeature": current_result,
+            "engineFailureFeatures": engine_failures,
+            "historicalInventory": {
+                "checkedCount": checked_count,
+                "expectedCount": len(membership.expected),
+                "expectedFeatures": list(membership.expected),
+                "results": historical_results,
+                "strictOk": historical_strict_ok,
+                "uncheckedFeatures": unchecked,
+            },
+            "outsideHistoricalScope": outside_results,
             "schemaVersion": 1,
-            "totalFeatures": len(results),
-            "verdict": "allow" if rc_failed == 0 else "policy-fail",
+            "strictOk": aggregate_strict_ok,
+            "verdict": verdict,
         }, sort_keys=True))
-        return 0 if rc_failed == 0 else 1
-    # normal batch: strict on scoped features + planned actions must be zero
+        if engine_failures:
+            return 2
+        return 0 if aggregate_strict_ok else 1
+    # normal batch: canonical scope + strict on scoped features + no planned actions
+    scope_blockers = scope_check()
+    if scope_blockers:
+        print(json.dumps(envelope("check", batch_id, [], scope_blockers), sort_keys=True))
+        return 1
     actions, blockers = plan_batch(batch_id)
     features = sorted({action.path.split("/")[2] for action in actions})
     features += sorted({blocker.path.split("/")[2] for blocker in blockers
                         if len(blocker.path.split("/")) > 2})
-    strict_failures = strict_check_features(sorted(set(features)))
+    strict_results = strict_check_features(sorted(set(features)))
+    strict_failures = sum(
+        result["checked"] and not result["strictOk"] for result in strict_results
+    )
+    engine_failures = [
+        result["feature"] for result in strict_results if result["engineFailure"]
+    ]
     # decided-residual blockers are records, not pending work
     safe_pending = len([a for a in actions if not _residual_is_decided(a)]
                        ) + len([b for b in blockers
                                 if not _residual_is_decided(b)])
     safe_pending = max(safe_pending, 0)
+    verdict = (
+        "engine-fail" if engine_failures
+        else "allow" if safe_pending == 0 and strict_failures == 0
+        else "policy-fail"
+    )
     print(json.dumps({
         "batch": batch_id,
+        "engineFailureFeatures": engine_failures,
         "plannedSafeActionsRemaining": safe_pending,
         "schemaVersion": 1,
         "strictFailures": strict_failures,
-        "verdict": "allow" if safe_pending == 0 and strict_failures == 0 else "policy-fail",
+        "strictResults": strict_results,
+        "verdict": verdict,
     }, sort_keys=True))
+    if engine_failures:
+        return 2
     return 0 if safe_pending == 0 and strict_failures == 0 else 1
 
 
@@ -1930,14 +4553,6 @@ def build_apply_plan(batch_id: str):
     return plans, actions, []
 
 
-def _fsync_path(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-
 def verify_written_files(plans, batch_id: str = "") -> int:
     """Batch-strict check: every written artifact parses clean; status-line
     canon is asserted only by the batch that OWNS status rewrites
@@ -1961,21 +4576,9 @@ def verify_written_files(plans, batch_id: str = "") -> int:
 
 
 def run_apply_safe(batch_id: str) -> int:
-    if journal_exists(batch_id):
-        recovered_ok, failures = restore_from_journal(batch_id)
-        if not recovered_ok:
-            print(json.dumps({
-                "diagnostics": [{"code": "MIGRATION_RECOVERY_FAILED", "paths": failures}],
-                "schemaVersion": 1,
-                "verdict": "engine-fail",
-            }, sort_keys=True))
-            return 2
-    if journal_exists():           # another batch holds a stuck journal
-        print(json.dumps({
-            "diagnostics": [{"code": "MIGRATION_RECOVERY_REQUIRED"}],
-            "schemaVersion": 1, "verdict": "engine-fail",
-        }, sort_keys=True))
-        return 2
+    with _preflight_recovery_state() as recovery:
+        _process_claimed_recovery_roots(recovery)
+        _rescan_recovery_state(recovery)
     if not _working_tree_clean():
         print(json.dumps({
             "diagnostics": [{"code": "MIGRATION_DIRTY_TREE"}],
@@ -2005,9 +4608,9 @@ def run_apply_safe(batch_id: str) -> int:
     # Test-only fault injection (REQ-5.12): simulates a concurrent commit landing
     # AFTER capture; production never sets this env.
     if os.environ.get("SDD_RETROFIT_TEST_HEAD_MOVE") == "1":
-        probe = abs_repo(".ai/specs/apply-demo/probe.txt")
-        probe.parent.mkdir(parents=True, exist_ok=True)
-        probe.write_text("moved\n", encoding="utf-8")
+        _atomic_write_repo_file(
+            ".ai/specs/apply-demo/probe.txt", b"moved\n", create_parents=True
+        )
         _git(["add", "-A"])
         _git(["commit", "-qm", "interloper"])
     journal = Journal(batch_id=batch_id, captured_head=captured_head)
@@ -2017,109 +4620,109 @@ def run_apply_safe(batch_id: str) -> int:
             path=path_str, before_sha256=sha256(before), planned_sha256=sha256(planned),
         ))
         originals[path_str] = before
-    write_journal(batch_id, journal, originals)
-    # reload to bind original_file names
-    journal = load_journal(batch_id)
+    with _claim_new_journal(batch_id) as claim:
+        write_journal(batch_id, journal, originals, claim=claim)
+        # reload to bind original_file names
+        journal = load_journal(batch_id)
 
-    for index, (path_str, before, planned) in enumerate(plans):
-        target_record = journal.targets[index]
-        # precondition recheck (HEAD + exact bytes)
-        if git_out(["rev-parse", "HEAD"]).strip() != captured_head or \
-                sha256(read_bytes(abs_repo(path_str))) != target_record.before_sha256:
-            restored_ok, failures = restore_from_journal(batch_id)
+        for index, (path_str, before, planned) in enumerate(plans):
+            target_record = journal.targets[index]
+            # precondition recheck (HEAD + exact bytes)
+            if git_out(["rev-parse", "HEAD"]).strip() != captured_head or \
+                    sha256(read_bytes(abs_repo(path_str))) != target_record.before_sha256:
+                restored_ok, failures = restore_from_journal(batch_id, claim=claim)
+                print(json.dumps({
+                    "diagnostics": [{"code": "MIGRATION_HEAD_CHANGED", "restored": restored_ok,
+                                     "failedPaths": failures}],
+                    "schemaVersion": 1, "verdict": "engine-fail",
+                }, sort_keys=True))
+                return 2
+            target_record.pending = True
+            _write_journal_manifest(batch_id, journal, claim=claim)
+            target_path = abs_repo(path_str)
+            _atomic_write_repo_file(
+                target_path,
+                planned,
+                expected_sha256=target_record.before_sha256,
+            )
+            _post_diags = sc.parse_task_blocks(read_bytes(target_path), Path(path_str))[1]
+            # only regressions introduced by THIS write matter — legacy files may
+            # already carry non-canonical task bullets outside migration scope
+            import collections as _collections
+            _before_counts = _collections.Counter(
+                d.code for d in sc.parse_task_blocks(before, Path(path_str))[1]
+                if d.code.startswith(("TASK_",)))
+            _after_counts = _collections.Counter(
+                d.code for d in _post_diags if d.code.startswith(("TASK_",)))
+            fatal_post = [code for code, count in _after_counts.items()
+                          if count > _before_counts.get(code, 0)]
+            if fatal_post:
+                restored_ok, failures = restore_from_journal(batch_id, claim=claim)
+                print(json.dumps({
+                    "diagnostics": [{"code": "MIGRATION_FILE_CHANGED", "restored": restored_ok,
+                                     "failedPaths": failures}],
+                    "schemaVersion": 1, "verdict": "engine-fail",
+                }, sort_keys=True))
+                return 2
+            target_record.applied = True
+            target_record.pending = False
+            _write_journal_manifest(batch_id, journal, claim=claim)
+
+        # self re-dry-run must be a no-op, then per-file post-write contract check.
+        # Tolerance: follow-up actions derived purely from committed waiver
+        # decisions may surface AFTER an earlier transform created an Evidence
+        # header mid-batch (observations move) — they converge on the next
+        # invocation and are reported, never silently dropped.
+        remaining_actions, remaining_blockers = plan_batch(batch_id)
+        strict_rc = verify_written_files(plans, batch_id)
+        decided_residuals = [b for b in remaining_blockers if _residual_is_decided(b)]
+        undecided = [b for b in remaining_blockers if not _residual_is_decided(b)]
+
+        def _derived_followup(action) -> bool:
+            """Follow-up surfaced BY this batch's own transform: header rename
+            exposes bare-dotted refs that the ref planner then canonicalizes, and
+            metadata relocation makes the parser see new continuation regions on
+            the next pass. Anything the ledger decided is converging too."""
+            if action.target_field == "task.metadata":
+                return True
+            entry = (_ledger_get(action.path, action.target_field, action.task_id)
+                     or _ledger_get(action.path, action.target_field))
+            if entry is None:
+                entry = _ledger_get(action.path, "trace.table")
+            return entry is not None and bool(entry.get("disposition"))
+
+        converging_actions = [a for a in remaining_actions if _derived_followup(a)]
+        stray_actions = [a for a in remaining_actions if not _derived_followup(a)]
+        if undecided or strict_rc or stray_actions:
+            restored_ok, failures = restore_from_journal(batch_id, claim=claim)
             print(json.dumps({
-                "diagnostics": [{"code": "MIGRATION_HEAD_CHANGED", "restored": restored_ok,
-                                 "failedPaths": failures}],
+                "diagnostics": [{"code": "MIGRATION_FILE_CHANGED",
+                                 "reason": "verification", "restored": restored_ok,
+                                 "failedPaths": failures,
+                                 "remainingActions": len(stray_actions),
+                                 "remainingBlockers": len(undecided),
+                                 "samples": [
+                                     {"path": a.path, "field": a.target_field}
+                                     for a in stray_actions[:5]
+                                 ]}],
                 "schemaVersion": 1, "verdict": "engine-fail",
             }, sort_keys=True))
             return 2
-        target_record.pending = True
-        journal_root(batch_id).mkdir(parents=True, exist_ok=True)
-        _fsync_write(journal_root(batch_id) / "manifest.json",
-                     json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
-        tmp = abs_repo(path_str).with_suffix(".retrofit-applying")
-        tmp.write_bytes(planned)
-        os.replace(tmp, abs_repo(path_str))
-        _fsync_path(abs_repo(path_str))
-        _post_diags = sc.parse_task_blocks(read_bytes(abs_repo(path_str)), Path(path_str))[1]
-        # only regressions introduced by THIS write matter — legacy files may
-        # already carry non-canonical task bullets outside migration scope
-        import collections as _collections
-        _before_counts = _collections.Counter(
-            d.code for d in sc.parse_task_blocks(before, Path(path_str))[1]
-            if d.code.startswith(("TASK_",)))
-        _after_counts = _collections.Counter(
-            d.code for d in _post_diags if d.code.startswith(("TASK_",)))
-        fatal_post = [code for code, count in _after_counts.items()
-                      if count > _before_counts.get(code, 0)]
-        if fatal_post:
-            restored_ok, failures = restore_from_journal(batch_id)
-            print(json.dumps({
-                "diagnostics": [{"code": "MIGRATION_FILE_CHANGED", "restored": restored_ok,
-                                 "failedPaths": failures}],
-                "schemaVersion": 1, "verdict": "engine-fail",
-            }, sort_keys=True))
-            return 2
-        target_record.applied = True
-        target_record.pending = False
-        _fsync_write(journal_root(batch_id) / "manifest.json",
-                     json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
-
-    # self re-dry-run must be a no-op, then per-file post-write contract check.
-    # Tolerance: follow-up actions derived purely from committed waiver
-    # decisions may surface AFTER an earlier transform created an Evidence
-    # header mid-batch (observations move) — they converge on the next
-    # invocation and are reported, never silently dropped.
-    remaining_actions, remaining_blockers = plan_batch(batch_id)
-    strict_rc = verify_written_files(plans, batch_id)
-    decided_residuals = [b for b in remaining_blockers if _residual_is_decided(b)]
-    undecided = [b for b in remaining_blockers if not _residual_is_decided(b)]
-
-    def _derived_followup(action) -> bool:
-        """Follow-up surfaced BY this batch's own transform: header rename
-        exposes bare-dotted refs that the ref planner then canonicalizes, and
-        metadata relocation makes the parser see new continuation regions on
-        the next pass. Anything the ledger decided is converging too."""
-        if action.target_field == "task.metadata":
-            return True
-        entry = (_ledger_get(action.path, action.target_field, action.task_id)
-                 or _ledger_get(action.path, action.target_field))
-        if entry is None:
-            entry = _ledger_get(action.path, "trace.table")
-        return entry is not None and bool(entry.get("disposition"))
-
-    converging_actions = [a for a in remaining_actions if _derived_followup(a)]
-    stray_actions = [a for a in remaining_actions if not _derived_followup(a)]
-    if undecided or strict_rc or stray_actions:
-        restored_ok, failures = restore_from_journal(batch_id)
+        clear_journal(batch_id, claim=claim, operation="verified")
         print(json.dumps({
-            "diagnostics": [{"code": "MIGRATION_FILE_CHANGED",
-                             "reason": "verification", "restored": restored_ok,
-                             "failedPaths": failures,
-                             "remainingActions": len(stray_actions),
-                             "remainingBlockers": len(undecided),
-                             "samples": [
-                                 {"path": a.path, "field": a.target_field}
-                                 for a in stray_actions[:5]
-                             ]}],
-            "schemaVersion": 1, "verdict": "engine-fail",
+            "applied": [plan[0] for plan in plans],
+            "batch": batch_id, "schemaVersion": 1, "verdict": "allow",
+            "decidedResidualBlockers": [
+                {"path": b.path, "field": b.target_field, "taskId": b.task_id,
+                 "message": b.message}
+                for b in decided_residuals[:20]
+            ],
+            "followUpActionsNextPass": [
+                {"path": a.path, "field": a.target_field, "taskId": a.task_id}
+                for a in converging_actions[:20]
+            ],
         }, sort_keys=True))
-        return 2
-    clear_journal(batch_id)
-    print(json.dumps({
-        "applied": [plan[0] for plan in plans],
-        "batch": batch_id, "schemaVersion": 1, "verdict": "allow",
-        "decidedResidualBlockers": [
-            {"path": b.path, "field": b.target_field, "taskId": b.task_id,
-             "message": b.message}
-            for b in decided_residuals[:20]
-        ],
-        "followUpActionsNextPass": [
-            {"path": a.path, "field": a.target_field, "taskId": a.task_id}
-            for a in converging_actions[:20]
-        ],
-    }, sort_keys=True))
-    return 0
+        return 0
 
 
 def _residual_is_decided(blocker) -> bool:
@@ -2277,10 +4880,11 @@ def emit_resolution_template(path: str, batch_ids: list[str]) -> int:
             key=lambda d: (d["path"], d["field"], d.get("taskId", ""), d.get("line", 0)),
         ),
     }
-    target = abs_repo(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
-                      encoding="utf-8")
+    target = _atomic_write_repo_file(
+        path,
+        (json.dumps(payload, ensure_ascii=False, indent=1) + "\n").encode("utf-8"),
+        create_parents=True,
+    )
     print(f"wrote {len(payload['decisions'])} decision entries -> {target}")
     return 0
 
@@ -2310,33 +4914,59 @@ def main(argv: list[str]) -> int:
         return 2
     if args.batch not in ALL_BATCH_IDS:
         return 2
-    if args.emit_resolution_template:
-        _LEDGER_CACHE.clear()
-        return emit_resolution_template(args.emit_resolution_template, [args.batch])
-    modes = [flag for flag, given in
-             (("dry-run", args.dry_run), ("apply-safe", args.apply_safe), ("check", args.check)) if given]
-    if len(modes) != 1:
-        return 2
-    mode = modes[0]
-    if args.batch in READ_ONLY_ONLY_BATCHES and mode != "check":
-        return 2
     try:
+        if args.emit_resolution_template:
+            _LEDGER_CACHE.clear()
+            blocked = enforce_journal_clear("emit-resolution-template")
+            if blocked is not None:
+                return blocked
+            scope_blockers = scope_check()
+            if scope_blockers:
+                print(json.dumps(envelope(
+                    "emit-resolution-template", args.batch, [], scope_blockers
+                ), sort_keys=True))
+                return 1
+            return emit_resolution_template(args.emit_resolution_template, [args.batch])
+        modes = [flag for flag, given in
+                 (("dry-run", args.dry_run), ("apply-safe", args.apply_safe), ("check", args.check)) if given]
+        if len(modes) != 1:
+            return 2
+        mode = modes[0]
+        if args.batch in READ_ONLY_ONLY_BATCHES and mode != "check":
+            return 2
         if mode == "dry-run":
-            rc = run_dry_run(args.batch)
-        elif mode == "check":
-            rc = run_check(args.batch)
-        else:
-            rc = run_apply_safe(args.batch)
-    except GitFailure as failure:
+            return run_dry_run(args.batch)
+        if mode == "check":
+            return run_check(args.batch)
+        return run_apply_safe(args.batch)
+    except MigrationRecoveryRequired:
         print(json.dumps({
-            "diagnostics": [{"code": "ENGINE_INTERNAL", "detail": str(failure)}],
-            "schemaVersion": 1, "verdict": "engine-fail",
+            "diagnostics": [{"code": "MIGRATION_RECOVERY_REQUIRED"}],
+            "schemaVersion": 1,
+            "verdict": "engine-fail",
         }, sort_keys=True))
         return 2
-    except OSError as failure:
-        print(f"ENGINE_INTERNAL: {failure}", file=sys.stderr)
+    except MigrationFileChanged as failure:
+        print(json.dumps({
+            "diagnostics": [{"code": "MIGRATION_FILE_CHANGED", "detail": str(failure)}],
+            "schemaVersion": 1,
+            "verdict": "engine-fail",
+        }, sort_keys=True))
         return 2
-    return rc
+    except MigrationRecoveryFailure as failure:
+        print(json.dumps({
+            "diagnostics": [{"code": "MIGRATION_RECOVERY_FAILED", "detail": str(failure)}],
+            "schemaVersion": 1,
+            "verdict": "engine-fail",
+        }, sort_keys=True))
+        return 2
+    except (EngineFailure, GitFailure, OSError, ValueError) as failure:
+        print(json.dumps({
+            "diagnostics": [{"code": "ENGINE_INTERNAL", "detail": str(failure)}],
+            "schemaVersion": 1,
+            "verdict": "engine-fail",
+        }, sort_keys=True))
+        return 2
 
 
 if __name__ == "__main__":

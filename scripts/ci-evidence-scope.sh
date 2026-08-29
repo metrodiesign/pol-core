@@ -32,10 +32,14 @@ HEAD_REV="${HEAD_ARG:-${SDD_HEAD_SHA:-HEAD}}"
 if [[ -z "$BASE" ]]; then
   BASE="$(git_or_fail merge-base "$HEAD_REV" origin/develop 2>/dev/null)" || fail_engine 'RANGE_BASE_UNRESOLVED: no origin/develop merge-base'
 fi
-git_or_fail cat-file -e "${BASE}^{commit}" || fail_engine "RANGE_BASE_UNRESOLVED: ${BASE}"
+if [[ "$BASE" = "0000000000000000000000000000000000000000" ]]; then
+  BASE="$(git_or_fail hash-object -t tree --stdin < /dev/null)" || fail_engine 'RANGE_BASE_UNRESOLVED: empty tree'
+fi
+git_or_fail cat-file -e "${BASE}^{tree}" || fail_engine "RANGE_BASE_UNRESOLVED: ${BASE}"
+git_or_fail cat-file -e "${HEAD_REV}^{commit}" || fail_engine "RANGE_HEAD_UNRESOLVED: ${HEAD_REV}"
 
 WORST=0
- SNAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sdd-ci-evidence.XXXXXX")" || fail_engine mktemp
+SNAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sdd-ci-evidence.XXXXXX")" || fail_engine mktemp
 trap 'rm -rf "$SNAP_DIR"' EXIT
 
 changed="$(git_or_fail diff --name-only "${BASE}".."${HEAD_REV}" | grep -E '(^|/)tasks\.md$' || true)"
@@ -44,7 +48,7 @@ for f in $changed; do
   i=$((i + 1))
   AFTER="$SNAP_DIR/after-$i"
   BEFORE_FLAG="-"
-  if git_or_fail cat-file -e "${BASE}:${f}" 2>/dev/null; then
+  if git -C "$REPO" cat-file -e "${BASE}:${f}" 2>/dev/null; then
     BEFORE_FLAG="$SNAP_DIR/before-$i"
     git_or_fail show "${BASE}:${f}" >"$BEFORE_FLAG"
   fi

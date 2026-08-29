@@ -25,7 +25,7 @@ CODEX_HOOK="$(cd "$(dirname "$0")/../../../.codex/hooks" && pwd)/spec-edit-guard
 pass=0
 fail=0
 
-SANDBOX="$(mktemp -d)"
+SANDBOX="$(mktemp -d)" || { echo "FAIL: mktemp" >&2; exit 1; }
 cleanup() { # assemble rm -rf at runtime so the literal never sits in this file
   local RMBIN FLAG; RMBIN="r""m"; FLAG="-r""f"
   "$RMBIN" "$FLAG" "$SANDBOX" 2>/dev/null || true

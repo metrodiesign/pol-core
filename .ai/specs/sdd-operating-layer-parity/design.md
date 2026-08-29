@@ -2,7 +2,7 @@
 
 > Status: approved 2026-08-25
 
-เอกสารนี้กำหนดสถาปัตยกรรมของ SDD operating layer ให้ `pol-core` ใช้ contract และ verdict เดียวกันบน Claude, Codex และ OpenCode พร้อม migration historical specs 62 directories แบบไม่สร้างหลักฐานขึ้นเอง โดยไม่แตะ product runtime หรือขยาย CI นอก verify paths
+เอกสารนี้กำหนดสถาปัตยกรรมของ SDD operating layer ให้ `pol-core` ใช้ contract และ verdict เดียวกันบน Claude, Codex และ OpenCode พร้อม migration canonical historical specs 61 directories แบบไม่สร้างหลักฐานขึ้นเอง โดยนับ feature `sdd-operating-layer-parity` แยก และไม่แตะ product runtime หรือขยาย CI นอก verify paths
 
 ## Architecture Overview
 
@@ -13,7 +13,7 @@
 | `Spec Contract Engine` | status grammar, status reference, phase, task, Evidence, EARS, trace, slice, state และ completed-task discovery | artifact bytes, canonical directory location กับ explicit CLI arguments | typed records, normalized verdict, diagnostics | `requirements.md:51-115`, `requirements.md:117-145` |
 | `Enforcement Engine` | quote-aware command spans, Evidence selection, command resolution, cache และ command execution | raw command, `GateSelection`, CI range | allow หรือ block พร้อม diagnostic เดิม | `requirements.md:117-161`, `requirements.md:252-265` |
 | Harness adapters | payload extraction, raw before/after byte capture, changed-range capture และ runtime-specific block mapping | Claude, Codex, OpenCode | `GateSelection` หรือ raw guard request เข้า engine กลาง | `.claude/hooks/task-gate.sh:7-38`, `.codex/hooks/task-gate.sh:27-83`, `.opencode/plugins/task-gate.js:37-68` |
-| `spec-retrofit.py` | writer เดียวของ historical artifact migration แบบ field-level และ batch recovery | current bytes, historical blobs, clean-tree snapshot, batch ID | recovered atomic batch หรือ field-level blocker | `requirements.md:163-190` |
+| `spec-retrofit.py` | writer เดียวของ historical artifact migration แบบ field-level, crash-consistent existing-file exchange และ owner-locked batch recovery | current bytes, historical blobs, clean-tree snapshot, batch ID | recovered atomic batch หรือ field-level blocker โดยไม่ทับ foreign bytes | `requirements.md:163-190`, `scripts/spec-retrofit.py:481-622`, `scripts/spec-retrofit.py:2256-2353` |
 | Shared consumers | task graph, slice, state และ repository binding | engine CLI หรือ import seam | pane-loop, cost, sync, SessionStart | `scripts/pane-loop.sh:79-135`, `scripts/cost_lib.py:11-17`, `.claude/settings.json:39-45` |
 | Repository alignment | source-to-assertion checks และ protected CI comparator | filesystem, canonical docs, merge-base blobs | fail-closed alignment diagnostics | `requirements.md:26-49`, `.github/workflows/ci.yml:17-273`, `.gitlab-ci.yml:22-258` |
 | CI verify cutover | strict checks หลัง migration ผ่าน โดยรักษา shell inventory เดิม | GitHub/GitLab verify jobs | durable merge evidence | `.github/workflows/ci.yml:17-82`, `.gitlab-ci.yml:22-55` |
@@ -21,7 +21,7 @@
 Boundary ที่ห้ามข้าม:
 
 - `scripts/spec_contract.py` เป็น read-only ต่อ `.ai/specs/**` ทุกคำสั่ง ห้ามเขียนหรือ normalize artifact โดยตรง
-- `scripts/spec-retrofit.py` เป็น writer เดียว และเขียนได้เฉพาะ historical specs 62 directories ที่อยู่ใน migration scope
+- `scripts/spec-retrofit.py` เป็น writer เดียว และเขียนได้เฉพาะ canonical historical named set 61 directories ที่อยู่ใน migration scope
 - `.ai/bin/*.sh` ห้ามถือ Markdown grammar สำเนา ทุก validation ต้องเรียก `spec_contract.py`
 - `scripts/guard_contract.py` ทำเฉพาะ detection-only shell parsing และไม่ execute input ส่วน policy verdict ยังคงอยู่ที่ enforcement entry points
 - Adapter, pre-commit และ CI ห้ามหา completed task หรือ parse Markdown เอง ต้องส่ง raw before/after bytes กับ changed ranges ให้ `spec_contract.py`
@@ -47,7 +47,7 @@ scripts/spec-retrofit.py --batch <id>
     -> scripts/spec_contract.py strict parser plus migration-only compatibility probe
     -> historical git blobs and field-level proof
     -> recovery journal from captured bytes
-    -> atomic replacement of one proven-safe batch
+    -> shared crash-consistent existing-file exchange with durable intent for one proven-safe batch
 ```
 
 ไม่มี database, daemon, network service หรือ persisted runtime state ใหม่ Cache ของ task gate อยู่ใต้ git dir และไม่ใช่ source of truth
@@ -138,6 +138,7 @@ Record ทั้งหมดเป็น immutable value ระหว่าง i
 | `LegacyContainer` | `label`, `fence_marker`, `payload_bytes`, `span` | historical field เดิม | payload bytes verbatim และ canonical parser ignore ทั้ง container |
 | `MigrationAction` | `path`, `target_field`, `task_id`, `field_span`, `before_bytes`, `after_bytes`, `proofs` | retrofit planner | field-level bytes exact, task ID optional, span ชี้ field เดียว, proof อย่างน้อยหนึ่งรายการต่อ field |
 | `MigrationBlocker` | `code`, `path`, `target_field`, `task_id`, `line`, `current_evidence`, `historical_evidence` | retrofit planner | compatibility result จบได้เฉพาะ blocker หรือ action ไม่มี guessed resolution |
+| `DurableWriteIntent` | `schema_version`, `target_path`, `swap_name`, `expected_sha256`, `planned_sha256`, `expected_device`, `expected_inode`, `planned_device`, `planned_inode` | existing-file writer | intent อยู่ใต้ trusted git-dir root, fsync ก่อน exchange, ชี้ swap entry ใน target directory และ writer ถือ `.owner.lock` แบบ `LOCK_EX` ตลอดอายุ write |
 
 ความสัมพันธ์สำคัญ:
 
@@ -150,6 +151,7 @@ Record ทั้งหมดเป็น immutable value ระหว่าง i
 - Engine require `changed_ranges` เท่ากับ canonical non-equal diff opcodes ที่สร้างจาก `before_bytes` กับ `after_bytes` คู่นั้นแบบ exact หาก range มาจาก snapshot อื่น, ขาด, เกิน หรือ out-of-bounds ให้คืน `GATE_RANGE_INVALID` แบบ engine-fail
 - `NormalizedCommandSpan.children` เก็บ command substitutions และ wrapper payload ที่ parse ซ้ำแบบ detection-only โดยไม่ execute bytes ใด
 - `MigrationAction` ทุกตัวผูก field เดียวและอ้าง `MigrationProof` ของ field นั้น ส่วน input ที่ไม่มี proof กลายเป็น `MigrationBlocker`
+- `DurableWriteIntent` เป็น recovery truth ต่อ write หนึ่งรายการและไม่แทน batch journal Intent บอกตำแหน่ง swap กับ expected/planned inode identity เพื่อจำแนก crash state ส่วน batch journal ยังคงบอกว่าควร restore path ใด
 - Legacy text ที่ต้องเก็บถูกครอบด้วย `LegacyContainer` โดยใช้ fence ยาวกว่าลำดับ backtick ยาวสุดใน payload อย่างน้อยหนึ่งตัว เพื่อคง payload bytes verbatim และไม่ปิด fence ก่อนเวลา
 
 Python import seam ที่ consumer ภายในใช้ได้:
@@ -522,7 +524,9 @@ Pi alignment เป็นเอกสารเท่านั้น:
 
 ## Migration Algorithm
 
-Migration scope คือ historical directories 62 รายการที่มีอยู่ก่อน feature นี้ Directory `.ai/specs/sdd-operating-layer-parity/` ไม่รวมใน retrofit count แต่ยังถูก `check --all --strict` ตรวจตาม active authoring-chain contract Current filesystem มี 63 directories รวม feature นี้ และ historical set 62 directories ตาม `requirements.md:163-190`
+Migration scope คือ canonical historical directories ที่ระบุชื่อไว้ 61 รายการ Directory `.ai/specs/sdd-operating-layer-parity/` เป็น original current feature ที่ไม่รวมใน retrofit count และต้องรายงานแยก ส่วน feature ใหม่ภายหลังอยู่นอก historical migration scope โดยไม่เปลี่ยน membership ทั้งนี้ `check --all --strict` ยังตรวจ direct spec directory ทุกตัวตาม contract
+
+แหล่งความจริงของ membership คือ tuple `CANONICAL_HISTORICAL_FEATURES` ใน `scripts/spec-retrofit.py` ซึ่ง pin ชื่อครบ 61 ตัว ห้าม derive จากจำนวน directory ปัจจุบันหรือ exclusion แบบ open-world
 
 ### CLI และ exit contract
 
@@ -538,11 +542,11 @@ CLI รับ mode หนึ่งค่าใน `--dry-run`, `--apply-safe`, `
 
 | Exit | Meaning |
 |---:|---|
-| `0` | batch dry-run ไม่มี blocker, batch apply กับ recovery cleanup สำเร็จ หรือ batch check ผ่าน |
+| `0` | batch dry-run ไม่มี blocker, batch apply กับ recovery retirement สำเร็จ หรือ batch check ผ่าน |
 | `1` | batch มี blocker, check พบ safe change ค้าง หรือ strict contract ไม่ผ่าน |
 | `2` | dirty tree, recovery ค้างหรือกู้ไม่ได้, HEAD/hash เปลี่ยน, I/O, git หรือ internal engine failure |
 
-Dry-run และ check ไม่เขียนไฟล์ใดทุกกรณี หากพบ recovery journal ให้คืน `MIGRATION_RECOVERY_REQUIRED` exit `2` โดยไม่ restore ส่วน output sort ด้วย `(batch_id, path, target_field, task_id, action, code, line)`
+Dry-run, check และ report ทุก format ห้ามแก้ target หรือ recovery root ที่ active, crash หรือ malformed marker หากพบ active journal, intent หรือ `.clearing-*` root ให้คืน `MIGRATION_RECOVERY_REQUIRED` exit `2` โดยรักษา bytes เดิม Valid retired root เป็น retained history และไม่เปลี่ยน verdict ของ read-only mode ส่วน `--emit-resolution-template` เขียนได้เฉพาะ output path ที่ผู้เรียกระบุหลังยืนยันว่าไม่มี active recovery state ค้าง และห้าม retire หรือทำ physical cleanup recovery state เช่นกัน Output sort ด้วย `(batch_id, path, target_field, task_id, action, code, line)`
 
 ### Classification และ proof
 
@@ -587,25 +591,94 @@ Historical proof algorithm:
 5. Commit message, checkbox, code existence, current test pass, sibling field หรือ conversation ใช้เป็น proof ไม่ได้
 6. Proof ขัดกันคืน `MIGRATION_PROOF_CONFLICT` ต่อ target field และหยุดเฉพาะ batch นั้นก่อนเขียน
 
+### Crash-consistent existing-file exchange
+
+Existing-file writer ทุก caller ใช้ shared protocol เดียวกันแทน rename-away และ `os.replace()` ส่วน initial original กับ initial manifest ที่ส่ง `expected_missing=True` คง no-clobber install เดิม เพราะ contract ของ path นั้นกำหนดว่า entry ต้องยังไม่มี
+
+| Platform | Primitive | Binding |
+|---|---|---|
+| Darwin | `renameatx_np(..., RENAME_SWAP)` | `ctypes.CDLL(None, use_errno=True)` กับ flag `0x2` |
+| Linux | `renameat2(..., RENAME_EXCHANGE)` | `ctypes.CDLL(None, use_errno=True)` กับ flag `0x2` |
+
+ห้าม hardcode syscall number และห้าม fallback ไป `os.replace()`, rename-away หรือ exchange-only หาก symbol ไม่มี หรือ probe บน filesystem เดียวกับ target คืน `ENOSYS`, `EINVAL`, `EOPNOTSUPP`, `EXDEV` หรือ error อื่น ให้ cleanup ได้เฉพาะ disposable probe files แล้วคืน engine failure ก่อน canonical mutation
+
+Existing-file write ทำตามลำดับนี้:
+
+1. เปิด target ผ่าน directory fd แบบ `O_NOFOLLOW`, require regular file link เดียว แล้วจับ expected bytes, SHA-256, device และ inode
+2. สร้าง planned swap entry ใน directory และ filesystem เดียวกับ target เขียน bytes, preserve mode และ fsync file
+3. Probe exchange ด้วย disposable entries สองตัวใน directory เดียวกัน แล้ว exchange กลับ หาก probe ไม่ผ่านให้ cleanup เฉพาะ disposable probe entries และหยุดก่อนแตะ canonical entry
+4. สร้าง intent recovery root แบบ no-clobber ใต้ `$(git rev-parse --git-dir)/sdd-retrofit-write-intents/v1/<token>/` พร้อม `intent.json` และ `.owner.lock` แล้ว writer เปิด lock file, acquire `flock(LOCK_EX)` และถือ fd ตั้งแต่ก่อน fsync intent กับ publish จน commit, atomic swap-back หรือ rollback พิสูจน์ state สำเร็จ หรือ process ตาย จากนั้น fsync intent, lock file, intent directory และ parent root
+5. Re-read canonical entry แล้ว require expected SHA-256 กับ inode identity เดิม ก่อนเรียก platform exchange ระหว่าง canonical basename กับ planned swap basename
+6. หลัง exchange ให้ re-read ทั้งสอง entries ถ้า canonical เป็น planned และ swap เป็น expected ให้ fsync target directory, cleanup displaced expected entry ซึ่งเป็น disposable swap entry ตาม protocol นี้เท่านั้น, fsync directory แล้ว retire claimed intent recovery root ผ่าน `_retire_claimed_recovery_root(claimed_fd, owner_lock_fd, operation)`
+7. ถ้า swap ถือ foreign entry เพราะเกิด race หลัง precheck ให้ atomic exchange กลับก่อน cleanup เพื่อคืน foreign bytes ไป canonical basename แล้วคืน `MIGRATION_FILE_CHANGED`
+8. Fault หรือ process interruption ทุกจุดปล่อย intent recovery root กับ swap entryไว้ให้ mutating startup จำแนกจาก state table ห้าม `finally` เดาหรือทำ physical cleanup กับ recovery root ที่ยังพิสูจน์ไม่ได้
+
+คำว่า `expected`, `planned` และ `foreign` ในตารางหมายถึงทั้ง SHA-256 และ inode identity ตรง intent ไม่ใช่ hash อย่างเดียว
+
+| Canonical entry | Swap entry | Recovery action |
+|---|---|---|
+| expected | planned | Exchange ยังไม่เกิดหรือ swap-back จบแล้ว Cleanup planned swap ได้เฉพาะเป็น disposable target-directory entry จาก protocol นี้ แล้ว retire claimed intent root ด้วย operation `uncommitted` |
+| planned | expected | Exchange สำเร็จ Cleanup displaced expected swap ได้เฉพาะเป็น disposable target-directory entry จาก protocol นี้ แล้ว retire claimed intent root ด้วย operation `committed` |
+| planned | missing | Displaced expected swap ไม่มีอยู่แล้ว Retire claimed intent root ด้วย operation `committed` |
+| expected | missing | Rollback หรือ no-op state พิสูจน์แล้ว Retire claimed intent root ด้วย operation `uncommitted` |
+| planned | foreign | Exchange กลับแบบ atomic เพื่อคืน foreign entry ไป canonical แล้วดำเนินตามแถว foreign/planned |
+| foreign | planned | รักษา foreign canonical Cleanup planned swap ได้เฉพาะเป็น disposable target-directory entry จาก protocol นี้, retire claimed intent root ด้วย operation `foreign-conflict` และคืน `MIGRATION_FILE_CHANGED` |
+| expected | foreign | Preserve canonical, swap, intent และ batch journal ทั้งหมด แล้วคืน `MIGRATION_RECOVERY_FAILED` |
+| foreign | expected | Preserve canonical, swap, intent และ batch journal ทั้งหมด แล้วคืน `MIGRATION_RECOVERY_FAILED` |
+| foreign | missing | Preserve canonical, swap, intent และ batch journal ทั้งหมด แล้วคืน `MIGRATION_RECOVERY_FAILED` |
+| ทุกคู่ state อื่นที่ไม่ตรงกับแถวก่อนหน้า รวม missing, symlink, non-regular หรือ identity อื่นของ canonical หรือ swap | — | Preserve canonical, swap, intent และ batch journal ทั้งหมด แล้วคืน `MIGRATION_RECOVERY_FAILED`; ห้าม physical cleanup หรือ exchange |
+
+### Append-only recovery retirement
+
+Recovery root คือ intent root, journal root หรือ legacy `.clearing-*` root ที่อยู่ใต้ trusted recovery parent เท่านั้น Recovery root ไม่เป็น disposable swap entry และ terminal state ทุกชนิดต้อง retain root และ children ไว้ in place
+
+`_retire_claimed_recovery_root(claimed_fd, owner_lock_fd, operation)` เป็น seam เดียวสำหรับ terminal retirement รับเฉพาะ fd ของ root และ owner lock ที่ caller เปิด, verify และ claim แล้ว จึงไม่มี `base_fd` หรือ `name` ให้ helper ใช้ traverse, move หรือเลือก root ใหม่ได้ Helper สร้าง `.retired-v1` แบบ zero-byte no-clobber ด้วย `O_CREAT | O_EXCL | O_NOFOLLOW` และ mode owner-only แล้ว fsync เฉพาะ marker fd กับ claimed directory fd ก่อนคืนผล โดยถือ owner lock จน fsync ครบ Marker ไม่มี schema, digest หรือ payload ใด
+
+Caller matrix นี้เป็น contract เดียวของ retirement ทั้ง implementation และ tests:
+
+| Caller | State ที่ retire | Owner-lock contract | `operation` |
+|---|---|---|---|
+| `_create_write_intent()` | error ก่อน publish intent | `owner_lock_fd=None` ได้เฉพาะเมื่อไม่มี entry `.owner.lock`; หากมี entry ต้องเปิด ตรวจ และ claim ก่อน | `create-error` |
+| `_delete_write_intent()` | terminal หรือ reconciled write intent | valid claimed owner lock fd บังคับ | terminal operation ตาม reconciled state |
+| `_remove_cleanup_tombstone()` | legacy stale `.clearing-*` | valid claimed owner lock fd บังคับ | `legacy-cleaning` |
+| `_remove_incomplete_journals()` | opaque pre-manifest generation | valid stale owner lock fd บังคับ | `incomplete-before-manifest` |
+| `clear_journal()` | recovered, rollback หรือ verified terminal journal | valid claimed owner lock fd บังคับ | terminal operation ตาม journal state |
+
+`.clearing-*` ไม่มี deletion protocol แยก แต่เป็น legacy caller ที่ต้องเข้าผ่าน seam และ marker contract เดียวกัน
+
+- Marker valid ต้องมี basename exact `.retired-v1`, เป็น regular file link เดียว ขนาด 0 mode owner-only และ inode ที่เปิดตรงกับ directory entry Marker missing บน root ที่ claimed แล้วหมายถึง active หรือ crash-before-marker ไม่ใช่ terminal state
+- Marker malformed ได้แก่ symlink, non-regular file, hardlink, nonzero size, mode ไม่ owner-only หรือ inode mismatch ต้อง preserve bytes และคืน `MIGRATION_RECOVERY_FAILED` ไม่มี mutating path ใดซ่อมหรือแทน marker อัตโนมัติ
+- Read-only mode ไม่ acquire lock, ไม่สร้าง marker และไม่เปลี่ยน recovery root: valid retired root เป็น retained terminal history ส่วน active หรือ crash state คืน `MIGRATION_RECOVERY_REQUIRED`
+- Mutating startup เปิด root และ `.owner.lock` ด้วย `O_NOFOLLOW`, verify identity และใช้ `flock(LOCK_EX | LOCK_NB)` Active owner ทำให้คืน `MIGRATION_RECOVERY_REQUIRED` โดย tree byte-identical; stale owner ที่ claim ได้จึง reconcile ตาม state table และ retire root เฉพาะหลัง canonical target state พิสูจน์แล้ว
+- ไม่มี automatic `unlink`, `rmdir`, `rmtree` หรือ rename ของ recovery root, marker หรือ child ใด การ purge retention เป็น manual operator procedure นอก scope และต้องไม่ถูกเรียกจาก retrofit tool
+
+การ cleanup ทางกายภาพอนุญาตเฉพาะ disposable probe entry และ disposable planned/displaced swap entry ที่อยู่ใน target directory และเข้า state ที่ table พิสูจน์ไว้แล้วเท่านั้น ข้อยกเว้นนี้ไม่ครอบ intent/journal/`.clearing-*` root, marker หรือ child ใด
+
 ### Safe apply และ concurrency
 
-`--apply-safe --batch <id>` ทำตามลำดับตายตัว:
+`--apply-safe --batch <id>` ใช้ **total generation resolver** ก่อน mutation ใด ๆ โดยถือ parent `.mutation.lock` แบบ exclusive ตลอด pass ตั้งแต่ scan แรกจนสร้าง generation ใหม่หรือคืน verdict. Lock นี้เป็น serialization ของ journal parent; ไม่แทน owner lock ของแต่ละ recovery root และไม่ถูกนับเป็น recovery root.
 
-1. ตรวจ recovery journal ก่อนงานอื่น หากมี journal ค้าง ให้ hash current bytes ของทุก `pending_path` และ `applied_paths` ก่อน restore แต่ละ path Restore captured original bytes ได้เฉพาะเมื่อ current hash ตรงกับ captured-before hash หรือ planned-after hash ถ้าไม่ตรงทั้งสองให้ถือว่ามี concurrent owner แก้หลัง replace, preserve current bytes, คง journal และคืน `MIGRATION_RECOVERY_FAILED` โดยไม่เริ่ม batch ใหม่
-2. Require clean working tree รวม untracked files และยืนยัน batch ID อยู่ใน fixed registry
-3. ยืนยัน historical scope เท่ากับ 62 directories และ exclude feature ปัจจุบันเพียง directory เดียว
-4. Capture `HEAD`, exact full-file before bytes, SHA-256 และ expected field-level `before_bytes` ของทุก target file ของ batch
-5. สร้าง field-level actions, compose planned full-file bytes ใน memory และ temp file directory เดียวกับ target
-6. Parse และ validate planned bytes ทุกไฟล์ รวม strict parser ignore กับ round-trip ของ `LegacyContainer` ก่อน replace ใด
-7. เขียน recovery journal ใต้ `$(git rev-parse --git-dir)/sdd-retrofit-recovery/v1/<batch_id>/` ให้ครบก่อน write โดยเก็บ batch ID, captured HEAD, target path, captured-before SHA-256, planned-after SHA-256, exact original bytes, `pending_path` และ `applied_paths` แล้ว fsync manifest กับ snapshot files
-8. ก่อน replace ของทุกไฟล์ตาม sorted path ให้ re-check `HEAD`, SHA-256 กับ exact full-file bytes ของ target ปัจจุบัน และ expected field-level `before_bytes` ทุก action ของไฟล์นั้นเทียบ captured snapshot
-9. หาก precondition ใดเปลี่ยน ให้หยุดก่อนเขียนไฟล์ปัจจุบัน, คง current/remaining targets ไว้ตาม bytes ที่พบ และเข้า hash-guarded recovery เฉพาะ `pending_path` กับไฟล์ก่อนหน้าที่อยู่ใน `applied_paths`
-10. เมื่อ precondition ผ่าน ให้บันทึก target เป็น `pending_path` และ fsync journal ก่อน `os.replace`; หลัง replace, fsync target, parse post-write, mark path เข้า `applied_paths`, clear `pending_path` และ fsync journal ก่อนวนไฟล์ถัดไป
-11. หาก replace, process interruption หรือ post-write parse fail ให้ hash current bytes ก่อน restore ทุก `pending_path` และ `applied_paths` แล้ว atomic replace ด้วย captured original bytes เฉพาะ path ที่ current hash ตรง captured-before หรือ planned-after เท่านั้น Path ที่ไม่ตรงทั้งสองต้อง preserve current bytes, คง journal และทำให้ invocation คืน `MIGRATION_RECOVERY_FAILED` exit `2`; ห้าม restore untouched current/remaining targets
-12. เมื่อ writes ครบ ให้รัน `--dry-run --batch <id>` ใน process เดียวกัน Safe actions ต้องเป็นศูนย์ แล้วรัน strict check ของ batch
-13. ลบ recovery journal หลัง verification ผ่านเท่านั้น Final cutover ใช้ invocation แยก `--check --batch final-all-spec` เพื่อพิสูจน์ historical 62 directories ทั้งชุด
+1. ภายใต้ `.mutation.lock` ให้ scan และ classify entry ทุกตัวใต้ trusted journal parent โดย ignore `.mutation.lock` และ valid retired root เท่านั้น; root ที่ unretired ทุกตัวต้องเก็บ classification, logical `batchId` (มีได้จาก valid manifest เท่านั้น), generation และ owner-lock state ก่อน mutation แรก
+2. Claim owner lock แบบ non-blocking ของ **ทุก** root ที่ stale และ structurally valid ตาม sorted root order แล้วถือ claim/lock เหล่านั้นตลอด resolver pass; ห้าม retire, restore, clear หรือสร้าง generation ระหว่าง scan, classification และ claim นี้
+3. ใช้ precedence กับ full classified set: malformed root ใด ๆ คืน `MIGRATION_RECOVERY_FAILED`; ถัดมาหาก owner ใด active คืน `MIGRATION_RECOVERY_REQUIRED`; ถัดมาหากมี unretired manifest generations ตั้งแต่สอง root ที่มี logical `batchId` เดียวกัน คืน `MIGRATION_RECOVERY_FAILED` ทั้งสามกรณีไม่ mutate root ใดและไม่สร้าง generation ใหม่
+4. เมื่อเหลือเพียง stale valid roots ให้ process **ครบทุก root** ตาม sorted root order โดย lock ที่ claim ค้างอยู่: opaque pre-manifest root retire ด้วย `incomplete-before-manifest`; manifest root ทุก batch (ไม่จำกัด target batch) hash-guard `pending_path` และ `applied_paths`, restore captured original bytes เฉพาะ current hash ที่ตรง captured-before หรือ planned-after แล้ว retire root. Hash guard ที่ไม่ผ่าน preserve bytes และคืน `MIGRATION_RECOVERY_FAILED`
+5. หลัง process ครบทุก root ให้ rescan และ classify journal parent ใหม่ภายใต้ `.mutation.lock` เดิมก่อน claim generation ใหม่. State ที่ยอมรับได้มีเพียง `.mutation.lock` และ valid retired roots. Root ใหม่หรือ root ที่ยัง unretiredห้ามถูก claim หรือ mutate ใน pass นี้: malformed หรือ duplicate logical `batchId` คืน `MIGRATION_RECOVERY_FAILED`; active owner หรือ stale valid unretired root คืน `MIGRATION_RECOVERY_REQUIRED`; ทั้งหมดห้ามสร้าง generation ใหม่
+6. เมื่อ rescan ผ่าน จึง require clean working tree รวม untracked files, ยืนยัน batch ID อยู่ใน fixed registry และยืนยัน canonical historical membership ตรง named set 61 directories; รายงาน original current feature และ feature อื่นนอก migration scope แยก
+7. Capture `HEAD`, exact full-file before bytes, SHA-256 และ expected field-level `before_bytes` ของทุก target file ของ target batch
+8. สร้าง field-level actions, compose planned full-file bytes ใน memory และ temp file directory เดียวกับ target แล้ว parse และ validate planned bytes ทุกไฟล์ รวม strict parser ignore กับ round-trip ของ `LegacyContainer` ก่อน existing-file exchange ใด
+9. จึงสร้าง root `.journal-<32hex>` ด้วย exclusive `mkdir`, สร้างและ claim `.owner.lock` แล้ว publish `manifest.json` state `preparing` ที่มี logical `batchId`, generation, captured HEAD, target path, captured-before SHA-256, planned-after SHA-256, exact original bytes, `pending_path` และ `applied_paths`; fsync manifest กับ snapshot files และใช้ content CAS สำหรับ manifest update รอบถัดไป ห้ามสร้าง legacy root หรือ preparing marker
+10. ก่อน shared crash-consistent existing-file exchange ของทุกไฟล์ตาม sorted path ให้ re-check `HEAD`, SHA-256 กับ exact full-file bytes ของ target ปัจจุบัน และ expected field-level `before_bytes` ทุก action ของไฟล์นั้นเทียบ captured snapshot
+11. หาก precondition ใดเปลี่ยน ให้หยุดก่อนเขียนไฟล์ปัจจุบัน, คง current/remaining targets ไว้ตาม bytes ที่พบ และเข้า hash-guarded recovery เฉพาะ `pending_path` กับไฟล์ก่อนหน้าที่อยู่ใน `applied_paths`
+12. เมื่อ precondition ผ่าน ให้บันทึก target เป็น `pending_path` และ fsync journal ก่อนเรียก shared crash-consistent existing-file exchange พร้อม durable intent เพื่อ publish planned bytes; หลัง helper commit, fsync target, parse post-write, mark path เข้า `applied_paths`, clear `pending_path` และ fsync journal ก่อนวนไฟล์ถัดไป
+13. หาก shared helper failure, process interruption หรือ post-write parse fail ให้ hash current bytes ก่อน restore ทุก `pending_path` และ `applied_paths` แล้วเรียก shared crash-consistent existing-file exchange พร้อม durable intent เพื่อ restore captured original bytes เฉพาะ path ที่ current hash ตรง captured-before หรือ planned-after เท่านั้น Path ที่ไม่ตรงทั้งสองต้อง preserve current bytes, คง journal และทำให้ invocation คืน `MIGRATION_RECOVERY_FAILED` exit `2`; ห้าม restore untouched current/remaining targets
+14. เมื่อ writes ครบ ให้รัน `--dry-run --batch <id>` ใน process เดียวกัน Safe actions ต้องเป็นศูนย์ แล้วรัน strict check ของ batch
+15. หลัง verification ผ่าน ให้ retire claimed journal root in place ผ่าน `_retire_claimed_recovery_root(claimed_fd, owner_lock_fd, "verified")` Final cutover ใช้ invocation แยก `--check --batch final-all-spec` เพื่อพิสูจน์ canonical historical named set 61 ตัว และรายงาน current feature แยก
 
-Per-file write ยังใช้ atomic replace แต่ทุก target มี per-file concurrency precondition ก่อน replace และ batch มี compensating recovery จาก captured bytes เฉพาะ path ที่ journal ระบุว่า tool อาจเขียน Recovery เป็น idempotent เมื่อ current hash ตรง captured-before และเขียน original bytes กลับได้เมื่อ current hash ตรง planned-after เท่านั้น ค่าอื่นพิสูจน์ว่ามี owner อื่นแก้หลัง replace จึงห้าม overwrite ไม่พึ่ง commit, `git reset` หรือ automatic commit Tool ไม่ commit, push หรือเปิด CI เอง
+การ classify root ใช้ valid `manifest.json` เป็นแหล่งเดียวของ logical `batchId`; opaque root ที่ไม่มี manifest เป็น global incomplete pre-manifest generation และไม่มี batch identity. Legacy bare `<batch_id>` root ใช้ generation `0` เพื่ออ่านและ reconcile เท่านั้น. ทุก existing-file apply และ recovery restore ใช้ shared crash-consistent existing-file exchange พร้อม durable intent โดยทุก target มี per-file concurrency precondition ก่อน helper ทำงาน และ batch มี compensating recovery จาก captured bytes เฉพาะ path ที่ journal ระบุว่า tool อาจเขียน Recovery เป็น idempotent เมื่อ current hash ตรง captured-before และ publish captured original bytes กลับได้เมื่อ current hash ตรง planned-after เท่านั้น ค่าอื่นพิสูจน์ว่ามี owner อื่นแก้หลัง helper commit จึงห้าม overwrite ไม่พึ่ง commit, `git reset` หรือ automatic commit Tool ไม่ commit, push หรือเปิด CI เอง
+
+`.clearing-*` legacy recovery roots ใช้ generation `0` และ owner validation เดียวกับ journal root เมื่อ state terminal พิสูจน์แล้วให้ retire in place ด้วย marker เดียวกัน ไม่ให้มี protocol cleanup tombstone แยกต่างหาก
+
+Retention เป็น contract ด้าน disk: recovery roots ที่ retired แล้วไม่ถูก garbage-collect อัตโนมัติ, `--dry-run`, `--check` และ repeat `--apply-safe` ที่ no-op ต้องไม่เพิ่ม root/marker ใหม่, และ repeated successful logical batches อาจเพิ่ม retained history หนึ่ง root ต่อ invocation ที่เริ่ม apply ได้ Operator เป็นผู้กำหนด disk budget และ manual purge นอก scope เท่านั้น
 
 ### Activity flow
 
@@ -613,17 +686,33 @@ Per-file write ยังใช้ atomic replace แต่ทุก target ม�
 flowchart TD
     START((●)) --> BATCH[รับ mode เดียวและ batch ID เดียว]
     BATCH --> MODE{invocation mode คืออะไร?}
-    MODE -->|apply-safe| RECOVERY{มี recovery journal ค้างหรือไม่?}
-    MODE -->|dry-run หรือ check| JOURNAL_CLEAR{ไม่มี recovery journal ค้างใช่หรือไม่?}
-    JOURNAL_CLEAR -->|no| RECOVERY_REQUIRED[คืน MIGRATION_RECOVERY_REQUIRED โดยไม่เขียนไฟล์]
+    MODE -->|apply-safe| SCAN_ALL["scan และ classify ทุก trusted journal-parent entry<br/>ignore .mutation.lock กับ valid retired root"]
+    MODE -->|dry-run หรือ check| READ_ONLY{มี active หรือ crash recovery root หรือไม่?}
+    READ_ONLY -->|yes| RECOVERY_REQUIRED[คืน MIGRATION_RECOVERY_REQUIRED โดยไม่เขียนไฟล์]
     RECOVERY_REQUIRED --> END_F((◉))
-    JOURNAL_CLEAR -->|yes| INVENTORY[สแกน scope ของ batch และ historical baseline]
-    RECOVERY -->|yes| RESTORE[hash current pending/applied แล้ว restore original เฉพาะ hash ตรง before หรือ planned-after]
-    RESTORE --> RESTORED{ทุก path ผ่าน hash guard และกลับเป็น before hash หรือไม่?}
-    RESTORED -->|no| RECOVERY_FAIL[preserve current bytes คง journal และคืน MIGRATION_RECOVERY_FAILED]
+    READ_ONLY -->|no หรือ valid retired เท่านั้น| INVENTORY[สแกน scope ของ batch และ historical baseline]
+    SCAN_ALL --> CLASSIFY_ALL[full classify ทุก root และถือ parent mutation lock]
+    CLASSIFY_ALL --> ROOT_STATE{precedence ของ full classified set คืออะไร?}
+    ROOT_STATE -->|malformed root| RECOVERY_FAIL[preserve current bytes คง root และคืน MIGRATION_RECOVERY_FAILED]
+    ROOT_STATE -->|active owner| RECOVERY_REQUIRED
+    ROOT_STATE -->|duplicate logical batchId| RECOVERY_FAIL
+    ROOT_STATE -->|ไม่มีหรือ valid retired เท่านั้น| INVENTORY
     RECOVERY_FAIL --> END_F
-    RESTORED -->|yes| INVENTORY
-    RECOVERY -->|no| INVENTORY
+    ROOT_STATE -->|stale valid roots เท่านั้น| CLAIM_ALL[claim owner lock ของ stale valid roots ทั้งหมดตาม sorted order]
+    CLAIM_ALL --> NEXT_ROOT{ยังมี claimed root ที่ยังไม่ process หรือไม่?}
+    NEXT_ROOT -->|yes| ROOT_KIND{root เป็นชนิดใด?}
+    ROOT_KIND -->|opaque pre-manifest| RETIRE_INCOMPLETE[retire pre-manifest root ด้วย incomplete-before-manifest]
+    RETIRE_INCOMPLETE --> NEXT_ROOT
+    ROOT_KIND -->|manifest ทุก batch| RESTORE[hash current pending/applied แล้ว restore original ผ่าน shared durable exchange เฉพาะ hash ตรง before หรือ planned-after]
+    RESTORE --> RESTORED{ทุก path ผ่าน hash guard และกลับเป็น before hash หรือไม่?}
+    RESTORED -->|no| RECOVERY_FAIL
+    RESTORED -->|yes| RETIRE_RECOVERED[retire claimed recovery root in place ด้วย .retired-v1]
+    RETIRE_RECOVERED --> NEXT_ROOT
+    NEXT_ROOT -->|no| RESCAN[rescan และ classify ใหม่, ถือ parent และ claimed locks เดิม]
+    RESCAN --> RESCAN_STATE{เหลือเฉพาะ mutation lock กับ valid retired roots หรือไม่?}
+    RESCAN_STATE -->|yes| INVENTORY
+    RESCAN_STATE -->|malformed หรือ duplicate logical batchId| RECOVERY_FAIL
+    RESCAN_STATE -->|active owner หรือ stale valid unretired root ใหม่| RECOVERY_REQUIRED
     INVENTORY --> COUNT{จำนวนและ shape ตรง baseline หรือไม่?}
     COUNT -->|no| BASE_BLOCK[รายงาน MIGRATION_SCOPE_MISMATCH และไม่เขียน target]
     BASE_BLOCK --> END_F
@@ -641,13 +730,13 @@ flowchart TD
     CLEAN -->|no| DIRTY[คืน MIGRATION_DIRTY_TREE และไม่เขียน target]
     DIRTY --> END_F
     CLEAN -->|yes| SNAPSHOT[จับ HEAD, full bytes, hashes และ planned files]
-    SNAPSHOT --> JOURNAL[เขียน original bytes กับ pending and applied state แล้ว fsync]
+    SNAPSHOT --> JOURNAL[สร้าง opaque journal พร้อม preparing manifest แล้ว fsync]
     JOURNAL --> NEXT_FILE{ยังมี target file หรือไม่?}
     NEXT_FILE -->|yes| RECHECK{HEAD, target hash และ expected before bytes ยังเดิมหรือไม่?}
     RECHECK -->|no| CONFLICT[หยุดก่อนเขียน current file และคง current bytes]
-    CONFLICT --> ROLLBACK[hash current pending/applied แล้ว restore original เฉพาะ hash ตรง before หรือ planned-after]
+    CONFLICT --> ROLLBACK[hash current pending/applied แล้ว restore original ผ่าน shared durable exchange เฉพาะ hash ตรง before หรือ planned-after]
     RECHECK -->|yes| PENDING[บันทึก pending path และ fsync journal]
-    PENDING --> APPLY[atomic replace current file แล้ว fsync]
+    PENDING --> APPLY[shared crash-consistent existing-file exchange พร้อม durable intent แล้ว fsync]
     APPLY --> APPLIED{post-write parse ผ่านหรือไม่?}
     APPLIED -->|no| ROLLBACK
     APPLIED -->|yes| MARK_APPLIED[ย้าย pending path เข้า applied paths แล้ว fsync]
@@ -658,12 +747,13 @@ flowchart TD
     STRICT -->|no| ROLLBACK
     ROLLBACK --> ROLLBACK_OK{ทุก path ผ่าน hash guard และกลับเป็น before hash หรือไม่?}
     ROLLBACK_OK -->|no| RECOVERY_FAIL
-    ROLLBACK_OK -->|yes| BATCH_FAIL[คืน batch failure หลัง recovery สำเร็จ]
+    ROLLBACK_OK -->|yes| RETIRE_ROLLED_BACK[retire claimed journal in place ด้วย .retired-v1]
+    RETIRE_ROLLED_BACK --> BATCH_FAIL[คืน batch failure หลัง recovery สำเร็จ]
     BATCH_FAIL --> END_F
-    STRICT -->|yes| CLEANUP[ลบ recovery journal]
-    CLEANUP --> FINAL{เป็น final-all-spec batch หรือไม่?}
+    STRICT -->|yes| RETIRE_VERIFIED[retire claimed journal in place ด้วย .retired-v1]
+    RETIRE_VERIFIED --> FINAL{เป็น final-all-spec batch หรือไม่?}
     FINAL -->|no| END_S
-    FINAL -->|yes| PARITY{62 directories และ adapter conformance ผ่านหรือไม่?}
+    FINAL -->|yes| PARITY{historical named set 61 ตัวและ current feature ถูกตรวจจริงหรือไม่?}
     PARITY -->|no| END_F
     PARITY -->|yes| CI[เปิด strict checks เฉพาะ verify paths]
     CI --> END_S
@@ -671,9 +761,9 @@ flowchart TD
     classDef ok fill:#1f6f3a,stroke:#3fb950,color:#fff
     classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
-    class DRY,APPLY,MARK_APPLIED,CLEANUP,CI,END_S ok
+    class DRY,APPLY,MARK_APPLIED,RETIRE_INCOMPLETE,RETIRE_RECOVERED,RETIRE_ROLLED_BACK,RETIRE_VERIFIED,CI,END_S ok
     class RECOVERY_REQUIRED,RECOVERY_FAIL,BASE_BLOCK,REPORT,DIRTY,CONFLICT,BATCH_FAIL,END_F fail
-    class MODE,JOURNAL_CLEAR,RECOVERY,RESTORED,COUNT,BLOCKED,ACTION,CHECK_ONLY,CLEAN,NEXT_FILE,RECHECK,APPLIED,NOOP,STRICT,ROLLBACK_OK,FINAL,PARITY gate
+    class MODE,READ_ONLY,ROOT_STATE,CLASSIFY_ALL,CLAIM_ALL,NEXT_ROOT,ROOT_KIND,RESCAN,RESCAN_STATE,RESTORED,COUNT,BLOCKED,ACTION,CHECK_ONLY,CLEAN,NEXT_FILE,RECHECK,APPLIED,NOOP,STRICT,ROLLBACK_OK,FINAL,PARITY gate
 ```
 
 Batch registry และลำดับดำเนินงานตายตัว:
@@ -687,13 +777,15 @@ Batch registry และลำดับดำเนินงานตายต�
 | `evidence` | Missing หรือ malformed Evidence fields |
 | `conflicting-status` | Conflicting statuses ที่ต้องจบเป็น blockers จนมี proof |
 | `ambiguous-directories` | Empty หรือ ambiguous directories ที่ต้องจบเป็น blockers จนมี proof |
-| `final-all-spec` | Strict audit historical 62 directories และ active feature |
+| `final-all-spec` | Strict audit canonical historical named set 61 ตัว, original current feature และ report ของ feature อื่นนอก migration scope |
 
 หนึ่ง invocation รับ batch เดียวตามตาราง `final-all-spec` เป็น read-only และรับเฉพาะ `--check`; mode อื่นกับ batch นี้เป็น invalid CLI exit `2` Batch ที่มี blocker ไม่ทำ safe subset ต่อโดยอัตโนมัติ Tool รายงานทั้งหมดแล้วหยุด เพื่อให้ review boundary ชัดและไม่ซ่อน partial interpretation หลัง batch ผ่าน operator อาจสร้าง checkpoint commit ผ่าน Ship flow แต่ retrofit tool และ pane-loop ไม่ commit เอง
 
 ## CI Cutover
 
-CI cutover เกิดหลัง migration second dry-run เป็น no-op, `--check` ผ่าน historical 62 directories, strict active-tree check ผ่าน และ cross-harness conformance ผ่านเท่านั้น
+CI cutover เกิดหลัง migration second dry-run เป็น no-op, `--check` ตรวจ canonical historical named set 61 ตัวกับ original current feature ตามจริง, strict all-tree check ผ่าน และ cross-harness conformance ผ่านเท่านั้น
+
+> Implementation state 2026-08-29: strict CI layer ถูก rollback ตาม REQ-8.1 หลัง all-tree check ตรวจ `63` directories แล้วพบ historical residual `53` directories (`0` unchecked). Baseline CI ใช้ `scripts/spec-trace.sh --all-compatible` ตรวจ requirements directories ทั้ง `52` รายการผ่าน compatibility reader โดยไม่ข้าม ledger; reader รองรับ `Satisfies:` เดิมและ bare task trace lines หลัง migration. Task 9 และ 10 กลับเป็น incomplete จน corpus strict ผ่าน; canonical engine และ local checks ยังคงทำงาน
 
 ### GitHub
 
@@ -753,7 +845,7 @@ Range object หรือ merge-base resolve ไม่ได้คืน `RANGE_
 
 ก่อน commit ที่เปิด strict CI ต้องมี observed pass ครบ:
 
-- `spec-retrofit.py --check --batch final-all-spec` รายงาน historical 62 directories ผ่านและ blocker เป็นศูนย์
+- `spec-retrofit.py --check --batch final-all-spec` ตรวจ canonical historical named set 61 ตัวจริง, รายงาน original current feature แยก และ blocker เป็นศูนย์
 - Dry-run รอบสองของทุก applied batch มี safe actions เป็นศูนย์
 - Python unit tests ผ่าน
 - GitHub shell inventory เดิมครบ และ shell fixtures ทุก inventory path ผ่าน
@@ -848,7 +940,7 @@ Testing ใช้ Python stdlib `unittest`, shell fixtures เดิม แล�
 | Test path | Scope | Requirement groups |
 |---|---|---|
 | `scripts/tests/test_spec_contract.py` | status grammar/reference, phase, raw GateSelection, task, Evidence, EARS, strict trace, slice, state | `REQ-2`, `REQ-3` |
-| `scripts/tests/test_spec_retrofit.py` | field actions, per-field proof, legacy container, batch CLI, captured-byte recovery, no-fabrication | `REQ-5`, `REQ-8` |
+| `scripts/tests/test_spec_retrofit.py` | field actions, per-field proof, legacy container, opaque journal generation resolver, append-only retirement, batch CLI, captured-byte recovery, no-fabrication | `REQ-5`, `REQ-8` |
 | `scripts/tests/test_guard_contract.py` | quote-aware spans, child substitutions, wrapper recursion, malformed input | `REQ-9` |
 | `scripts/tests/test_repo_policy_alignment.py` | source-to-assertion matrix, verification-record scope labels และ negative mutations | `REQ-1`, `REQ-6`, `REQ-7`, `REQ-8` |
 | `scripts/tests/test_ci_workflow_preservation.py` | shell inventory subset และ protected job byte comparator | `REQ-1`, `REQ-7` |
@@ -878,7 +970,7 @@ Negative fixtures copy เฉพาะ source files ที่ matrix row ใช�
 
 `test_repo_policy_alignment.py` ต้องมี verification fixture สำหรับ `REQ-8.13` แบบ data-driven ครบ Docker, SQL และ generic local check ที่ environment ทำให้รันไม่ได้ ทุก case ต้องสร้าง `local-environment-unverified` พร้อม `check_id`, exact command/check, `exit_code=null`, `observed_result=not-run`, reason, environment constraint, substitute evidence หรือ `none` และข้อความ `unverified; must not be claimed as pass` Negative variants ที่ตัด field บังคับ, ใช้ scope นอก closed set หรืออ้าง pass ต้องคืน `VERIFY_UNVERIFIED_FIELDS_MISSING`, `VERIFY_SCOPE_INVALID` หรือ `VERIFY_PASS_CLAIM_FORBIDDEN` ตามลำดับ
 
-`test_spec_contract.py` ใช้ data-driven cases ครบ adversarial input classes 1 ถึง 42 จาก `requirements.md:267-314` และเพิ่ม boundary cases ต่อไปนี้:
+`test_spec_contract.py` ใช้ data-driven cases ครบ adversarial input classes 1 ถึง 42 จาก `requirements.md:267-314` ส่วน `test_spec_retrofit.py` ครอบ migration และ retirement boundary cases ต่อไปนี้:
 
 - Unicode กับ CRLF โดย preserve bytes ที่ไม่เกี่ยว
 - Code fence ทั้ง backtick และ tilde พร้อม language tag
@@ -892,7 +984,12 @@ Negative fixtures copy เฉพาะ source files ที่ matrix row ใช�
 - Bare dotted trace ref strict fail และ compatibility probe คืนได้เฉพาะ migration action หรือ blocker
 - GateSelection range valid, out-of-bounds, stale snapshot, pre-existing completed task, newly-completed transition, after-only completed task ใน existing file ที่ใช้ full before snapshot และ absent whole file ที่ใช้ `before_exists=false`
 - Migration เปลี่ยน `HEAD`, target hash หรือ expected field `before_bytes` ระหว่าง file แรกกับ file ถัดไปแล้วต้องหยุดก่อนเขียน current file, restore prior applied paths และไม่ทับ concurrent bytes ของ current/remaining files
-- Recovery race fixture แก้ applied path หลัง atomic replace ให้ current hash ไม่ตรงทั้ง captured-before และ planned-after แล้วต้อง preserve current bytes, คง journal และคืน `MIGRATION_RECOVERY_FAILED`
+- Recovery race fixture แก้ applied path หลัง shared crash-consistent existing-file exchange ให้ current hash ไม่ตรงทั้ง captured-before และ planned-after แล้วต้อง preserve current bytes, คง journal และคืน `MIGRATION_RECOVERY_FAILED`
+- Retirement matrix ครบห้า caller และเงื่อนไขตาม canonical table: `_create_write_intent()` เมื่อ create-error, `_delete_write_intent()` เมื่อ terminal/reconcile, `_remove_cleanup_tombstone()` เมื่อ legacy clearing, `_remove_incomplete_journals()` เมื่อ pre-manifest และ `clear_journal()` เมื่อ terminal
+- Marker fixture ครบ valid retired, active no marker, active lock และ crash before marker; malformed ต้องครอบ symlink, non-regular, hardlink, nonzero size, non-owner-only mode และ inode mismatch โดยห้ามมี digest mismatch
+- Generation resolver fixture ครอบ full scan/classify และ claim stale valid roots ทั้งหมดก่อน mutation แรกภายใต้ parent mutation lock, manifest-only `batchId`, global pre-manifest no-manifest root แบบ active/stale/malformed, stale manifest generationเดียวและหลาย batch ที่ recover/retire ได้ตาม sorted order, opaque stale หลาย root ที่ retire ครบ, mixed active+stale ที่คืน `MIGRATION_RECOVERY_REQUIRED` โดยไม่มี mutation, mixed malformed+stale ที่คืน `MIGRATION_RECOVERY_FAILED` โดยไม่มี mutation, duplicate same batch ที่คืน exact `MIGRATION_RECOVERY_FAILED`, legacy generation `0`, no preparing marker และ post-pass rescan ที่พบ root ใหม่แล้วห้าม claim generation ใหม่
+- Retention fixture ยืนยัน repeat no-op ไม่เพิ่ม recovery root/marker และไม่มี automatic GC ของ retained history
+- Mutation test ที่ recovery-root operations ต้องแดงเมื่อพบ auto destructive syscall เช่น `unlink`, `rmdir`, `rmtree` หรือ rename บน root, marker หรือ child และต้องอนุญาตเฉพาะ disposable target-directory swap cleanup ที่ table ระบุ
 - JSON กับ text output ให้ code และ ordering เดียวกัน
 
 Required mutation checks ต้องแดงเมื่อ:
@@ -910,10 +1007,11 @@ Required mutation checks ต้องแดงเมื่อ:
 11. ลบ existing GitHub shell inventory token หรือเปลี่ยน protected GitHub/GitLab job byte หนึ่งตัว
 12. ทำ negative source-alignment fixture ใด fixture หนึ่งผ่าน
 13. ลบ per-file recheck ก่อน file ที่สอง, ให้ concurrent change ถูก replace หรือให้ recovery ทับ current/remaining file ที่ tool ยังไม่ได้เขียน
-14. ทำ process fail หลัง replace file แรกแล้วไม่ restore captured before bytes ของ pending/applied paths
+14. ทำ process fail หลัง shared crash-consistent existing-file exchange file แรกแล้วไม่ restore captured before bytes ของ pending/applied paths
 15. สลับ exit ของ `REPO_ORIGIN_MISSING` กับ `REPO_MANIFEST_MISMATCH` หรือ collapse เป็น exit เดียว
 16. ตัด `temporary-static-workflow` หรือ `temporary-local-ci-equivalent` ออกจาก remote-unavailable record หรือ relabel temporary evidence เป็น remote verified
-17. ให้ recovery overwrite applied path ที่ current hash ไม่ตรงทั้ง captured-before และ planned-after, ลบ journal หรือคืนค่าอื่นแทน `MIGRATION_RECOVERY_FAILED`
+17. ให้ recovery overwrite applied path ที่ current hash ไม่ตรงทั้ง captured-before และ planned-after, retire journal ก่อนพิสูจน์ target state หรือคืนค่าอื่นแทน `MIGRATION_RECOVERY_FAILED`
+18. ให้ caller ใดทำ physical destructive syscall หรือ rename กับ recovery root, marker หรือ child แทน `_retire_claimed_recovery_root`, ยอมรับ malformed marker, หรือให้ duplicate active logical batch ผ่าน
 
 Final verification commands:
 
@@ -998,7 +1096,7 @@ Protected-path fixture เปรียบเทียบ changed-path set กั
 
 ### เลือก staged migration ก่อน strict CI
 
-เลือก additive engine และ tests ตามด้วย retrofit batches, adapter cutover แล้วจึงเปิด strict verify การเปิด strict all-tree ตั้งแต่ commit แรกถูกตัดทิ้งเพราะ historical 62 directories มี status และ trace variants จริง รวม empty directory หนึ่งรายการ การ staged cutover ป้องกันทุก PR แดงก่อนมี deterministic migration path
+เลือก additive engine และ tests ตามด้วย retrofit batches, adapter cutover แล้วจึงเปิด strict verify การเปิด strict all-tree ตั้งแต่ commit แรกถูกตัดทิ้งเพราะ canonical historical named set 61 directories มี status และ trace variants จริง การ staged cutover ป้องกันทุก PR แดงก่อนมี deterministic migration path
 
 ### เลือก verdict parity แทน timing parity
 
@@ -1126,7 +1224,7 @@ Protected-path fixture เปรียบเทียบ changed-path set กั
 | REQ-5.5 | Migration Algorithm | Clean tree gate |
 | REQ-5.6 | Migration Algorithm | HEAD capture |
 | REQ-5.7 | Migration Algorithm | File hash capture |
-| REQ-5.8 | Migration Algorithm | Atomic replace |
+| REQ-5.8 | Migration Algorithm | Crash-consistent existing-file exchange |
 | REQ-5.9 | Migration Algorithm | Task ID preservation |
 | REQ-5.10 | Migration Algorithm | Task order preservation |
 | REQ-5.11 | Migration Algorithm | Lossless fenced legacy container |
@@ -1140,7 +1238,7 @@ Protected-path fixture เปรียบเทียบ changed-path set กั
 | REQ-5.19 | Migration Algorithm | No viewport fabrication |
 | REQ-5.20 | Migration Algorithm | No deviation fabrication |
 | REQ-5.21 | Migration Algorithm | Second dry-run no-op ต่อ batch |
-| REQ-5.22 | Migration Algorithm | `final-all-spec` strict check 62 directories |
+| REQ-5.22 | Migration Algorithm | `final-all-spec` strict check canonical historical named set 61 ตัว และ current feature แยก |
 | REQ-6.1 | Adapter Seams | Claude normalized verdict |
 | REQ-6.2 | Adapter Seams | Codex verdict parity |
 | REQ-6.3 | Adapter Seams | OpenCode verdict parity |

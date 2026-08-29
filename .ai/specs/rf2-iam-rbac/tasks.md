@@ -31,6 +31,7 @@
      catalog types + handlers เก่าทั้งสองฝั่ง (คง `RoleAssignment` 2 ตัว) + `ponytail: DUPLICATE`
      markers; ปรับ Admins.Tests/Merchants.Tests ทั้งชุดเดิมให้เขียวบน catalog ใหม่ (ห้ามลด assertion)
      Satisfies: REQ-1.5, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.2, 4.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6,
+     7.2, 7.3, 7.4, 7.5, 8.1. Depends on: 1.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 3. Unified enforcement + parity guard — `src/Hosts/Api/Iam/PermissionAuthorization.cs`:
      metadata `RequiredPermission` เดียว + extension `RequirePermission` เดียว + endpoint filter

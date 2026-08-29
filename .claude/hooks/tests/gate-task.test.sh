@@ -14,7 +14,7 @@ pass=0 fail=0
 ok() { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); echo "FAIL: $1"; }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/gate-task-test.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/gate-task-test.XXXXXX")" || { echo "FAIL: mktemp" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 SHIM="$TMP/shim"; LOG="$TMP/dotnet.log"; COUNT="$TMP/exec.count"

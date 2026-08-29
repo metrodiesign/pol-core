@@ -16,7 +16,7 @@ bad() { fail=$((fail+1)); echo "FAIL: $1"; }
 if python3 "$ENGINE" --check >/dev/null 2>&1; then ok; else bad "real tree misaligned"; fi
 
 # 2a. negative fixture: docs drift -> ALIGN_MODULES_MISMATCH
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/align-neg.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/align-neg.XXXXXX")" || { echo "FAIL: mktemp" >&2; exit 1; }
 mkdir -p "$TMP/src/Modules/Orders" "$TMP/.ai/shared"
 printf '<Project />\n' >"$TMP/src/Modules/Orders/Orders.csproj"
 cat >"$TMP/.ai/shared/ARCHITECTURE.md" <<'EOF'

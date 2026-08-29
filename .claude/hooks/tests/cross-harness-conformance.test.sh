@@ -17,7 +17,7 @@ pass=0 fail=0
 ok() { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); echo "FAIL: $1"; }
 
-SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/conformance.XXXXXX")"
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/conformance.XXXXXX")" || { echo "FAIL: mktemp" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 SPEC_DIR="$SANDBOX/.ai/specs/demo"
 mkdir -p "$SPEC_DIR"
@@ -55,7 +55,7 @@ green_body='> Status: approved 2026-08-01
 # helpers
 verdict_of() { # before after source -> prints envelope verdict via shared engine
   local bf="$1" af="$2" src="$3" work rfile
-  work="$(mktemp -d)"; rfile="$work/r.json"
+  work="$(mktemp -d)" || { echo "FAIL: mktemp" >&2; exit 1; }; rfile="$work/r.json"
   python3 "$ROOT/scripts/spec_contract.py" diff-ranges \
     --before-file "$bf" --after-file "$af" >"$rfile" || return 9
   bash "$ROOT/.ai/bin/check-evidence.sh" ".ai/specs/demo/tasks.md" \

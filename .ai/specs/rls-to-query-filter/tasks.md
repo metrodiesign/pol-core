@@ -24,7 +24,13 @@
      `MerchantId` + composite FK `(CartId,MerchantId)→Cart(Id,MerchantId)`; unbound actor ⇒ `Guid.Empty` ⇒ 0 rows;
      by-id loads auto-scope (IDOR closed).
      Satisfies: REQ-1.1-1.6 (read filter incl. outbox/vault-audit, fail-closed), REQ-1.2/2.7 (Merchant self-row),
-         `UserSessionAuthenticationHandler`/`HttpActorContext`/T11's Bearer-fallback retirement, not by a new test.
+     REQ-3.1 (unbound⇒Empty⇒0 rows), REQ-3.2 (unbound-dispatch throw, `MerchantGuardBehavior`/`MerchantBindingException`
+     — pre-existing cross-cutting guard, unchanged by this spec), REQ-3.3 (merchant-facing scheme never accepts a
+     client-supplied `merchant_id` claim to reject in the first place — `UserSessionAuthenticationHandler` always
+     server-derives it from the resolved session's real `MerchantUserId`, and the untrusted Bearer/JWT path that
+     could have carried a forged claim was retired by hierarchical-naming T11 — satisfied by construction, not by
+     a new test), REQ-3.4 (opaque fallback bucket — `ProblemDetailsExceptionHandler` maps unknown failures to
+     generic 500 without exception text), REQ-6 (aggregate-boundary suite), REQ-8.1/8.2/8.3/8.4/8.7. Depends on: 1.
 - [x] 3. **Write floor — sealed 4-overload guard (all contexts) + concurrency-token + immutable + CHECK + set-DML ban**
      Sealed override of all 4 SaveChanges overloads on every runtime context through one save-core → default-deny
      `IWriteAuthorizer` (operation/owner/tenant-aware); tenant/owner key = concurrency token + immutable after insert

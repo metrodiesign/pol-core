@@ -20,6 +20,8 @@
      NOT LIKE '77%'` assertion with `DocumentNo NOT LIKE '69%'` (hippodb's `PolicyYear` prefix).
      hippodb's Thai round-trip self-check (`DocumentNo LIKE N'%กธ%'`) stays as-is.
      Satisfies: REQ-1 (1.1, 1.3, 1.4, 1.5), REQ-2 (2.1, 2.2, 2.3, 2.7), REQ-3 (3.1, 3.2, 3.3, 3.4),
+     REQ-4.1, REQ-5 (all), REQ-6 (6.1, 6.2, 6.4 hippo half), REQ-7 (7.1, 7.3 hippo half, 7.4),
+     REQ-9 (all, hippo formulas).
 
 - [x] 2. mammothdb — compute-forward DocumentNo/PolicyNumber family (Non-Motor) + shared file header
      Same restructuring as task 1, applied to mammothdb's block: axis rows get a plain
@@ -36,6 +38,8 @@
      one, and add a reference line to this spec alongside the existing `products-sp-gateway`
      reference.
      Satisfies: REQ-1 (1.1, 1.2, 1.4, 1.5), REQ-2 (2.4, 2.5, 2.6, 2.7), REQ-3 (3.1, 3.2, 3.3, 3.4),
+     REQ-4 (4.2, 4.3), REQ-5 (all), REQ-6 (6.1, 6.2, 6.4 mammoth half, 6.5), REQ-7 (7.2, 7.3
+     mammoth half, 7.4), REQ-9 (all, mammoth formulas).
 
 - [x] 3. Integration.Tests — re-pin literals, DocumentType-aware Seq helper, replace the ordering test
      Update `Seqs()`/`DocumentNumbers()` in `SpDocumentContractTests.cs` to strip the trailing
@@ -56,4 +60,6 @@
      format.
      Depends on: 1, 2.
      Satisfies: REQ-1, REQ-2, REQ-3, REQ-9 (test-side verification of all three), REQ-8.5
+     (replaced test), REQ-8.1–8.4 (regression — these tests are the proof the pairing
+     invariants from prior rounds still hold).
 the just-derived formula context; task 3 depends on both finishing first regardless.

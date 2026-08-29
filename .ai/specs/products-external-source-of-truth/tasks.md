@@ -50,6 +50,9 @@
      + จุด enqueue + entry ใน `EventTypes` · ย้าย anchor ของ `Architecture.Tests` 5 ไฟล์ + ถอด entity
      `Product` ออกจาก write authorizer + ปรับ `assert-fresh-db.sql`
      Satisfies: REQ-1 (ทุกข้อ), REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4, REQ-2.6, REQ-4.1, REQ-4.2, REQ-4.3,
+     REQ-4.4, REQ-4.5, REQ-4.6, REQ-4.7, REQ-5.3, REQ-5.4, REQ-5.5, REQ-5.6, REQ-5.7, REQ-5.8, REQ-5.9,
+     REQ-5.16, REQ-6.1, REQ-6.2, REQ-6.3, REQ-6.4, REQ-6.5, REQ-6.6, REQ-6.7, REQ-6.8, REQ-7 (ทุกข้อ),
+     REQ-8 (ทุกข้อ), REQ-9 (ทุกข้อ).
 
 - [x] 5. **รื้อข้อมูล demo ให้ยืนบนต้นทางจริง** — `docker/bootstrap/seed-demo.sql` เลิกสร้างและเลิกอ่านกลับ
      จาก `shop.Products`, ตั้ง `SaleCode` ของ merchant user เป็นรหัสที่มีจริงในต้นทาง, แถว cart/order

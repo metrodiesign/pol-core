@@ -5,7 +5,7 @@
 
 ## ภาพรวม
 
-งานนี้ทำให้ SDD operating layer ของ `pol-core` ใช้ shared deterministic contract เดียวกันสำหรับ Claude, Codex และ OpenCode พร้อมย้าย historical specs 62 directories อย่างตรวจสอบย้อนกลับได้ โดยคง product runtime, .NET/SQL security floor, CI topology และ release flow เดิมทั้งหมด เอกสารนี้กำหนดเฉพาะพฤติกรรมที่ต้องสังเกตได้จาก `AC-1` ถึง `AC-32` และ adversarial property โดยยังไม่กำหนด architecture หรือ implementation tasks และไม่ถือว่า downstream artifact ใดได้รับ approval แล้ว
+งานนี้ทำให้ SDD operating layer ของ `pol-core` ใช้ shared deterministic contract เดียวกันสำหรับ Claude, Codex และ OpenCode พร้อมย้าย canonical historical specs 61 directories อย่างตรวจสอบย้อนกลับได้ โดยนับ feature `sdd-operating-layer-parity` แยกจาก historical inventory และคง product runtime, .NET/SQL security floor, CI topology และ release flow เดิมทั้งหมด เอกสารนี้กำหนดเฉพาะพฤติกรรมที่ต้องสังเกตได้จาก `AC-1` ถึง `AC-32` และ adversarial property โดยยังไม่กำหนด architecture หรือ implementation tasks และไม่ถือว่า downstream artifact ใดได้รับ approval แล้ว
 
 ## ขอบเขต
 
@@ -13,7 +13,7 @@
 
 - Canonical parsing และ validation ของ status, phase, task ID, Evidence, EARS, trace, slice และ derived state
 - Task completion gate แบบ fail-closed พร้อม .NET default commands และ safe cache
-- No-fabrication migration ของ historical specs 62 directories
+- No-fabrication migration ของ canonical historical specs 61 directories โดยนับ current feature แยก
 - Verdict parity ของ Claude, Codex และ OpenCode ตาม runtime capability จริง
 - Strict checks ใน GitHub และ GitLab เฉพาะ verify paths
 - Rollback แบบแยก layer และแยก migration batch
@@ -188,7 +188,7 @@
 - 5.19  WHILE retrofit tool migrate artifacts THE SYSTEM SHALL ไม่สร้าง viewport result ขึ้นเอง
 - 5.20  WHILE retrofit tool migrate artifacts THE SYSTEM SHALL ไม่สร้าง deviation ขึ้นเอง
 - 5.21  WHEN safe migration batch ถูก apply แล้ว THE SYSTEM SHALL ทำ dry-run รอบถัดไปโดยรายงาน safe changes เป็นศูนย์
-- 5.22  WHEN strict CI cutover ถูกเสนอ THE SYSTEM SHALL require `--check` ให้ผ่านครบ 62 spec directories
+- 5.22  WHEN strict CI cutover ถูกเสนอ THE SYSTEM SHALL require `--check` ให้ตรวจ canonical historical directory ที่ระบุชื่อไว้ครบ 61 ตัว และรายงาน current feature แยก
 
 ## REQ-6: Adapter parity ตาม runtime capability จริง
 
@@ -343,7 +343,7 @@
 | `AC-21` | `REQ-5.1` ถึง `REQ-5.4` | Dry-run golden output เรียง actions และ blockers คงที่ พร้อม proof และ clean-tree diff เป็นศูนย์ |
 | `AC-22` | `REQ-5.5` ถึง `REQ-5.13` | Safe-apply fixtures แสดง dirty-tree block, captured HEAD/hash, atomic replace, preservation และ concurrent-change stop |
 | `AC-23` | `REQ-5.14` ถึง `REQ-5.20` | No-proof และ conflicting-history fixtures แสดง blocker โดยไม่มี fabricated status หรือ Evidence fields |
-| `AC-24` | `REQ-5.21`, `REQ-5.22` | Applied batch มี second dry-run เป็น no-op และ strict check รายงาน 62 directories ผ่านก่อน CI cutover |
+| `AC-24` | `REQ-5.21`, `REQ-5.22` | Applied batch มี second dry-run เป็น no-op และ strict check ตรวจ canonical historical named set 61 ตัว พร้อมรายงาน current feature แยกก่อน CI cutover |
 | `AC-25` | `REQ-6.1` ถึง `REQ-6.4` | Cross-harness conformance fixture แสดง Claude, Codex และ OpenCode verdict เท่ากันทุก normalized case |
 | `AC-26` | `REQ-6.5` ถึง `REQ-6.9` | Policy-alignment fixture เทียบ Pi docs กับ runtime matrix และยืนยันไม่มี `.pi/extensions/**` |
 | `AC-27` | `REQ-1.12` ถึง `REQ-1.17` | Canonical-doc alignment fixture เทียบ modules, DbContexts, isolation, CI jobs, handoff schema และ git boundaries กับ filesystem/config จริง |

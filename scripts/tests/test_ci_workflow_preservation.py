@@ -297,6 +297,30 @@ class NegativePolicyTest(ComparatorSandbox):
 
 class RealRepoCheck(unittest.TestCase):
 
+    def test_verify_jobs_use_shared_strict_cutover_owners(self):
+        required = (
+            "bash scripts/ci-evidence-scope.sh",
+            "python3 -m unittest discover -s scripts/tests -p 'test_*.py'",
+            "python3 scripts/spec_contract.py check --all --strict",
+            "bash .claude/hooks/tests/repo-policy-alignment.test.sh",
+            "bash .claude/hooks/tests/cross-harness-conformance.test.sh",
+            "python3 scripts/ci-workflow-preservation.py --base",
+            "git diff --quiet",
+        )
+        for relative in (".github/workflows/ci.yml", ".gitlab-ci.yml"):
+            text = (REPO / relative).read_text(encoding="utf-8")
+            with self.subTest(relative=relative):
+                for token in required:
+                    self.assertIn(token, text)
+                self.assertNotIn("scripts/spec-trace.sh --all-compatible", text)
+
+        github = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("fetch-depth: 0", github)
+        gitlab = (REPO / ".gitlab-ci.yml").read_text(encoding="utf-8")
+        self.assertIn("image: python:3.12", gitlab)
+        self.assertIn('GIT_DEPTH: "0"', gitlab)
+        self.assertIn("apt-get install -y --no-install-recommends jq nodejs", gitlab)
+
     def test_real_merge_base_comparator_green(self):
         merge = subprocess.run(
             ["git", "-C", str(REPO), "merge-base", "HEAD", "origin/develop"],

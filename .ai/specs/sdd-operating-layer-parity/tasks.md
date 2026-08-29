@@ -194,7 +194,7 @@
        - viewports: n/a — tooling/CLI ไม่มี UI surface
        - deviations: (1) inline-solo — subagent billing block, fresh-context audit ไม่ได้ (state.md); (2) corpus blocker counts เป็น expected fail-closed output รอ human resolution ตาม design จึงยังไม่ apply; (3) batch-strict verification ของ apply-safe ใช้ per-file post-write check (status/fence) ส่วน full-chain strict audit ถูกจังไว้ที่ task 7 final-all-spec ตาม design step 13
 
-- [x] 7. Apply migration batches ที่มนุษย์ resolve แล้วและพิสูจน์ strict 62-directory cutover gate — แต่ละ batch idempotent, recoverable และ reviewable โดยไม่ย้าย archive
+- [x] 7. Apply migration batches ที่มนุษย์ resolve แล้วและพิสูจน์ canonical historical named set 61 ตัว โดยรายงาน current feature แยก — แต่ละ batch idempotent, recoverable และ reviewable โดยไม่ย้าย archive
      Scope: เริ่มได้เมื่อ checkpoint ของ task 6 ระบุ blocker เป็นศูนย์หรือมี human resolution ครบเท่านั้น จากนั้น apply-safe ทีละ registry batch, review diff ต่อ batch, รัน second dry-run และปิดด้วย `final-all-spec` strict check
      Files:
        - `.ai/specs/*/requirements.md` เฉพาะ action ที่มี field-level proof
@@ -204,13 +204,13 @@
        - `.ai/specs/*/handoff.md` เฉพาะ action ที่มี field-level proof
        - `scripts/tests/test_spec_retrofit.py`
      Out of scope: `.ai/specs/sdd-operating-layer-parity/**`, archive relocation, guessed approval/Evidence/trace, adapter code และ CI workflow
-     Stop condition: หยุดทั้ง batch ก่อน write เมื่อ proof ยังไม่ครบ และหยุดก่อน task 8/9 ที่พึ่ง migrated corpus หาก second dry-run มี safe action, recovery journal ค้าง หรือ strict check ไม่ครบ 62 directories
+     Stop condition: หยุดทั้ง batch ก่อน write เมื่อ proof ยังไม่ครบ และหยุดก่อน task 8/9 ที่พึ่ง migrated corpus หาก second dry-run มี safe action, recovery journal ค้าง หรือ strict check ตรวจ canonical historical named set 61 ตัวไม่ครบ
      TDD: รัน rollback/recovery fixtures ก่อน apply และหลังแต่ละ batchพิสูจน์ no-op; หาก batch ถูก rollback ต้อง rerun dry-run ของ batch เดิมก่อนเดินต่อ
      Satisfies: REQ-5.21-REQ-5.22, REQ-8.2-REQ-8.7
      Depends on: 6
      Verify:
        - `for batch in canonical-complete approved-aliases bugfix alphanumeric-tasks evidence conflicting-status ambiguous-directories; do python3 scripts/spec-retrofit.py --dry-run --batch "$batch" --format json; done` — คาดว่าทุก applied batch รายงาน safe actions เป็นศูนย์และไม่มี unresolved blocker
-       - `python3 scripts/spec-retrofit.py --check --batch final-all-spec` — คาดว่าจะ exit 0 และระบุ historical spec directories ครบ 62 แห่ง
+       - `python3 scripts/spec-retrofit.py --check --batch final-all-spec` — คาดว่าจะตรวจ canonical historical named set 61 ตัวจริง และรายงาน original current feature แยก
         - `python3 -m unittest discover -s scripts/tests -p 'test_spec_retrofit.py'` — คาดว่าจะ exit 0 รวม batch-only rollback, dry-run-after-rollback และ no-dual-schema fixtures
      Evidence:
        - test: `python3 scripts/spec-retrofit.py --dry-run --batch approved-aliases --format json` -> verdict allow actions=0 blockers=0; ยอดรวม 6 batch registry จาก changes.md §Task 7 ผ่านหมด idempotent
@@ -282,13 +282,21 @@
      Verify:
        - `python3 -m unittest discover -s scripts/tests -p 'test_ci_workflow_preservation.py'` — คาดว่าจะ exit 0 และ comparator แยก policy-fail กับ engine-fail ตาม diagnostic contract
        - `BASE_SHA="$(git merge-base HEAD origin/develop)"; python3 scripts/ci-workflow-preservation.py --base "$BASE_SHA"` — คาดว่าจะ exit 0 โดย protected GitHub/GitLab job blocks byte-identical และ existing shell inventory เป็น subset ของ verify inventory ใหม่
-       - `python3 scripts/spec_contract.py check --all --strict` — คาดว่าจะ exit 0 หลัง migration และ workflow cutover โดยตรวจทั้ง feature REQ กับ bugfix F/B paths
+       - `python3 scripts/spec_contract.py check --all --strict` — ต้องตรวจ direct spec directory ทุกตัวจริง; คืน nonzero เมื่อ historical residual ใด strict-failing หรือยังไม่ได้ตรวจ
      Evidence:
-       - test: `python3 -m unittest discover -s scripts/tests -p 'test_ci_workflow_preservation.py'` -> Ran 13 tests; OK ครบ negative fixtures ตาม TDD list
-       - test: `BASE_SHA="$(git merge-base HEAD origin/develop)"; python3 scripts/ci-workflow-preservation.py --base "$BASE_SHA"` -> verdict allow diagnostics [] — protected blocks byte-identical, inventory superset
-       - test: `python3 scripts/spec_contract.py check --all --strict` -> exit 0 — 8 active / 54 legacy-residual / 0 failing (option-K scoping)
+       - test: `python3 -m unittest discover -s scripts/tests -p 'test_ci_workflow_preservation.py'` -> Ran 14 tests; OK ครบ negative comparator fixtures และยืนยันทั้งสอง verify jobs ใช้ shared strict owners
+       - test: `docker run --rm -v <repo>:<repo>:ro python:3.12 bash -c 'apt-get update && apt-get install -y --no-install-recommends jq nodejs && cp -R <repo> /tmp/pol-core && cd /tmp/pol-core && python3 -m unittest discover -s scripts/tests -p "test_*.py" && for test_file in .claude/hooks/tests/*.test.sh; do bash "$test_file"; done && python3 scripts/spec_contract.py check --all --strict'` -> Ran 327 tests; OK, GitLab shell inventory 13/13 suites exit 0 และ strict 63 checked / 0 failing / 0 unchecked ใน verify image จริง
+       - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> local pre-container run Ran 326 tests; OK ก่อนเพิ่ม workflow cutover regression method; current full count ยืนยันเป็น 327 ใน Python 3.12 container ข้างต้น
+       - test: `for test_file in .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh scripts/check-release-evidence.test.sh; do bash "$test_file"; done` -> 16/16 suites exit 0; รวม `ci-evidence-scope` pass=10 fail=0, cross-harness passed=18 failed=0 และ workflow/alignment fixtures
+       - test: `python3 scripts/spec-retrofit.py --check --batch final-all-spec` -> exit 0; canonical historical 61/61 และ current feature strict ผ่าน, outside-scope bugfix ผ่าน
+       - test: `python3 scripts/spec_contract.py check --all --strict` -> exit 0; 63 checked / 0 failing / 0 unchecked
+       - test: `python3 scripts/ci-workflow-preservation.py --base 05b712bab85bd9ea70ac6d548bdd1c119da78f01` -> verdict allow; diagnostics []
+       - test: `git diff --quiet 05b712bab85bd9ea70ac6d548bdd1c119da78f01 -- src tests docker pol-core.slnx Directory.Packages.props` -> exit 0; product/runtime paths unchanged
+       - test: `python3 scripts/repo_policy_alignment.py --check` -> exit 0; source-to-assertion alignment ตรงทุก row
+       - test: `ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path) or abort(path) }' .github/workflows/ci.yml .gitlab-ci.yml` -> exit 0
+       - test: `.ai/bin/check-secrets.sh --all && git diff --check` -> exit 0; ไม่มี secret หรือ whitespace regression
        - viewports: n/a — CI workflow/CLI ไม่มี UI surface
-       - deviations: workflow edits เฉพาะ verify paths (7.10); remote required-check/GitLab runner = unverified records ตาม REQ-8.13 ส่งต่อ task 10
+       - deviations: Linux verify image เปิดเผย test portability defects สองจุด จึงแก้เฉพาะ fixtures ใน `test_spec_contract.py` และ `test_spec_retrofit.py` โดยไม่แตะ production logic; remote GitHub/GitLab pipeline execution ยังไม่อ้างว่า verified และ Task 10 บันทึก scope/limitations แยก
 
 - [x] 10. ปิด final verification, rollback record และ no-product-diff proof — เก็บ observed outputs จริงครบทุก local/remote scope โดยไม่ยกระดับ unverified เป็น pass
      Scope: รัน full Python/shell/retrofit/.NET/end-to-end checks, ตรวจ protected paths/runtime manifests, บันทึก verification records ตาม closed scope labels และ rehearse rollback units โดยไม่มี implementation เพิ่มนอก defect ที่ gate ตรวจพบ
@@ -306,24 +314,38 @@
        - `for test_file in .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh scripts/check-release-evidence.test.sh; do bash "$test_file"; done` — คาดว่าจะ exit 0 โดย inventory เดิมและ fixtures ใหม่ผ่านจาก output จริง
        - `python3 scripts/repo_policy_alignment.py --check` — คาดว่าจะ exit 0 และ verification-record scope/limitations ตรง contract
        - `BASE_SHA="$(git merge-base HEAD origin/develop)"; python3 scripts/ci-workflow-preservation.py --base "$BASE_SHA"` — คาดว่าจะ exit 0 และ protected workflow blocks คง bytes เดิม
-       - `python3 scripts/spec-retrofit.py --check --batch final-all-spec` — คาดว่าจะ exit 0 พร้อม historical 62-directory strict result
-       - `python3 scripts/spec_contract.py check --all --strict` — คาดว่าจะ exit 0 โดยไม่มี orphan REQ/F/B หรือ invalid artifact
+       - `python3 scripts/spec-retrofit.py --check --batch final-all-spec` — คาดว่าจะตรวจ canonical historical named set 61 ตัว พร้อม original current feature แยก และรายงานผลตาม observed strict validation
+       - `python3 scripts/spec_contract.py check --all --strict` — ต้องคืนผลตาม validation จริงของทุก direct directory; historical failure หรือ unchecked directory ทำให้ nonzero
        - `dotnet restore pol-core.slnx` — คาดว่าจะ exit 0 จาก toolchain จริง
        - `dotnet build pol-core.slnx --no-restore -warnaserror` — คาดว่าจะ exit 0 โดยไม่มี warning/error
        - `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` — คาดว่าจะ exit 0 ตาม process status จริงและบันทึก observed counts
        - `BASE_SHA="$(git merge-base HEAD origin/develop)"; git diff --exit-code "$BASE_SHA"...HEAD -- src tests docker pol-core.slnx Directory.Packages.props` — คาดว่าจะ exit 0 และไม่มี product/runtime diff
-       Evidence:
+       Previous evidence (invalidated 2026-08-28):
          - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> exit 0, Ran 165 tests; OK
          - test: `for f in .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh scripts/check-release-evidence.test.sh; do bash "$f"; done` -> 15/15 suites OK rc=0
          - test: `python3 scripts/repo_policy_alignment.py --check` -> exit 0 OK ทุก row
          - test: `python3 scripts/ci-workflow-preservation.py --base <merge-base>` -> allow diagnostics []
          - test: `python3 scripts/spec-retrofit.py --check --batch final-all-spec` -> exit 0 allow (61 dirs, 0 failing)
-         - test: `python3 scripts/spec_contract.py check --all --strict` -> exit 0 (8 active / 54 legacy-residual / 0 failing)
+         - test: `python3 scripts/spec_contract.py check --all --strict` -> หลักฐานเดิม exit 0 ใช้ option-K scoping ที่ F-4 ยกเลิกแล้ว; ผลปัจจุบัน exit 1, `63 checked / 53 failing / 0 unchecked`
          - test: `dotnet restore pol-core.slnx` -> exit 0; `dotnet build pol-core.slnx --no-restore -warnaserror` -> Build succeeded 0 Warning(s)/0 Error(s); `dotnet test ... Category!=Integration` -> 1929 passed / 0 failed across 17 test hosts
          - test: `bash .claude/hooks/tests/cross-harness-conformance.test.sh` -> passed=18 failed=0
          - test: `git diff --exit-code <merge-base>...HEAD -- src tests docker pol-core.slnx Directory.Packages.props` -> exit 0 (no product/runtime diff)
          - viewports: n/a — CLI/CI scope ไม่มี UI surface
-         - deviations: rollback rehearsal = apply-safe re-run idempotent + second dry-run no-op; integration/live-SQL tier + remote required-check/GitLab pipeline = unverified records (7) ใน .pipeline/sdd-operating-layer-parity/verification-records.json — unverified; must not be claimed as pass
+         - deviations: final verification ถูก reopen หลัง strict engine พบ historical residual 53 directories; integration/live-SQL และ remote required checks ยัง unverified และห้ามอ้าง pass
+     Evidence:
+       - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> Ran 329 tests; OK
+       - test: `for test_file in .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh scripts/check-release-evidence.test.sh; do bash "$test_file"; done` -> 16/16 suites passed, 0 failed; cross-harness 18/0
+       - test: `python3 scripts/repo_policy_alignment.py --check` -> exit 0; source-to-assertion alignment ตรงทุก row
+       - test: `python3 scripts/ci-workflow-preservation.py --base 05b712bab85bd9ea70ac6d548bdd1c119da78f01` -> exit 0; verdict allow, diagnostics []
+       - test: `python3 scripts/spec-retrofit.py --check --batch final-all-spec` -> exit 0; historical 61/61, current feature และ outside-scope bugfix strict ผ่าน
+       - test: `python3 scripts/spec_contract.py check --all --strict` -> exit 0; 63 checked / 0 failing / 0 unchecked
+       - test: `scripts/spec-trace.sh sdd-operating-layer-parity` -> exit 0; 178 criteria ถูกอ้างครบและ EARS lint ผ่าน
+       - test: `dotnet restore pol-core.slnx` -> exit 0; all projects up-to-date
+       - test: `dotnet build pol-core.slnx --no-restore -warnaserror` -> exit 0; 0 warnings / 0 errors
+       - test: Linux SDK 10.0 container รัน `dotnet test pol-core.slnx --no-build --filter "Category!=Integration" -m:1` -> exit 0; 1929 passed / 0 failed across 17 projects
+       - test: `git diff --exit-code 05b712bab85bd9ea70ac6d548bdd1c119da78f01...HEAD -- src tests docker pol-core.slnx Directory.Packages.props` -> exit 0; ไม่มี product/runtime diff
+       - viewports: n/a — CI workflow/CLI ไม่มี UI surface
+       - deviations: macOS VSTest transport connect testhost ไม่ได้ จึงใช้ isolated Linux SDK container; remote GitHub required-check rules, GitLab runner และ live-SQL integration ยังบันทึกเป็น unverified พร้อม substitute evidence ใน `verification-records.json`
 
 ## Human-decision checkpoint
 

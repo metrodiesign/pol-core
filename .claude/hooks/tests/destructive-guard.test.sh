@@ -41,10 +41,10 @@ check() { # $1=expect(block|allow) $2=desc $3=command-string
 #     current-branch guard ให้ push span อื่นในคำสั่งเดียวกัน) ต้องยัง block บน develop
 #   FEAT_REPO (feat/x): current-branch guard inert -> allow-case ของ non-delete push
 #     (`git push origin feat` ฯลฯ) รันได้จริงแทนการ skip (เดิม LOW#4: allow-path ไม่เคยถูกรันบน develop)
-PROT_REPO=$(mktemp -d)
+PROT_REPO=$(mktemp -d) || { echo "FAIL: mktemp" >&2; exit 1; }
 git -C "$PROT_REPO" init -q >/dev/null 2>&1
 git -C "$PROT_REPO" checkout -q -b develop >/dev/null 2>&1
-FEAT_REPO=$(mktemp -d)
+FEAT_REPO=$(mktemp -d) || { echo "FAIL: mktemp" >&2; exit 1; }
 git -C "$FEAT_REPO" init -q >/dev/null 2>&1
 git -C "$FEAT_REPO" checkout -q -b feat/x >/dev/null 2>&1
 trap 'rm -rf "$PROT_REPO" "$FEAT_REPO"' EXIT

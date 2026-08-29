@@ -17,7 +17,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 import spec_contract
-from spec_trace import run as trace_run
+from spec_trace import run as trace_run, run_compatible_all
 from spec_contract import (
     check_phase_gate,
     parse_bugfix_criteria,
@@ -461,25 +461,89 @@ class SpecContractTest(unittest.TestCase):
     def test_compatibility_trace_keeps_historical_requirements_corpus_green(self):
         specs = SCRIPTS.parent / ".ai" / "specs"
         features = sorted(path.name for path in specs.iterdir() if path.is_dir() and (path / "requirements.md").is_file())
-        # Legacy corpus dirs carry ledger-dispositioned trace tables (option ค:
-        # recorded residual, strict-active-first scope). Compatibility probe =
-        # everything EXCEPT those migrated-with-decisions dirs stays green.
-        import json as _json
-        import importlib.util as _ilu
-        _spec = _ilu.spec_from_file_location(
-            "rf_ledger_probe", SCRIPTS / "spec-retrofit.py")
-        _rf = _ilu.module_from_spec(_spec)
-        sys.modules["rf_ledger_probe"] = _rf
-        _spec.loader.exec_module(_rf)
-        decided = {Path(entry["path"]).parent.name for entry in
-                   _json.loads((specs / "sdd-operating-layer-parity" /
-                                "migration-resolutions.json").read_text())["decisions"]
-                   if entry["field"] == "trace.table"}
-        in_scope = [f for f in features if f not in decided]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            failures = [feature for feature in in_scope if trace_run(feature, specs)]
+            failures = [feature for feature in features if trace_run(feature, specs)]
         self.assertEqual(52, len(features))
         self.assertEqual([], failures)
+
+    def test_compatibility_trace_validates_migrated_task_refs_without_weakening_strict(self):
+        with tempfile.TemporaryDirectory(prefix="compat-migrated-") as raw:
+            specs = Path(raw) / ".ai" / "specs"
+            legacy = specs / "legacy"
+            legacy.mkdir(parents=True)
+            (legacy / "requirements.md").write_text(
+                "## REQ-1: Capability\n- 1.1 WHEN input arrives THE SYSTEM SHALL accept it.\n",
+                encoding="utf-8",
+            )
+            (legacy / "design.md").write_text(
+                "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                encoding="utf-8",
+            )
+            tasks = legacy / "tasks.md"
+            tasks.write_text(
+                "- [x] 1. migrated task\n"
+                "     REQ-1.1. Depends on: none.\n",
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, trace_run("legacy", specs))
+            with contextlib.redirect_stdout(io.StringIO()) as compatibility_output:
+                self.assertEqual(0, run_compatible_all(specs))
+            self.assertIn("checked 1 / failures 0", compatibility_output.getvalue())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(1, strict_trace_run("legacy", specs))
+
+            tasks.write_text("- [x] 1. missing trace\n", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(1, trace_run("legacy", specs))
+                self.assertEqual(1, run_compatible_all(specs))
+
+    def test_compatibility_trace_requires_visible_task_owned_refs(self):
+        requirements = (
+            "## REQ-1: Capability\n"
+            "- 1.1 WHEN input arrives THE SYSTEM SHALL accept it.\n"
+        )
+        design = (
+            "## Build\n\n"
+            "## Requirement Traceability\n"
+            "| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n"
+        )
+        cases = {
+            "orphan bare ref": "     REQ-1.1\n- [ ] 1. missing trace\n",
+            "fenced bare ref": "- [ ] 1. missing trace\n```\n     REQ-1.1\n```\n",
+            "commented bare ref": "- [ ] 1. missing trace\n<!--\n     REQ-1.1\n-->\n",
+            "fenced satisfies": "- [ ] 1. missing trace\n```\n  Satisfies: REQ-1.1\n```\n",
+            "commented task": "<!--\n- [ ] 1. hidden task\n     REQ-1.1\n-->\n- [ ] 2. missing trace\n",
+        }
+        for label, tasks in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="compat-hidden-"
+            ) as raw:
+                specs = Path(raw) / ".ai" / "specs"
+                feature = specs / "legacy"
+                feature.mkdir(parents=True)
+                self.feature_files(
+                    feature,
+                    requirements=requirements,
+                    design=design,
+                    tasks=tasks,
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(1, trace_run("legacy", specs))
+
+        with tempfile.TemporaryDirectory(prefix="compat-visible-") as raw:
+            specs = Path(raw) / ".ai" / "specs"
+            feature = specs / "legacy"
+            feature.mkdir(parents=True)
+            self.feature_files(
+                feature,
+                requirements=requirements,
+                design=design,
+                tasks="- [ ] 1. visible task\n     REQ-1.1\n",
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, trace_run("legacy", specs))
 
     def test_trace_accepts_only_named_req_column_and_exact_unfenced_headings(self):
         requirements = (
@@ -1064,7 +1128,10 @@ class SpecContractTest(unittest.TestCase):
             for codepoint in range(sys.maxunicode + 1)
             if unicodedata.category(chr(codepoint)) == "Cf"
         ]
-        self.assertGreaterEqual(len(decimal_characters), 700)
+        # Count grows with Python's bundled Unicode database (670 on Python 3.12,
+        # higher on newer runtimes). Lower bound still catches a BMP-only sweep.
+        self.assertEqual(sys.maxunicode, 0x10FFFF)
+        self.assertGreaterEqual(len(decimal_characters), 600)
         self.assertGreaterEqual(len(format_characters), 100)
 
         for character in decimal_characters:
@@ -2303,7 +2370,7 @@ class SpecContractTest(unittest.TestCase):
             feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, args.feature)
             if resolver_diagnostics or feature_dir is None:
                 _print_diagnostics(resolver_diagnostics)
-                return 1
+                return _diagnostic_exit_code(resolver_diagnostics)
             state, diagnostics = derive_spec_state(feature_dir, specs_dir)
 '''
         state_after = '''        if args.feature:
@@ -2608,8 +2675,7 @@ class SpecContractTest(unittest.TestCase):
 
 
 class CheckAllStrictTest(unittest.TestCase):
-    """`check --all --strict` (task 9): active-first scoping via the ledger,
-    REQ + bugfix F/B shapes both traced, legacy-residual dirs skipped."""
+    """`check --all --strict`: direct directory ทุกตัวถูกตรวจโดยไม่มี ledger skip."""
 
     def _build(self, root: Path) -> None:
         import json as _json
@@ -2648,10 +2714,9 @@ class CheckAllStrictTest(unittest.TestCase):
                 [sys.executable, str(SCRIPTS / "spec_contract.py"),
                  "check", "--all", "--strict", "--specs-root", str(root)],
                 capture_output=True, text=True, env=env)
-            # gamma legacy skipped; alpha active green? bugfix-only dir lacks tasks.md => red?
-            # per trace_run: requirements-first w/o design/tasks -> upstream fail? build assertions:
-            self.assertIn("2 active / 1 legacy-residual dirs", proc.stdout)
-            self.assertIn("/ 2 failing", proc.stdout)  # both active lack full chains
+            self.assertEqual(1, proc.returncode)
+            self.assertIn("check --all --strict: 4 checked / 4 failing / 0 unchecked", proc.stdout)
+            self.assertIn("::group::strict-trace gamma-legacy", proc.stdout)
 
     def test_ledger_skip_semantics_via_helper(self):
         with tempfile.TemporaryDirectory(prefix="ledgerlegacy-") as td:
@@ -2659,6 +2724,132 @@ class CheckAllStrictTest(unittest.TestCase):
             self._build(root)
             skipped = spec_contract.ledger_legacy_features(root)
             self.assertEqual(skipped, {"gamma-legacy"})
+
+    def test_ledger_legacy_feature_is_checked_with_compatibility_trace(self):
+        with tempfile.TemporaryDirectory(prefix="ledgercompat-") as td:
+            root = Path(td)
+            feature = root / "legacy-feature"
+            feature.mkdir(parents=True)
+            unknown = "> Status: unknown\n"
+            (feature / "requirements.md").write_text(
+                unknown + "## REQ-1: Capability\n- 1.1 WHEN input arrives THE SYSTEM SHALL accept it.\n",
+                encoding="utf-8",
+            )
+            (feature / "design.md").write_text(
+                unknown
+                + "## Build\n\n"
+                + "## Requirement Traceability\n"
+                + "| Section | REQ |\n| --- | --- |\n| Legacy component | REQ-1.1 |\n",
+                encoding="utf-8",
+            )
+            (feature / "tasks.md").write_text(
+                unknown + "- [x] 1. implement.\n     Satisfies: REQ-1.1\n",
+                encoding="utf-8",
+            )
+            owner = root / "sdd-operating-layer-parity"
+            owner.mkdir()
+            (owner / "migration-resolutions.json").write_text(
+                json.dumps({"decisions": [{
+                    "path": ".ai/specs/legacy-feature/design.md",
+                    "field": "trace.table",
+                    "taskId": "",
+                    "disposition": "trace-header-canonical",
+                }]}),
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = spec_contract.all_tree_trace_run("legacy-feature", root)
+
+            self.assertEqual(0, rc)
+
+    def test_unledgered_legacy_feature_still_fails_canonical_strict_trace(self):
+        with tempfile.TemporaryDirectory(prefix="unledgeredcompat-") as td:
+            root = Path(td)
+            feature = root / "legacy-feature"
+            feature.mkdir(parents=True)
+            unknown = "> Status: unknown\n"
+            (feature / "requirements.md").write_text(
+                unknown + "## REQ-1: Capability\n- 1.1 WHEN input arrives THE SYSTEM SHALL accept it.\n",
+                encoding="utf-8",
+            )
+            (feature / "design.md").write_text(
+                unknown
+                + "## Requirement Traceability\n"
+                + "| Section | REQ |\n| --- | --- |\n| Legacy component | REQ-1.1 |\n",
+                encoding="utf-8",
+            )
+            (feature / "tasks.md").write_text(
+                unknown + "- [x] 1. implement.\n     Satisfies: REQ-1.1\n",
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = spec_contract.all_tree_trace_run("legacy-feature", root)
+
+            self.assertEqual(1, rc)
+
+    def test_ledger_active_authoring_chain_is_checked_without_fabricated_requirements(self):
+        with tempfile.TemporaryDirectory(prefix="ledgerauthoring-") as td:
+            root = Path(td)
+            feature = root / "design-first-tracker"
+            feature.mkdir(parents=True)
+            (feature / "design.md").write_text(
+                "> Status: unknown\n# Design\n", encoding="utf-8"
+            )
+            (feature / "tasks.md").write_text(
+                "> Status: unknown\n# Tasks\n", encoding="utf-8"
+            )
+            owner = root / "sdd-operating-layer-parity"
+            owner.mkdir()
+            (owner / "migration-resolutions.json").write_text(
+                json.dumps({"decisions": [{
+                    "path": ".ai/specs/design-first-tracker/tasks.md",
+                    "field": "authoring.chain",
+                    "taskId": "",
+                    "disposition": "active-authoring-exempt",
+                    "rationale": "design-first tracker without requirements by documented intent",
+                }]}),
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = spec_contract.all_tree_trace_run("design-first-tracker", root)
+
+            self.assertEqual(0, rc)
+
+    def test_ledger_superseded_bugfix_checks_status_and_criteria_without_task_trace(self):
+        with tempfile.TemporaryDirectory(prefix="ledgersuperseded-") as td:
+            root = Path(td)
+            feature = root / "historical-bugfix"
+            feature.mkdir(parents=True)
+            status = "> Status: superseded 2026-07-01 by replacement\n"
+            (feature / "bugfix.md").write_text(
+                status + "- F-1 WHEN input arrives THE SYSTEM SHALL accept it.\n",
+                encoding="utf-8",
+            )
+            (feature / "tasks.md").write_text(
+                status + "- [x] T1. historical implementation.\n",
+                encoding="utf-8",
+            )
+            (root / "replacement").mkdir()
+            owner = root / "sdd-operating-layer-parity"
+            owner.mkdir()
+            (owner / "migration-resolutions.json").write_text(
+                json.dumps({"decisions": [{
+                    "path": ".ai/specs/historical-bugfix/bugfix.md",
+                    "field": "authoring.chain",
+                    "taskId": "",
+                    "disposition": "legacy-baseline-exempt",
+                    "rationale": "superseded history-only spec",
+                }]}),
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = spec_contract.all_tree_trace_run("historical-bugfix", root)
+
+            self.assertEqual(0, rc)
 
 
 if __name__ == "__main__":
@@ -3173,6 +3364,302 @@ class Task5EvidenceMarkerScopeTest(unittest.TestCase):
     def test_pending_in_command_part_is_allowed(self):
         self.assertEqual(self._problems("`run --pending x` -> 5 tests; OK"), [])
 
-    def test_todo_in_result_still_blocked(self):
-        codes = self._problems("`x` -> done later TODO")
-        self.assertIn("EVIDENCE_UNFINISHED_MARKER", codes)
+    def test_marker_later_in_result_prose_is_allowed(self):
+        self.assertEqual(
+            self._problems("`x` -> pass=8 fail=0; engine error, zero pending tasks"),
+            [],
+        )
+
+    def test_strong_marker_later_in_result_still_blocks(self):
+        for marker in ("TODO", "TBD", "???"):
+            with self.subTest(marker=marker):
+                codes = self._problems(f"`x` -> done later {marker}")
+                self.assertIn("EVIDENCE_UNFINISHED_MARKER", codes)
+
+    def test_first_marker_token_still_blocked(self):
+        for result in ("TODO upstream", "(owner) — TBD", "[linux] pending review", "??? unknown"):
+            with self.subTest(result=result):
+                codes = self._problems(f"`x` -> {result}")
+                self.assertIn("EVIDENCE_UNFINISHED_MARKER", codes)
+
+
+class StrictAllSpecCoverageTest(unittest.TestCase):
+    """F-4/B-6: strict all-spec ต้องตรวจ direct directory ทุกตัวจริง."""
+
+    def _write_feature(self, directory: Path) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        approved = "> Status: approved 2026-08-27\n"
+        (directory / "requirements.md").write_text(
+            approved + "## REQ-1: Capability\n- 1.1 WHEN input arrives THE SYSTEM SHALL accept it.\n",
+            encoding="utf-8",
+        )
+        (directory / "design.md").write_text(
+            approved
+            + "## Build\nBody\n\n"
+            + "## Requirement Traceability\n"
+            + "| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+            encoding="utf-8",
+        )
+        (directory / "tasks.md").write_text(
+            approved + "- [ ] 1. implement.\n     Satisfies: REQ-1.1\n",
+            encoding="utf-8",
+        )
+
+    def _run(self, root: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "spec_contract.py"),
+                "check",
+                "--all",
+                "--strict",
+                "--specs-root",
+                str(root),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+        )
+
+    def _parent_symlink_fixture(self, raw: str, source: str | None = None) -> tuple[Path, Path]:
+        repo = Path(raw) / "repo"
+        scripts = repo / "scripts"
+        scripts.mkdir(parents=True)
+        (scripts / "spec_contract.py").write_text(
+            source or (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        external_ai = Path(raw) / "external-ai"
+        self._write_feature(external_ai / "specs" / "external-feature")
+        (repo / ".ai").symlink_to(external_ai, target_is_directory=True)
+        return repo, scripts / "spec_contract.py"
+
+    def _parent_symlink_callers(self, repo: Path, script: Path) -> tuple[tuple[str, ...], ...]:
+        specs = repo / ".ai" / "specs"
+        return (
+            ("check", "--all", "--strict", "--specs-root", str(specs)),
+            ("check", "--feature", "external-feature", "--strict"),
+            ("gate", "phase", "--feature", "external-feature", "--phase", "implement", "--workflow", "requirements-first"),
+            ("slice", "--feature", "external-feature", "--task", "1"),
+            ("state", "--all", "--format", "summary"),
+            ("state", "--feature", "external-feature"),
+            ("task-ids", "--feature", "external-feature", "--all", "--specs-root", str(specs)),
+        )
+
+    def test_parent_ai_symlink_is_engine_failure_for_every_public_reader(self):
+        with tempfile.TemporaryDirectory(prefix="strict-parent-link-") as raw:
+            repo, script = self._parent_symlink_fixture(raw)
+            for argv in self._parent_symlink_callers(repo, script):
+                with self.subTest(argv=argv):
+                    proc = subprocess.run(
+                        [sys.executable, str(script), *argv],
+                        cwd=repo,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                    )
+                    self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+                    self.assertIn("ENGINE_INTERNAL", proc.stdout + proc.stderr)
+                    self.assertNotIn("external-feature' เกณฑ์", proc.stdout)
+
+    def test_parent_ai_component_mutation_is_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        before = '    for current in (repo_root, repo_root / ".ai", candidate):\n'
+        self.assertEqual(1, source.count(before))
+        mutated = source.replace(
+            before,
+            '    for current in (repo_root, candidate):\n',
+        )
+        with tempfile.TemporaryDirectory(prefix="strict-parent-mutant-") as raw:
+            repo, script = self._parent_symlink_fixture(raw, mutated)
+            proc = subprocess.run(
+                [sys.executable, str(script), "check", "--feature", "external-feature", "--strict"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+            )
+            self.assertEqual(0, proc.returncode, "sanity: mutation ต้องเปิด external canonical tree")
+
+    def test_broken_ledger_residual_and_shape_less_directory_are_checked(self):
+        with tempfile.TemporaryDirectory(prefix="strict-all-") as raw:
+            root = Path(raw) / ".ai" / "specs"
+            self._write_feature(root / "alpha-valid")
+            self._write_feature(root / "sdd-operating-layer-parity")
+            broken = root / "gamma-legacy"
+            broken.mkdir(parents=True)
+            (broken / "requirements.md").write_text(
+                "# broken legacy without canonical chain\n", encoding="utf-8"
+            )
+            shape_less = root / "shape-less"
+            shape_less.mkdir()
+            (shape_less / "notes.md").write_text("not a canonical artifact\n", encoding="utf-8")
+            ledger = root / "sdd-operating-layer-parity" / "migration-resolutions.json"
+            ledger.write_text(
+                json.dumps({
+                    "decisions": [{
+                        "path": ".ai/specs/gamma-legacy/design.md",
+                        "field": "trace.table",
+                        "taskId": "",
+                        "disposition": "trace-header-canonical",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+
+            proc = self._run(root)
+
+            self.assertEqual(1, proc.returncode, proc.stdout + proc.stderr)
+            for feature in ("alpha-valid", "gamma-legacy", "shape-less", "sdd-operating-layer-parity"):
+                self.assertIn(f"::group::strict-trace {feature}", proc.stdout)
+            self.assertIn("check --all --strict: 4 checked / 2 failing / 0 unchecked", proc.stdout)
+            self.assertNotIn("legacy-residual", proc.stdout)
+
+    def test_directory_file_and_broken_symlinks_are_all_spec_inventory(self):
+        with tempfile.TemporaryDirectory(prefix="strict-symlinks-") as raw:
+            sandbox = Path(raw)
+            root = sandbox / ".ai" / "specs"
+            root.mkdir(parents=True)
+            external_directory = sandbox / "external-directory"
+            external_directory.mkdir()
+            external_file = sandbox / "external-file"
+            external_file.write_text("not a spec directory\n", encoding="utf-8")
+            (root / "future-dir-link").symlink_to(external_directory, target_is_directory=True)
+            (root / "future-file-link").symlink_to(external_file)
+            (root / "future-broken-link").symlink_to(sandbox / "missing-target")
+
+            proc = self._run(root)
+
+            self.assertEqual(1, proc.returncode, proc.stdout + proc.stderr)
+            for feature in ("future-dir-link", "future-file-link", "future-broken-link"):
+                self.assertIn(f"::group::strict-trace {feature}", proc.stdout)
+            self.assertIn("check --all --strict: 3 checked / 3 failing / 0 unchecked", proc.stdout)
+
+    def test_invalid_utf8_diagnostic_is_unchecked_engine_failure(self):
+        with tempfile.TemporaryDirectory(prefix="strict-invalid-utf8-") as raw:
+            root = Path(raw) / ".ai" / "specs"
+            directory = root / "invalid-utf8"
+            directory.mkdir(parents=True)
+            (directory / "requirements.md").write_bytes(b"\xff\xfe")
+            (directory / "design.md").write_text(
+                "> Status: approved 2026-08-28\n", encoding="utf-8"
+            )
+            (directory / "tasks.md").write_text(
+                "> Status: approved 2026-08-28\n", encoding="utf-8"
+            )
+
+            proc = self._run(root)
+
+            self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+            self.assertIn("ENGINE_INTERNAL", proc.stdout + proc.stderr)
+            self.assertIn(
+                "check --all --strict: 0 checked / 0 failing / 1 unchecked",
+                proc.stdout,
+            )
+            self.assertNotIn("Traceback", proc.stdout + proc.stderr)
+
+    def test_symlinked_specs_root_is_unchecked_engine_failure(self):
+        with tempfile.TemporaryDirectory(prefix="strict-root-link-") as raw:
+            sandbox = Path(raw)
+            external = sandbox / "external-specs"
+            self._write_feature(external / "outside")
+            linked_root = sandbox / ".ai" / "specs"
+            linked_root.parent.mkdir(parents=True)
+            linked_root.symlink_to(external, target_is_directory=True)
+
+            proc = self._run(linked_root)
+
+            self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+            self.assertIn("ENGINE_INTERNAL", proc.stdout + proc.stderr)
+            self.assertNotIn("Traceback", proc.stdout + proc.stderr)
+
+    def test_validator_exception_is_unchecked_and_keeps_nonzero(self):
+        with tempfile.TemporaryDirectory(prefix="strict-unchecked-") as raw:
+            root = Path(raw) / ".ai" / "specs"
+            (root / "alpha").mkdir(parents=True)
+            (root / "beta").mkdir()
+            outcomes = iter((0, OSError("unreadable")))
+
+            def probe(_feature, _root):
+                outcome = next(outcomes)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
+
+            with patch.object(spec_contract, "trace_run", side_effect=probe), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                rc = spec_contract._check_all_strict(root)
+            self.assertEqual(2, rc)
+            self.assertIn("check --all --strict: 1 checked / 0 failing / 1 unchecked", output.getvalue())
+
+    def test_engine_diagnostic_tri_state_mutation_is_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        before = (
+            '    return 2 if any(diagnostic.verdict == "engine-fail" '
+            'for diagnostic in diagnostics) else 1\n'
+        )
+        self.assertEqual(2, source.count(before))
+        namespace: dict[str, object] = {}
+        exec(
+            compile(source.replace(before, "    return 1\n"), "<tri-state-mutant>", "exec"),
+            namespace,
+        )
+        with tempfile.TemporaryDirectory(prefix="strict-tri-mutant-") as raw:
+            root = Path(raw) / ".ai" / "specs"
+            directory = root / "invalid-utf8"
+            directory.mkdir(parents=True)
+            (directory / "requirements.md").write_bytes(b"\xff\xfe")
+            (directory / "design.md").write_text(
+                "> Status: approved 2026-08-28\n", encoding="utf-8"
+            )
+            (directory / "tasks.md").write_text(
+                "> Status: approved 2026-08-28\n", encoding="utf-8"
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = namespace["_check_all_strict"](root)
+        self.assertEqual(1, rc, "sanity: tri-state mutation ต้องทำ engine failure เป็น policy failure")
+
+    def test_shape_filter_and_ledger_skip_mutations_are_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        mutations = (
+            (
+                "directories = _all_spec_directories(specs_dir)",
+                "directories = tuple(path for path in _all_spec_directories(specs_dir) if (path / 'requirements.md').is_file() or (path / 'bugfix.md').is_file())",
+            ),
+            (
+                "for directory in directories:",
+                "for directory in tuple(directory for directory in directories if directory.name not in ledger_legacy_features(specs_dir)):",
+            ),
+        )
+        for index, (before, after) in enumerate(mutations):
+            with self.subTest(mutation=index):
+                self.assertEqual(1, source.count(before))
+                namespace: dict[str, object] = {}
+                exec(compile(source.replace(before, after), f"<strict-mutant-{index}>", "exec"), namespace)
+                with tempfile.TemporaryDirectory(prefix="strict-mutant-") as raw:
+                    root = Path(raw)
+                    (root / "requirements-shape").mkdir()
+                    (root / "requirements-shape" / "requirements.md").write_text("x", encoding="utf-8")
+                    (root / "shape-less").mkdir()
+                    owner = root / "sdd-operating-layer-parity"
+                    owner.mkdir()
+                    (owner / "migration-resolutions.json").write_text(
+                        json.dumps({"decisions": [{
+                            "path": ".ai/specs/requirements-shape/design.md",
+                            "field": "trace.table",
+                            "disposition": "trace-header-canonical",
+                        }]}),
+                        encoding="utf-8",
+                    )
+                    called: list[str] = []
+                    namespace["trace_run"] = lambda feature, _root: called.append(feature) or 1
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        namespace["_check_all_strict"](root)
+                    self.assertNotEqual(
+                        called,
+                        ["requirements-shape", "sdd-operating-layer-parity", "shape-less"],
+                        "sanity: mutation ต้องเปลี่ยน invocation inventory",
+                    )

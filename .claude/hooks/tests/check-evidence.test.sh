@@ -10,7 +10,7 @@ pass=0 fail=0
 ok() { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); echo "FAIL: $1"; }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/check-evidence.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/check-evidence.XXXXXX")" || { echo "FAIL: mktemp" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 cat >"$TMP/golden.md" <<'MD'
