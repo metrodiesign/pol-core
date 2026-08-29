@@ -2,7 +2,7 @@
 
 ย้าย live local API และ SPA surfaces ไป origin ที่กำหนดโดยแก้ค่าเดิมตรงจุด ไม่เพิ่ม abstraction หรือ dependency
 
-> Status: approved 2026-08-17 (quick, no gates; amended SPA origins)
+> Status: unknown
 
 ## Decisions
 

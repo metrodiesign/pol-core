@@ -1,6 +1,6 @@
 # Implementation Tasks: Admin Role RBAC
 
-> Status: approved 2026-06-24 (AFK-delegated — autonomous completion authorized)
+> Status: unknown
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task
 > in one pass (it may touch many files). Decompose into sub-steps yourself at

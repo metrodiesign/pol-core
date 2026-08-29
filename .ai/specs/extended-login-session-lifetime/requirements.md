@@ -1,6 +1,6 @@
 # Requirements: Extended Login Session Lifetime
 
-> Status: approved 2026-08-09 (quick, no gates)
+> Status: unknown
 
 ขยายอายุ server-side login session ของ Admin และ Merchant User จากค่าเดิม โดยคงกลไก
 rotation, revoke และ browser-session cookie เดิมทั้งหมด

@@ -206,26 +206,26 @@ pure-logic-first (LESSONS.md). ทุก test map REQ.
 
 ## Requirement Traceability
 
-| design element | REQ |
+| Section | REQ |
 |---|---|
-| `Tenants` table + columns/Metadata + unique Code | 1.1, 1.2, 1.3, 1.4 |
-| `TenantStatus = { Active }` | 1.5 |
-| `TenantCode.IsAllowed` / `.Normalize` | 1.6, 1.7 |
-| handler happy path (Tenant+PspConnection+vault+Active) | 2.1, 2.2, 2.3, 2.4 |
-| 201 + Location + masked result (จาก input) | 2.5 |
-| create-only | 2.6 |
-| validate-before-write; psp/currency/empty/dup/secretKey ผ่าน envelope factory | 3.1–3.7 |
-| `ExecuteInTransactionAsync` single tx + rollback + idempotent-under-retry | 4.1, 4.2, 4.3 |
-| keyed admin `ProducerDbContext` share instance | 4.4 |
-| `GetByCodeAsync` + unique index + `ConflictException` | 5.1, 5.2, 5.3 |
-| vault ciphertext (INSERT-only) + masked + no-log + no-leak | 6.1, 6.2, 6.3, 6.4 |
-| hint จาก input เก็บที่ `PspConnection`; read-back จากที่นั่น | 6.5 |
-| `RequireAuthorization("admin")` + not `ITenantScoped` + admin no-tenant-claim invariant | 7.1, 7.2, 7.3, 7.4 |
-| admin OAuth audience config (prerequisite task) | 7.5 |
-| RLS FILTER+BLOCK `fn_tenant_predicate(Id)` + pol_admin connection | 8.1–8.5 |
-| `GetTenantHandler` masked read-back (จาก PspConnection) + 404 | 9.1, 9.2, 9.3 |
-| runtime own-row read (RLS) | 10.1, 10.2 |
-| `ProvisioningAudits` + `IProvisioningAuditWriter` (same tx, correlationId not-null, no secret) | 11.1, 11.2, 11.3 |
+| `Tenants` table + columns/Metadata + unique Code | REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4 |
+| `TenantStatus = { Active }` | REQ-1.5 |
+| `TenantCode.IsAllowed` / `.Normalize` | REQ-1.6, REQ-1.7 |
+| handler happy path (Tenant+PspConnection+vault+Active) | REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4 |
+| 201 + Location + masked result (จาก input) | REQ-2.5 |
+| create-only | REQ-2.6 |
+| validate-before-write; psp/currency/empty/dup/secretKey ผ่าน envelope factory | REQ-3.1–REQ-3.7 |
+| `ExecuteInTransactionAsync` single tx + rollback + idempotent-under-retry | REQ-4.1, REQ-4.2, REQ-4.3 |
+| keyed admin `ProducerDbContext` share instance | REQ-4.4 |
+| `GetByCodeAsync` + unique index + `ConflictException` | REQ-5.1, REQ-5.2, REQ-5.3 |
+| vault ciphertext (INSERT-only) + masked + no-log + no-leak | REQ-6.1, REQ-6.2, REQ-6.3, REQ-6.4 |
+| hint จาก input เก็บที่ `PspConnection`; read-back จากที่นั่น | REQ-6.5 |
+| `RequireAuthorization("admin")` + not `ITenantScoped` + admin no-tenant-claim invariant | REQ-7.1, REQ-7.2, REQ-7.3, REQ-7.4 |
+| admin OAuth audience config (prerequisite task) | REQ-7.5 |
+| RLS FILTER+BLOCK `fn_tenant_predicate(Id)` + pol_admin connection | REQ-8.1–REQ-8.5 |
+| `GetTenantHandler` masked read-back (จาก PspConnection) + 404 | REQ-9.1, REQ-9.2, REQ-9.3 |
+| runtime own-row read (RLS) | REQ-10.1, REQ-10.2 |
+| `ProvisioningAudits` + `IProvisioningAuditWriter` (same tx, correlationId not-null, no secret) | REQ-11.1, REQ-11.2, REQ-11.3 |
 
 ## Design Review Resolution (spec-architect, 2026-06-22)
 

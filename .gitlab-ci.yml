@@ -22,6 +22,11 @@ stages:
 verify:
   stage: verify
   image: python:3.12
+  variables:
+    GIT_DEPTH: "0"
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends jq nodejs
   script:
     # Guard regression tests — same Tier-1 floor as GitHub ci.yml job `verify`.
     - |
@@ -42,17 +47,34 @@ verify:
     # cannot neuter the CI scan.
     - SECRET_GUARD_SKIP='' .ai/bin/check-secrets.sh --all
     - scripts/check-rename-identifiers.sh
-    # Spec trace: every REQ covered in design.md + tasks.md, per feature.
+    # Task 9 cutover: same shared strict owners as GitHub verify. GitLab branch
+    # pipelines use before SHA; initial push keeps zero SHA for Evidence owner.
+    - EVENT_BASE_SHA="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}}"
     - |
       set -euo pipefail
-      status=0
-      for dir in .ai/specs/*/; do
-        [ -f "${dir}requirements.md" ] || continue
-        feature="$(basename "$dir")"
-        echo "=== spec-trace ${feature} ==="
-        scripts/spec-trace.sh "$feature" || status=1
-      done
-      exit "$status"
+      ZERO_SHA=0000000000000000000000000000000000000000
+      EVIDENCE_BASE="$EVENT_BASE_SHA"
+      if [ -z "$EVENT_BASE_SHA" ]; then
+        echo "RANGE_BASE_UNRESOLVED: empty provider base SHA" >&2
+        exit 2
+      elif [ "$EVENT_BASE_SHA" = "$ZERO_SHA" ]; then
+        COMPARE_BASE="$(git rev-parse HEAD~1 2>/dev/null || true)"
+      else
+        git fetch --no-tags origin "$EVENT_BASE_SHA"
+        COMPARE_BASE="$(git merge-base "$EVENT_BASE_SHA" HEAD)"
+        EVIDENCE_BASE="$COMPARE_BASE"
+      fi
+      [ -n "$COMPARE_BASE" ] || { echo "CI_PROTECTED_JOB_PARSE_FAILED: no comparison base" >&2; exit 2; }
+      python3 scripts/ci-workflow-preservation.py --base "$COMPARE_BASE"
+      git diff --quiet "$COMPARE_BASE"..HEAD -- src tests docker pol-core.slnx Directory.Packages.props || {
+        echo "protected product/runtime path changed" >&2
+        exit 1
+      }
+      bash scripts/ci-evidence-scope.sh "$EVIDENCE_BASE" HEAD
+      python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      python3 scripts/spec_contract.py check --all --strict
+      bash .claude/hooks/tests/repo-policy-alignment.test.sh
+      bash .claude/hooks/tests/cross-harness-conformance.test.sh
 
 dotnet:
   stage: test

@@ -16,77 +16,47 @@ BIN="$REPO_ROOT/.ai/bin"
 # 1. Secret scan (staged diff). check-secrets.sh exits non-zero when a secret is found.
 "$BIN/check-secrets.sh"
 
-# 2. Per-task Evidence check for staged tasks.md files.
-#    Scope-aware (not per-file): a commit is blocked only when a NEWLY-added `- [x]` task
-#    line carries no `Evidence:` line inside ITS OWN task block (from that `- [x]` line up to
-#    the next task marker or EOF). This is deliberately conservative:
-#      - pre-existing [x] tasks are NOT re-checked (only lines this diff adds),
-#      - an edit that adds no new [x] line cannot be blocked,
-#    so unrelated edits to a tasks.md don't cause false-blocks.
+# 2. Per-task Evidence gate for staged tasks.md files (Task 3 semantics).
+#    Raw transport ONLY here: this hook builds the full HEAD/index snapshot pair,
+#    gets canonical ranges from `spec_contract.py diff-ranges`, and lets the
+#    shared engine discover newly-completed tasks and validate Evidence v2.
+#    No checkbox grep, no Evidence parsing in shell — those moved into the engine.
 STAGED_TASKS=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)tasks\.md$' || true)
 if [ -n "$STAGED_TASKS" ]; then
-  missing=()
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
+  SNAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sdd-precommit.XXXXXX")"
+  trap 'rm -rf "$SNAP_DIR"' EXIT
+  i=0
+  for f in $STAGED_TASKS; do
+    i=$((i + 1))
+    AFTER_BLOB="$SNAP_DIR/after-$i"
+    BEFORE_FLAG="-"
+    if git cat-file -e "HEAD:$f" 2>/dev/null; then
+      BEFORE_FLAG="$SNAP_DIR/before-$i"
+      git cat-file blob "HEAD:$f" >"$BEFORE_FLAG"
+    fi
+    git show ":$f" >"$AFTER_BLOB"
 
-    # Added (diff '+') lines for this file that mark a task done. Strip the leading '+'
-    # (but not '+++ ' header lines) so they can be compared against the staged file body.
-    added_done=$(git diff --cached --unified=0 -- "$f" 2>/dev/null \
-      | grep -E '^\+' | grep -vE '^\+\+\+' \
-      | sed 's/^+//' \
-      | grep -iE '^[[:space:]]*- \[x\]' || true)
-    [ -z "$added_done" ] && continue
+    RANGES_JSON="$SNAP_DIR/ranges-$i.json"
+    : >"$SNAP_DIR/empty-base"
+    if [ "$BEFORE_FLAG" = "-" ]; then
+      python3 "$REPO_ROOT/scripts/spec_contract.py" diff-ranges \
+        --before-file "$SNAP_DIR/empty-base" --after-file "$AFTER_BLOB" >"$RANGES_JSON" \
+        || { echo "ENGINE_INTERNAL: diff-ranges failed for $f" >&2; exit 1; }
+    else
+      python3 "$REPO_ROOT/scripts/spec_contract.py" diff-ranges \
+        --before-file "$BEFORE_FLAG" --after-file "$AFTER_BLOB" >"$RANGES_JSON" \
+        || { echo "ENGINE_INTERNAL: diff-ranges failed for $f" >&2; exit 1; }
+    fi
 
-    # Staged (index) version of the whole file — the source of truth for task scope.
-    staged_content=$(git show ":$f" 2>/dev/null || true)
-    [ -z "$staged_content" ] && continue
-
-    # Walk the staged file as task blocks. A block opens on any `- [ ]` / `- [x]` line and
-    # runs until the next such line (or EOF). For each block whose opening line was newly
-    # added as `- [x]`, require an `Evidence:` line somewhere inside that block.
-    block_open=""        # opening line of the current block ("" until first task seen)
-    block_is_added_done=0
-    block_has_evidence=0
-    bad_in_file=0
-
-    # finalize the block we just left
-    finalize() {
-      if [ "$block_is_added_done" -eq 1 ] && [ "$block_has_evidence" -eq 0 ]; then
-        bad_in_file=1
-      fi
-    }
-
-    while IFS= read -r line; do
-      if printf '%s\n' "$line" | grep -qiE '^[[:space:]]*- \[[ xX]\]'; then
-        # entering a new task block — close out the previous one first
-        [ -n "$block_open" ] && finalize
-        block_open="$line"
-        block_has_evidence=0
-        block_is_added_done=0
-        # is THIS opening line one of the newly-added [x] lines?
-        if printf '%s\n' "$line" | grep -qiE '^[[:space:]]*- \[x\]'; then
-          # -F fixed-string match of the whole opening line against the added-[x] set.
-          # `-- "$line"` so a leading '-' in the line is not parsed as a grep option.
-          if printf '%s\n' "$added_done" | grep -qxF -- "$line"; then
-            block_is_added_done=1
-          fi
-        fi
-      elif printf '%s\n' "$line" | grep -qiE '^[[:space:]]*Evidence:'; then
-        block_has_evidence=1
-      fi
-    done <<<"$staged_content"
-    # close out the final block
-    [ -n "$block_open" ] && finalize
-
-    [ "$bad_in_file" -eq 1 ] && missing+=("$f")
-  done <<<"$STAGED_TASKS"
-
-  if [ "${#missing[@]}" -gt 0 ]; then
-    echo "Blocked: a newly-marked [x] task has no 'Evidence:' line in its own block:" >&2
-    for f in "${missing[@]}"; do echo "  - $f" >&2; done
-    echo "Add an Evidence: block (test result + viewports 375/768/1440 or n/a + deviations) under that task before committing." >&2
-    exit 1
-  fi
+    ENVELOPE="$(bash "$BIN/check-evidence.sh" "$f" "$BEFORE_FLAG" "$AFTER_BLOB" "$RANGES_JSON" pre-commit)"
+    EV_RC=$?
+    printf '%s\n' "$ENVELOPE" >&2
+    if [ "$EV_RC" -ne 0 ]; then
+      echo "Blocked: staged tasks.md '$f' failed the Evidence v2 gate." >&2
+      echo "Fix the diagnostics above (test result + viewports 375/768/1440 or n/a + deviations) and restage." >&2
+      exit 1
+    fi
+  done
 fi
 
 exit 0

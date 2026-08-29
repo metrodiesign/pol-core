@@ -1,5 +1,5 @@
 # Requirements: System Completion (ecommerce breadth + customer notification + reporting)
-> Status: approved 2026-06-23 (autonomous, AFK — /spec-quick style, no human gate)
+> Status: unknown
 
 ## Overview
 เติมฟีเจอร์ที่ reference (`docs/reference/payment-orchestration-modules.md`) นิยามไว้แต่ยังไม่ build บน core E2E loop ที่ทำงานแล้ว (Products->Cart->Checkout->Orders->Payments->PaymentPaid->Paid). สามกลุ่ม: (1) Cart management ครบ (domain รองรับแล้ว — ขาด app+host), (2) Order summary link + TTL + customer notification แบบ background ผ่าน transactional outbox ที่มีอยู่ (reference บรรทัด 34/43), (3) reconciliation = reporting (บรรทัด 55). ทุกอย่างยังคง multi-tenant (ITenantScoped + RLS) และ captive.

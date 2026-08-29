@@ -1,3 +1,4 @@
+> Status: unknown
 # HANDOFF — products-sp-gateway (rolling)
 
 > Teammate ใหม่: อ่านไฟล์นี้ + requirements.md + design.md + tasks.md ให้จบก่อนแตะโค้ด

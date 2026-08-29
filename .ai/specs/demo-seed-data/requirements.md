@@ -1,6 +1,6 @@
 # Requirements — demo-seed-data
 
-> Status: approved 2026-07-13 (quick, no gates)
+> Status: unknown
 
 ## Context
 

@@ -1,6 +1,6 @@
 # Requirements: Admin Merchant Provisioning Contract
 
-> Status: approved 2026-08-09 (quick, no gates)
+> Status: unknown
 
 ## Overview
 

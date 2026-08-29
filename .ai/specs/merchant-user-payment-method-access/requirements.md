@@ -1,6 +1,7 @@
 # Requirements: Merchant User Payment Method Access
 
-> Status: approved 2026-08-17, amended 2026-08-17
+> Status: approved 2026-08-17
+> Notes:, amended 2026-08-17
 
 ## Overview
 

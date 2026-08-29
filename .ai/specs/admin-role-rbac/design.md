@@ -1,6 +1,7 @@
 # Design: Admin Role RBAC
 
-> Status: approved 2026-06-24, amended 2026-06-24 (AFK-delegated; spec-architect adversarial critique applied — see Critique Resolutions)
+> Status: approved 2026-06-24
+> Notes:, amended 2026-06-24 (AFK-delegated; spec-architect adversarial critique applied — see Critique Resolutions)
 
 ## Architecture Overview
 

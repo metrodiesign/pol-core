@@ -180,7 +180,7 @@ touch either field being changed here.
 
 ## Requirement Traceability
 
-| Design element | REQ(s) satisfied |
+| Section | REQ |
 |---|---|
 | `ReferenceBranch` CASE literal swap, byte-identical both sides | REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4 |
 | `77001`/`77006` pairing preserved; `PolicyBranch`/`SaleFullName`/`BrokerCode`/`BrokerName` untouched | REQ-1.5 |

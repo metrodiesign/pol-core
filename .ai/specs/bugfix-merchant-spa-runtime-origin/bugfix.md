@@ -35,7 +35,7 @@ Root cause: parent process environment มี legacy value
   `https://localhost:3002` as effective `MerchantUser:Session:SpaBaseUrl`
 - F-2 WHEN Merchant Microsoft OIDC remote failure occurs in Development THE SYSTEM SHALL return `302` with
   `Location=https://localhost:3002/login-error?reason=auth-failed`
-- F-3 WHEN local runtime inherits legacy `MerchantUser__Session__SpaBaseUrl=http://localhost:5300` THE SYSTEM SHALL
+- F-3 WHEN local runtime inherits legacy `MerchantUser__Session__SpaBaseUrl=http://localhost:5300` THE SYSTEM SHALL prevent that legacy value from overriding the canonical local launch-profile origin
   prevent that legacy value from overriding the canonical local launch-profile origin
 
 ## Unchanged Behavior

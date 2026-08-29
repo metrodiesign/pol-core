@@ -625,7 +625,7 @@ guards ก่อน merge; ห้ามลด coverage หรือ skip test
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 |---|---|
 | API contract, request validation, security gates, tenant Authority/pin, transaction lease และ stable errors | REQ-1.1-1.24 |
 | `User.BindSubject`, target invariants, ETag, concurrency constraints, atomic transaction และ minimal response | REQ-2.1-2.19 |

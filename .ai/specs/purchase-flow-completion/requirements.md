@@ -1,6 +1,7 @@
 # Requirements: Purchase Flow Completion (ปิด flow ซื้อประกันภัย End-to-End)
 
-> Status: approved 2026-08-02, amended 2026-08-02 (REQ-6.3 — Discount เป็น Money ตามมาตรฐาน repo, จาก design critique F-13), amended 2026-08-03 (REQ-3.6/REQ-4.7 — ปิด race มินต์ session แทรกระหว่างยกเลิกคำสั่งซื้อ, จาก review PR #167 ข้อ 1)
+> Status: approved 2026-08-02
+> Notes:, amended 2026-08-02 (REQ-6.3 — Discount เป็น Money ตามมาตรฐาน repo, จาก design critique F-13), amended 2026-08-03 (REQ-3.6/REQ-4.7 — ปิด race มินต์ session แทรกระหว่างยกเลิกคำสั่งซื้อ, จาก review PR #167 ข้อ 1)
 
 ## Overview
 

@@ -1,5 +1,5 @@
 # Design: System Completion
-> Status: approved 2026-06-23 (autonomous, AFK)
+> Status: unknown
 
 ## Architecture Overview
 ต่อยอด 5 business module เดิม — ไม่มีโมดูลใหม่. ทุก command/query ผ่าน Mediator, ITenantScoped, RLS เดิม. Notification ขี่ transactional outbox (`IOutbox`/`OutboxDispatcher`) + Worker host ที่มีอยู่.
@@ -51,10 +51,10 @@ Reuse `ProblemDetailsExceptionHandler`: ArgumentException->400, Conflict/Invalid
 - Integration ([Trait Integration]): summary-by-token read returns only the named order; reconciliation scoped to tenant.
 
 ## Requirement Traceability
-| Design element | REQ |
+| Section | REQ |
 |---|---|
-| Slice 1 Cart handlers + endpoints | REQ-1.1–1.7 |
-| Slice 2 Order summary token + TTL + GoneException | REQ-2.1–2.6 |
-| Slice 3 outbox enqueue + INotificationSender + Worker consumer | REQ-3.1–3.5 |
-| Slice 4 reconciliation query | REQ-4.1–4.3 |
-| Slice 5 CheckoutConfirmed event + idempotent consumer -> CreateOrder | REQ-5.1–5.5 |
+| Slice 1 Cart handlers + endpoints | REQ-1.1–REQ-1.7 |
+| Slice 2 Order summary token + TTL + GoneException | REQ-2.1–REQ-2.6 |
+| Slice 3 outbox enqueue + INotificationSender + Worker consumer | REQ-3.1–REQ-3.5 |
+| Slice 4 reconciliation query | REQ-4.1–REQ-4.3 |
+| Slice 5 CheckoutConfirmed event + idempotent consumer -> CreateOrder | REQ-5.1–REQ-5.5 |

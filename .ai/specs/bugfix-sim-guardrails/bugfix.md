@@ -79,71 +79,37 @@ gh api repos/:owner/:repo/commits/dc423ad9/check-runs \
 
 ## Expected Behavior
 
-- F1 WHEN ตั้งทั้ง `SpDocument__MotorConnectionString` และ `HIPPO_DB_SERVER` เป็นค่าที่ไม่ว่าง
-     THE SYSTEM SHALL เขียนข้อความที่ระบุชื่อ env var ทั้งสองตัวลง stderr แล้วออกด้วย
-     exit code ที่ไม่ใช่ 0 โดยไม่ `exec` แอป
-- F2 WHEN ตั้งทั้ง `SpDocument__NonMotorConnectionString` และ `MAMMOTH_DB_SERVER` เป็นค่า
-     ที่ไม่ว่าง THE SYSTEM SHALL ทำแบบเดียวกับ F1 สำหรับคู่ของตัวเอง
-- F3 WHILE ตั้ง `SpDocument__MotorConnectionString` โดยไม่ตั้ง `HIPPO_DB_SERVER` และยังตั้ง
-     `MAMMOTH_DB_SERVER` อยู่ THE SYSTEM SHALL คงค่า Motor ที่ operator ตั้งไว้ ประกอบ
-     NonMotor จาก sim ตามเดิม และออกด้วย exit code 0 — hybrid cutover ทีละฝั่งต้องทำได้
-- F4 IF ค่าใดในสองคู่เป็น empty string THEN THE SYSTEM SHALL ถือว่าไม่ได้ตั้ง และทำงานเหมือน
-     กรณี unset ตามบรรทัดฐานเดิมของไฟล์ที่ `docker/entrypoint.sh:20`
-- F5 IF guard ทำงาน THEN ข้อความบน stderr SHALL NOT มี connection string, password หรือ
+- F-1 WHEN ตั้งทั้ง `SpDocument__MotorConnectionString` และ `HIPPO_DB_SERVER` เป็นค่าที่ไม่ว่าง THE SYSTEM SHALL เขียนข้อความที่ระบุชื่อ env var ทั้งสองตัวลง stderr แล้วออกด้วย exit code ที่ไม่ใช่ 0 โดยไม่ `exec` แอป
+- F-2 WHEN ตั้งทั้ง `SpDocument__NonMotorConnectionString` และ `MAMMOTH_DB_SERVER` เป็นค่า ที่ไม่ว่าง THE SYSTEM SHALL ทำแบบเดียวกับ F1 สำหรับคู่ของตัวเอง
+- F-3 WHILE ตั้ง `SpDocument__MotorConnectionString` โดยไม่ตั้ง `HIPPO_DB_SERVER` และยังตั้ง `MAMMOTH_DB_SERVER` อยู่ THE SYSTEM SHALL คงค่า Motor ที่ operator ตั้งไว้ ประกอบ NonMotor จาก sim ตามเดิม และออกด้วย exit code 0 — hybrid cutover ทีละฝั่งต้องทำได้
+- F-4 IF ค่าใดในสองคู่เป็น empty string THEN THE SYSTEM SHALL ถือว่าไม่ได้ตั้ง และทำงานเหมือน กรณี unset ตามบรรทัดฐานเดิมของไฟล์ที่ `docker/entrypoint.sh:20`
+- F-5 IF ข้อความ guard ถูกพิมพ์ลง stderr THEN THE SYSTEM SHALL NOT แสดง connection string, password หรือค่าของตัวแปรใด ๆ — ระบุได้เฉพาะชื่อตัวแปร
      ค่าของตัวแปรใด ๆ — ระบุได้เฉพาะชื่อตัวแปร
-- F6 WHEN อ่านเอกสารสี่จุดที่ระบุใน D1 THE SYSTEM SHALL อธิบายเส้น cutover ตามความจริง
-     ครบทั้งสี่ชั้น (plumbing ใน compose, `:?` ที่ `docker-compose.prod.yml:76,78`, sim ที่
-     `migrate-entrypoint.sh` บังคับ, catalog/principal ที่ `build_conn` hardcode) แทนข้อความ
-     "override สองค่า" ที่ทำไม่ได้จริง
-- F7 WHEN สตริง sim ตัวใดถูกแก้ให้มี `TrustServerCertificate=True` THE SYSTEM SHALL ทำให้
-     `docker/entrypoint.test.sh` แดง — invariant ต้องครอบ `$out_hippo` และ `$out_mammoth`
-- F8 WHEN ตั้ง `DB_CA_CERTIFICATE_FILE` พร้อม `HIPPO_DB_SERVER` หรือ `MAMMOTH_DB_SERVER`
-     THE SYSTEM SHALL ประกอบสตริง sim ด้วย `Encrypt=Strict` ครบชุดเหมือนสาย App และมี
-     assertion ครอบ branch นั้น
-- F9 WHEN test ต้องตรวจ exit code หรือ stderr THE SYSTEM SHALL มี helper ให้ใช้ใน
-     `docker/entrypoint.test.sh` ตามต้นแบบที่ `docker/migrate-entrypoint.test.sh:120,130-132`
-- F10 WHEN `docker/entrypoint.test.sh` หรือ `docker/migrate-entrypoint.test.sh` fail
-     THE SYSTEM SHALL ทำให้ CI job `verify` แดง
-- F11 IF secret `MSSQL_SA_PASSWORD` ไม่ถูกตั้งค่า THEN check `dotnet integration (live SQL 2025)`
+- F-6 WHEN อ่านเอกสารสี่จุดที่ระบุใน D1 THE SYSTEM SHALL อธิบายเส้น cutover ตามความจริง ครบทั้งสี่ชั้น (plumbing ใน compose, `:?` ที่ `docker-compose.prod.yml:76,78`, sim ที่ `migrate-entrypoint.sh` บังคับ, catalog/principal ที่ `build_conn` hardcode) แทนข้อความ "override สองค่า" ที่ทำไม่ได้จริง
+- F-7 WHEN สตริง sim ตัวใดถูกแก้ให้มี `TrustServerCertificate=True` THE SYSTEM SHALL ทำให้ `docker/entrypoint.test.sh` แดง — invariant ต้องครอบ `$out_hippo` และ `$out_mammoth`
+- F-8 WHEN ตั้ง `DB_CA_CERTIFICATE_FILE` พร้อม `HIPPO_DB_SERVER` หรือ `MAMMOTH_DB_SERVER` THE SYSTEM SHALL ประกอบสตริง sim ด้วย `Encrypt=Strict` ครบชุดเหมือนสาย App และมี assertion ครอบ branch นั้น
+- F-9 WHEN test ต้องตรวจ exit code หรือ stderr THE SYSTEM SHALL มี helper ให้ใช้ใน `docker/entrypoint.test.sh` ตามต้นแบบที่ `docker/migrate-entrypoint.test.sh:120,130-132`
+- F-10 WHEN `docker/entrypoint.test.sh` หรือ `docker/migrate-entrypoint.test.sh` fail THE SYSTEM SHALL ทำให้ CI job `verify` แดง
+- F-11 IF secret `MSSQL_SA_PASSWORD` ไม่ถูกตั้งค่า THEN THE SYSTEM SHALL รายงาน job `dotnet integration (live SQL 2025)` เป็น `failure` ไม่ใช่ `skipped` และบล็อก merge เข้า develop กับ main
      SHALL รายงานเป็น `failure` ไม่ใช่ `skipped` และบล็อก merge เข้า develop กับ main
-- F12 IF job อื่นที่ `dotnet-integration` พึ่งพาล้มเหลว THEN THE SYSTEM SHALL ไม่ปล่อยให้ check
-     ตัวนั้นถูกรายงานว่าผ่าน — ทำได้ด้วยการไม่มี `needs:` และ `if:` บน job นั้นเลย
+- F-12 IF job อื่นที่ `dotnet-integration` พึ่งพาล้มเหลว THEN THE SYSTEM SHALL ไม่ปล่อยให้ check ตัวนั้นถูกรายงานว่าผ่าน — ทำได้ด้วยการไม่มี `needs:` และ `if:` บน job นั้นเลย
 
 ## Unchanged Behavior
 
-- B1  WHEN ตั้ง `HIPPO_DB_SERVER` โดยไม่ตั้ง `SpDocument__MotorConnectionString`
-      THE SYSTEM SHALL CONTINUE TO ประกอบ `Server=<host>,<port>;Database=hippodb` ผ่าน
-      `build_conn` ตามเดิม (`docker/entrypoint.test.sh:108-109`)
-- B2  WHEN ตั้ง `MAMMOTH_DB_PORT` เป็นค่า custom THE SYSTEM SHALL CONTINUE TO ใช้ port นั้น
-      ในสตริง และใช้ค่า default 1433 เมื่อไม่ได้ตั้ง (`:116-117`)
-- B3  WHEN ไม่ตั้งทั้ง `HIPPO_DB_SERVER` และ `MAMMOTH_DB_SERVER` THE SYSTEM SHALL CONTINUE TO
-      ปล่อย `SpDocument__*` ว่างและ boot สำเร็จ แล้วตอบ 503 ที่ชั้น gateway ตาม REQ-5.7
-      (`:111-114`, `SpDocumentGateway.cs:38-48`)
-- B4  WHEN ตั้ง `DB_CA_CERTIFICATE_FILE` THE SYSTEM SHALL CONTINUE TO ใช้ `Encrypt=Strict`
-      พร้อม `ServerCertificate=` และ `HostNameInCertificate=` สำหรับสาย App (`:77-83`)
-- B5  WHEN `DB_CA_CERTIFICATE_FILE` เป็น empty string THE SYSTEM SHALL CONTINUE TO ตกไป
-      fallback branch (`:86-87`)
-- B6  WHEN password มี backslash escape THE SYSTEM SHALL CONTINUE TO เก็บค่าแบบ byte-for-byte
-      และไม่ตัด TLS clause ทิ้ง (`:96-102`)
-- B7  WHEN guard ถูกเพิ่มเข้าไป THE SYSTEM SHALL CONTINUE TO ประกอบ `ConnectionStrings__App`
-      ที่ `docker/entrypoint.sh:29` โดยไม่ถูกกระทบ
-- B8  WHEN รัน `docker compose -f docker-compose.prod.yml config` ด้วยชุด placeholder ของ CI
-      THE SYSTEM SHALL CONTINUE TO render สำเร็จ (`.github/workflows/ci.yml:115-128`,
-      `.gitlab-ci.yml:191-193`)
-- B9  WHEN container `migrate` รัน THE SYSTEM SHALL CONTINUE TO bootstrap และ seed
-      `hippodb`/`mammothdb` แล้วจบด้วย exit 0 ก่อน `api` ขึ้น (`migrate-entrypoint.sh:73-83`,
-      `docker-compose.prod.yml:127-129`)
-- B10 WHEN dev รัน local ด้วย `.env` ที่ตั้ง `SpDocument__*` ตรง THE SYSTEM SHALL CONTINUE TO
-      ใช้ค่านั้น — `docker/entrypoint.sh` ไม่อยู่ในเส้นทางนี้ (`docker-compose.yml` ไม่มี service `api`)
-- B11 WHEN job `dotnet-integration` รัน THE SYSTEM SHALL CONTINUE TO รักษาลำดับเดิม:
-      generate `POL_APP_PASSWORD` → bootstrap สามไฟล์ → `ef database update` → lineage gate →
-      assert-fresh-db → test (`.github/workflows/ci.yml:210-267`)
-- B12 WHEN แก้ workflow THE SYSTEM SHALL CONTINUE TO ใช้ชื่อ `name:` เดิมของทุก job ที่อยู่ใน
-      required contexts — เปลี่ยนชื่อโดยไม่แก้ branch protection ทำให้ PR ค้าง Expected ถาวร
-- B13 WHEN push เข้า develop THE SYSTEM SHALL CONTINUE TO รัน `verify`, `dotnet`,
-      `docker-build` ด้วยพฤติกรรมเดิม
-- B14 WHEN `docker/migrate-entrypoint.test.sh` ถูกเรียกจาก CI THE SYSTEM SHALL CONTINUE TO
-      ผ่านทุก case ที่มีอยู่เดิมโดยไม่ต้องแก้ตัว test
+- B-1 WHEN ตั้ง `HIPPO_DB_SERVER` โดยไม่ตั้ง `SpDocument__MotorConnectionString` THE SYSTEM SHALL CONTINUE TO ประกอบ `Server=<host>,<port>;Database=hippodb` ผ่าน `build_conn` ตามเดิม (`docker/entrypoint.test.sh:108-109`)
+- B-2 WHEN ตั้ง `MAMMOTH_DB_PORT` เป็นค่า custom THE SYSTEM SHALL CONTINUE TO ใช้ port นั้น ในสตริง และใช้ค่า default 1433 เมื่อไม่ได้ตั้ง (`:116-117`)
+- B-3 WHEN ไม่ตั้งทั้ง `HIPPO_DB_SERVER` และ `MAMMOTH_DB_SERVER` THE SYSTEM SHALL CONTINUE TO ปล่อย `SpDocument__*` ว่างและ boot สำเร็จ แล้วตอบ 503 ที่ชั้น gateway ตาม REQ-5.7 (`:111-114`, `SpDocumentGateway.cs:38-48`)
+- B-4 WHEN ตั้ง `DB_CA_CERTIFICATE_FILE` THE SYSTEM SHALL CONTINUE TO ใช้ `Encrypt=Strict` พร้อม `ServerCertificate=` และ `HostNameInCertificate=` สำหรับสาย App (`:77-83`)
+- B-5 WHEN `DB_CA_CERTIFICATE_FILE` เป็น empty string THE SYSTEM SHALL CONTINUE TO ตกไป fallback branch (`:86-87`)
+- B-6 WHEN password มี backslash escape THE SYSTEM SHALL CONTINUE TO เก็บค่าแบบ byte-for-byte และไม่ตัด TLS clause ทิ้ง (`:96-102`)
+- B-7 WHEN guard ถูกเพิ่มเข้าไป THE SYSTEM SHALL CONTINUE TO ประกอบ `ConnectionStrings__App` ที่ `docker/entrypoint.sh:29` โดยไม่ถูกกระทบ
+- B-8 WHEN รัน `docker compose -f docker-compose.prod.yml config` ด้วยชุด placeholder ของ CI THE SYSTEM SHALL CONTINUE TO render สำเร็จ (`.github/workflows/ci.yml:115-128`, `.gitlab-ci.yml:191-193`)
+- B-9 WHEN container `migrate` รัน THE SYSTEM SHALL CONTINUE TO bootstrap และ seed `hippodb`/`mammothdb` แล้วจบด้วย exit 0 ก่อน `api` ขึ้น (`migrate-entrypoint.sh:73-83`, `docker-compose.prod.yml:127-129`)
+- B-10 WHEN dev รัน local ด้วย `.env` ที่ตั้ง `SpDocument__*` ตรง THE SYSTEM SHALL CONTINUE TO ใช้ค่านั้น — `docker/entrypoint.sh` ไม่อยู่ในเส้นทางนี้ (`docker-compose.yml` ไม่มี service `api`)
+- B-11 WHEN job `dotnet-integration` รัน THE SYSTEM SHALL CONTINUE TO รักษาลำดับเดิม: generate `POL_APP_PASSWORD` → bootstrap สามไฟล์ → `ef database update` → lineage gate → assert-fresh-db → test (`.github/workflows/ci.yml:210-267`)
+- B-12 WHEN แก้ workflow THE SYSTEM SHALL CONTINUE TO ใช้ชื่อ `name:` เดิมของทุก job ที่อยู่ใน required contexts — เปลี่ยนชื่อโดยไม่แก้ branch protection ทำให้ PR ค้าง Expected ถาวร
+- B-13 WHEN push เข้า develop THE SYSTEM SHALL CONTINUE TO รัน `verify`, `dotnet`, `docker-build` ด้วยพฤติกรรมเดิม
+- B-14 WHEN `docker/migrate-entrypoint.test.sh` ถูกเรียกจาก CI THE SYSTEM SHALL CONTINUE TO ผ่านทุก case ที่มีอยู่เดิมโดยไม่ต้องแก้ตัว test
 
 ## Scope constraints
 

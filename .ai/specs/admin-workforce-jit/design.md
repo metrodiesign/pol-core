@@ -370,7 +370,7 @@ npm run build
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 |---|---|
 | Admin Microsoft-only provider registration, callback routes and Merchant boundary | REQ-1.1-1.8, REQ-10.1-10.9 |
 | `MicrosoftWorkforceClaims` validation, canonicalization and error classification | REQ-2.1-2.26 |

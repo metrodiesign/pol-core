@@ -1,6 +1,7 @@
 # Design: rf1-schema-reset — Big-bang foundation ของ v5 restructure
 
-> Status: approved 2026-07-11, amended 2026-07-11 (backfill traceability หลัง derive requirements; sync ผล /spec-analyze F2 tier-based Super branch + F5/F6/F7 — ดู findings log ใน requirements.md)
+> Status: approved 2026-07-11
+> Notes:, amended 2026-07-11 (backfill traceability หลัง derive requirements; sync ผล /spec-analyze F2 tier-based Super branch + F5/F6/F7 — ดู findings log ใน requirements.md)
 > Mode: Design-First (requirements.md จะ derive จาก design นี้ทีหลัง)
 > Master plan: `~/.claude/plans/users-king-developer-downloads-payment-tidy-whale.md` (approved 2026-07-11)
 > Source design doc: `/Users/king_developer/Downloads/Payment_Orchestration_Schema_Design-v5.md`
@@ -296,7 +297,7 @@ WHERE IS_ROLEMEMBER(N'pol_rls_bypass') = 1                                    --
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | Architecture Overview ข้อ 1-2 (PolDbContext, ToTable, 3 migrations) + T1-T3, T10 | REQ-1, REQ-7 |
 | Schema map + rename map (ตาราง) | REQ-1.2, REQ-2.1-2.6 |
@@ -313,4 +314,4 @@ WHERE IS_ROLEMEMBER(N'pol_rls_bypass') = 1                                    --
 | API surface renames + Scalar/OpenAPI + dev fallback | REQ-8 |
 | Registration flow (unbound keyed writes, MerchantBoundFilter) + T14 | REQ-9 |
 | Non-Functional Considerations (canon docs, runbook, stale banner, FE mapping, operator note) | REQ-10 |
-| Error Handling ตาราง | REQ-3.4-3.7, REQ-4.2-4.3, REQ-6.2/6.5, REQ-7.6, REQ-9.3 |
+| Error Handling ตาราง | REQ-3.4-3.7, REQ-4.2-4.3, REQ-6.2/REQ-6.5, REQ-7.6, REQ-9.3 |

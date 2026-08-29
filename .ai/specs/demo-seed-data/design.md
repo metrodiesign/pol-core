@@ -1,6 +1,6 @@
 # Design — demo-seed-data
 
-> Status: approved 2026-07-13 (quick, no gates)
+> Status: unknown
 
 ## 1. Shape
 
@@ -271,41 +271,41 @@ demo ไม่แตะ `iam.*`/`cfg.*` จึงไม่กระทบ).
 
 ## Requirement Traceability
 
-| REQ | ที่อยู่ |
+| REQ | Section |
 |-----|---------|
-| 1.1 | `docker/bootstrap/seed-demo.sql` (นอก EF migration chain — §1) |
-| 1.2 | `scripts/seed-demo.sh` (§1) |
-| 1.3 | `seed-demo.sql` ขั้น (ก)+(ค) delete-by-prefix แล้ว insert (§2) |
-| 1.4 | GUID namespace table (§3) |
-| 1.5 | `SET XACT_ABORT ON` + `BEGIN TRAN`/`COMMIT` (§2) |
-| 1.6 | ขั้น (จ) count + `THROW 51000` (§5); `sqlcmd -b` ใน `seed-demo.sh` (§1) |
-| 1.7 | echo target + non-local refusal ใน `scripts/seed-demo.sh` (§1 ข้อ 2) |
-| 1.8 | host sqlcmd -> container fallback ผ่าน stdin ใน `scripts/seed-demo.sh` (§1 ข้อ 3) |
-| 2.1 | ไม่แตะ `sec.MerchantIsolationPolicy` / `pol_rls_bypass` (§2 หมายเหตุ RLS) |
-| 2.2 | `sp_set_session_context` UserId=DemoSuper + MerchantId=Guid.Empty (§2 ขั้น (ข)) |
-| 2.3 | สคริปต์รันด้วย `sa` ซึ่งไม่ใช่สมาชิก bypass (§1 `seed-demo.sh`; §2 หมายเหตุ RLS) |
-| 2.4 | ลำดับ (ก)->(ข)->(ค)->(ง) (§2) |
-| 3.1 | INSERT `merch.Merchants` 3 แถว (§4 Merchants) |
-| 3.2 | INSERT `txn.PspConnections` 6 แถว (§4 PspConnections) |
-| 3.3 | ไม่ seed `merch.VaultSecrets` (§4 PspConnections, §4 "ไม่ seed") |
-| 4.1 | INSERT `admin.Users` 6 แถว (§4 admin.Users) |
-| 4.2 | FK ชี้ GUID `cfg.*` เดิม (§4 admin.Users) |
-| 4.3 | INSERT `admin.MerchantAccess` 4 แถว เฉพาะ Scoped (§4 admin.MerchantAccess) |
-| 4.4 | INSERT `admin.RoleAssignments` 6 แถว -> role id จาก migration (§4 admin.RoleAssignments) |
-| 5.1 | INSERT `merch.Users` 12 แถว ครบ 4 status + 2 PersonType (§4 merch.Users) |
-| 5.2 | INSERT `merch.ExternalLogins` 12 แถว, Subject `demo-mch-*` (§4 merch.ExternalLogins) |
-| 5.3 | INSERT `merch.RoleAssignments` 6 แถว (§4 merch.RoleAssignments) |
-| 5.4 | INSERT `shop.Products` 500 แถว แคตตาล็อกกลาง (§4 shop.Products) |
-| 5.5 | 24 แถวแรกเขียนมือ (id คงที่, CartItems อ้างถึง) + 476 แถว generate จาก plan-line x tier (§4 shop.Products) |
-| 5.6 | `UPDATE` ก้อนเดียวเติม 23 คอลัมน์ + assertion ฟิลด์ครบ/ยอดบวกกลับตรง (§4 shop.Products ข้อ 3) |
-| 5.7 | วันที่อิง `SYSUTCDATETIME()` ให้ตก search window + assertion นับ 100/100 (§4 shop.Products ข้อ 3) |
-| 6.1 | INSERT `shop.Carts` 6 + `shop.CartItems` 14 (§4 shop.Carts + CartItems) |
-| 6.2 | INSERT `shop.CheckoutSessions` 4 (§4 shop.CheckoutSessions) |
-| 6.3 | INSERT `shop.Orders` 40 (§4 shop.Orders) |
-| 6.4 | INSERT `txn.PaymentSessions` 36 (§4 txn.PaymentSessions) |
-| 6.5 | invariant Paid<->Paid + `UPDATE shop.Orders.PaymentSessionId` (§4 txn.PaymentSessions) |
-| 6.6 | รายการ "ไม่ seed" (§4) |
-| 7.1 | `README.md` หัวข้อ "Demo seed data (dev only)" (§1) |
-| 7.2 | password ผ่าน env ใน `scripts/seed-demo.sh` เท่านั้น (§1) |
-| 7.3 | ไม่มีไฟล์ใต้ `src/` ในรายการไฟล์ (§1) |
+| REQ-1.1 | `docker/bootstrap/seed-demo.sql` (นอก EF migration chain — §1) |
+| REQ-1.2 | `scripts/seed-demo.sh` (§1) |
+| REQ-1.3 | `seed-demo.sql` ขั้น (ก)+(ค) delete-by-prefix แล้ว insert (§2) |
+| REQ-1.4 | GUID namespace table (§3) |
+| REQ-1.5 | `SET XACT_ABORT ON` + `BEGIN TRAN`/`COMMIT` (§2) |
+| REQ-1.6 | ขั้น (จ) count + `THROW 51000` (§5); `sqlcmd -b` ใน `seed-demo.sh` (§1) |
+| REQ-1.7 | echo target + non-local refusal ใน `scripts/seed-demo.sh` (§1 ข้อ 2) |
+| REQ-1.8 | host sqlcmd -> container fallback ผ่าน stdin ใน `scripts/seed-demo.sh` (§1 ข้อ 3) |
+| REQ-2.1 | ไม่แตะ `sec.MerchantIsolationPolicy` / `pol_rls_bypass` (§2 หมายเหตุ RLS) |
+| REQ-2.2 | `sp_set_session_context` UserId=DemoSuper + MerchantId=Guid.Empty (§2 ขั้น (ข)) |
+| REQ-2.3 | สคริปต์รันด้วย `sa` ซึ่งไม่ใช่สมาชิก bypass (§1 `seed-demo.sh`; §2 หมายเหตุ RLS) |
+| REQ-2.4 | ลำดับ (ก)->(ข)->(ค)->(ง) (§2) |
+| REQ-3.1 | INSERT `merch.Merchants` 3 แถว (§4 Merchants) |
+| REQ-3.2 | INSERT `txn.PspConnections` 6 แถว (§4 PspConnections) |
+| REQ-3.3 | ไม่ seed `merch.VaultSecrets` (§4 PspConnections, §4 "ไม่ seed") |
+| REQ-4.1 | INSERT `admin.Users` 6 แถว (§4 admin.Users) |
+| REQ-4.2 | FK ชี้ GUID `cfg.*` เดิม (§4 admin.Users) |
+| REQ-4.3 | INSERT `admin.MerchantAccess` 4 แถว เฉพาะ Scoped (§4 admin.MerchantAccess) |
+| REQ-4.4 | INSERT `admin.RoleAssignments` 6 แถว -> role id จาก migration (§4 admin.RoleAssignments) |
+| REQ-5.1 | INSERT `merch.Users` 12 แถว ครบ 4 status + 2 PersonType (§4 merch.Users) |
+| REQ-5.2 | INSERT `merch.ExternalLogins` 12 แถว, Subject `demo-mch-*` (§4 merch.ExternalLogins) |
+| REQ-5.3 | INSERT `merch.RoleAssignments` 6 แถว (§4 merch.RoleAssignments) |
+| REQ-5.4 | INSERT `shop.Products` 500 แถว แคตตาล็อกกลาง (§4 shop.Products) |
+| REQ-5.5 | 24 แถวแรกเขียนมือ (id คงที่, CartItems อ้างถึง) + 476 แถว generate จาก plan-line x tier (§4 shop.Products) |
+| REQ-5.6 | `UPDATE` ก้อนเดียวเติม 23 คอลัมน์ + assertion ฟิลด์ครบ/ยอดบวกกลับตรง (§4 shop.Products ข้อ 3) |
+| REQ-5.7 | วันที่อิง `SYSUTCDATETIME()` ให้ตก search window + assertion นับ 100/100 (§4 shop.Products ข้อ 3) |
+| REQ-6.1 | INSERT `shop.Carts` 6 + `shop.CartItems` 14 (§4 shop.Carts + CartItems) |
+| REQ-6.2 | INSERT `shop.CheckoutSessions` 4 (§4 shop.CheckoutSessions) |
+| REQ-6.3 | INSERT `shop.Orders` 40 (§4 shop.Orders) |
+| REQ-6.4 | INSERT `txn.PaymentSessions` 36 (§4 txn.PaymentSessions) |
+| REQ-6.5 | invariant Paid<->Paid + `UPDATE shop.Orders.PaymentSessionId` (§4 txn.PaymentSessions) |
+| REQ-6.6 | รายการ "ไม่ seed" (§4) |
+| REQ-7.1 | `README.md` หัวข้อ "Demo seed data (dev only)" (§1) |
+| REQ-7.2 | password ผ่าน env ใน `scripts/seed-demo.sh` เท่านั้น (§1) |
+| REQ-7.3 | ไม่มีไฟล์ใต้ `src/` ในรายการไฟล์ (§1) |
 </content>

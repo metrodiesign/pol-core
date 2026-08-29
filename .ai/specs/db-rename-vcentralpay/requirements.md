@@ -1,6 +1,7 @@
 # Requirements: Rename database `PaymentOrchestration` -> `VCentralPay`
 
-> Status: approved 2026-07-08, amended 2026-07-08
+> Status: approved 2026-07-08
+> Notes:, amended 2026-07-08
 > Derived from design.md (design-first) — แต่ละ REQ อ้าง section ต้นทางใน design
 
 ## Overview

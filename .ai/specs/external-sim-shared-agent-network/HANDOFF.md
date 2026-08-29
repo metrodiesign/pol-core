@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff log — external-sim-shared-agent-network
 
 > Rolling handoff between orchestrated teammates. Each teammate appends ONE section

@@ -360,15 +360,15 @@ revoke are both idempotent).
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
-| `ListAdminsQuery` + `AdminAccountRepository.ListAsync` + `AdminAccountSfs` | REQ-1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
-| `GetAdminByIdQuery` + `AdminAccountDetail` + host code-mapping + `ListRoleCodesForAdminAsync` | REQ-2.1, 2.2 |
-| `ReactivateAdminCommand`/handler + `AdminAccount.Reactivate()` + `RevokeAllForAdminAsync` in-txn | REQ-3.1, 3.2, 3.3, 3.4, 3.5, 3.6 |
-| `ListAdminSessionsQuery` + `AdminSessionStore.ListByAdminAsync` + `AdminSessionView` (no TokenHash, isLive) | REQ-4.1, 4.2, 4.3, 4.4, 4.5 |
-| `RevokeAdminSessionCommand`/handler + `FindByIdAsync` + `RevokeFamilyAsync` + security log | REQ-5.1, 5.2, 5.3, 5.4, 5.5 |
-| `GetAdminEffectivePermissionsQuery` (existence-check → `ListEffectivePermissionsAsync`) | REQ-6.1, 6.2, 6.3, 6.4 |
-| Host gates (`RequireAuthorization`/`RequirePermission(user.view)`/`RequireAdminTier(Super)`/`AdminCsrfFilter`), route placement, OpenAPI metadata, zero-migration reuse | REQ-7.1, 7.2, 7.3, 7.4, 7.5, 7.6 |
+| `ListAdminsQuery` + `AdminAccountRepository.ListAsync` + `AdminAccountSfs` | REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4, REQ-1.5, REQ-1.6, REQ-1.7, REQ-1.8 |
+| `GetAdminByIdQuery` + `AdminAccountDetail` + host code-mapping + `ListRoleCodesForAdminAsync` | REQ-2.1, REQ-2.2 |
+| `ReactivateAdminCommand`/handler + `AdminAccount.Reactivate()` + `RevokeAllForAdminAsync` in-txn | REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5, REQ-3.6 |
+| `ListAdminSessionsQuery` + `AdminSessionStore.ListByAdminAsync` + `AdminSessionView` (no TokenHash, isLive) | REQ-4.1, REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5 |
+| `RevokeAdminSessionCommand`/handler + `FindByIdAsync` + `RevokeFamilyAsync` + security log | REQ-5.1, REQ-5.2, REQ-5.3, REQ-5.4, REQ-5.5 |
+| `GetAdminEffectivePermissionsQuery` (existence-check → `ListEffectivePermissionsAsync`) | REQ-6.1, REQ-6.2, REQ-6.3, REQ-6.4 |
+| Host gates (`RequireAuthorization`/`RequirePermission(user.view)`/`RequireAdminTier(Super)`/`AdminCsrfFilter`), route placement, OpenAPI metadata, zero-migration reuse | REQ-7.1, REQ-7.2, REQ-7.3, REQ-7.4, REQ-7.5, REQ-7.6 |
 | (Inc 2) `MasterData` TPC + 4 concrete + `MasterConfigurations` + migration + `pol_admin` grants | REQ-9.5, REQ-10.1 |
 | (Inc 2) `AdminAccount` FKs + `CreateScoped` overload + `ValidateProfileFksAsync` | REQ-8.1, REQ-8.2 |
 | (Inc 2) `UpdateAdminProfileCommand`/handler + `update-profile` audit + `IMasterDataStore` (Mediator-bypass) | REQ-8.3, REQ-8.4, REQ-10.4 |

@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff: Merchant-Commerce ERD Reset
 
 > From: Codex `/root`   To: human review   Date: 2026-08-07

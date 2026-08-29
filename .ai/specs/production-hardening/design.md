@@ -1,3 +1,4 @@
+> Status: unknown
 # Design: production-hardening — PR1 (DB foundation + RLS security floor)
 
 Status: REVISED after Codex round 2 + live-SQL spike. Scope = PR1.

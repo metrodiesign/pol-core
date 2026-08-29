@@ -1,6 +1,6 @@
 # Requirements: checkout-chain-document-fields
 
-> Status: approved-for-implementation 2026-07-30 (อนุมัติผ่าน plan โดย user — โหมด quick, ไม่มี gate ต่อ artifact)
+> Status: unknown
 > Scope: rework snapshot chain Carts -> Checkouts -> Orders ให้ snapshot field เอกสารประกันจริง แล้วถอด bridge บน `ProductView` ทิ้ง (ต่อยอด PR #143 ที่ pivot Product เป็นเอกสารประกันตาม VCentralPay SP guide)
 
 ## บริบท

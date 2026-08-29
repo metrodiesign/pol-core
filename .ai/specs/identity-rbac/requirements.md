@@ -1,6 +1,6 @@
 # Requirements: Identity & RBAC — TenantUser realm
 
-> Status: draft (authored autonomously per AFK directive; scope decisions derived from reference 2.5 —
+> Status: unknown
 > review at the PR gate). Source: docs/reference/payment-orchestration-modules.md section 2.5.
 
 ## Overview

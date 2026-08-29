@@ -1,6 +1,6 @@
 # Requirements: Admin Role RBAC
 
-> Status: approved 2026-06-24 (AFK-delegated — user authorized autonomous completion without per-gate review)
+> Status: unknown
 
 ## Overview
 

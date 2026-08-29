@@ -1,6 +1,7 @@
 # Requirements: Hierarchical Naming (namespace + route)
 
-> Status: approved 2026-07-12, amended 2026-07-12
+> Status: approved 2026-07-12
+> Notes:, amended 2026-07-12
 > Derived FROM `design.md` (approved 2026-07-12, rev 2). Design is upstream: if a requirement below
 > conflicts with the design, the requirement is wrong. Each REQ cites its design section.
 

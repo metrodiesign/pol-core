@@ -1,9 +1,8 @@
 # Bugfix: Producer registration ออก RegistrationTicket ซ้ำสำหรับ subject/email เดิม
-> Status: superseded 2026-07-01 — the whole `RegistrationTickets` mechanism (incl. the `HasPendingAsync` dedup
-> guard this bugfix added) is DELETED. The wire ticket is now stateless and the duplicate-registration guarantee
-> is the UNIQUE (Subject) index on `ProducerAccount` at submit time. See `producer-google-sso` requirements.md /
-> design.md 2026-07-01 amendments + migration `DropRegistrationTicketsTable`. This spec is retained for history only.
-> Status: approved 2026-06-30
+> Status: superseded 2026-07-01 by producer-google-sso
+> Note: guard this bugfix added) is DELETED. The wire ticket is now stateless and the duplicate-registration guarantee
+> Note: is the UNIQUE (Subject) index on `ProducerAccount` at submit time. See `producer-google-sso` requirements.md /
+> Note: design.md 2026-07-01 amendments + migration `DropRegistrationTicketsTable`. This spec is retained for history only.
 
 ## Current Behavior (Defect)
 
@@ -22,26 +21,14 @@ Repro:
 
 ## Expected Behavior
 
-- F1  WHEN callback จะออก ticket และมี pending ticket (`UsedAt IS NULL` AND `ExpiresAt > now`)
-      ที่ `Subject` ตรง OR `Email` ตรงอยู่แล้ว THE SYSTEM SHALL ไม่ insert ticket row ใหม่
-      และไม่เปิด session
-- F2  WHEN block ตาม F1 THE SYSTEM SHALL redirect (302) ไป SPA error page พร้อม
-      `reason=registration-pending` (query string) เพื่อให้ FE อ่าน reason แล้ว render
-      ข้อความได้ — รูปแบบเดียวกับ `DenyAsync` (`ErrorPath?reason=...`)
+- F-1 WHEN callback จะออก ticket และมี pending ticket (`UsedAt IS NULL` AND `ExpiresAt > now`) ที่ `Subject` ตรง OR `Email` ตรงอยู่แล้ว THE SYSTEM SHALL ไม่ insert ticket row ใหม่ และไม่เปิด session
+- F-2 WHEN block ตาม F1 THE SYSTEM SHALL redirect (302) ไป SPA error page พร้อม `reason=registration-pending` (query string) เพื่อให้ FE อ่าน reason แล้ว render ข้อความได้ — รูปแบบเดียวกับ `DenyAsync` (`ErrorPath?reason=...`)
 
 ## Unchanged Behavior
 
-- B1  WHEN ไม่มี pending ticket สำหรับ subject/email และ outcome เป็น `NotFound`
-      THE SYSTEM SHALL CONTINUE TO ออก Registration ticket แล้ว redirect ไป register page
-- B2  WHEN ไม่มี pending ticket และ outcome เป็น `Rejected`
-      THE SYSTEM SHALL CONTINUE TO ออก Correction ticket แล้ว redirect ไป register page
-- B3  WHEN ticket เดิมของ subject/email หมดอายุแล้ว (`ExpiresAt <= now`, ยังไม่ถูก consume)
-      THE SYSTEM SHALL CONTINUE TO ถือว่าไม่ใช่ pending และยอมออก ticket ใหม่ได้
-- B4  WHEN outcome เป็น `PendingApproval`
-      THE SYSTEM SHALL redirect (302) ไป `ErrorPath?reason=awaiting-approval` โดยไม่ออก ticket
-      ไม่เปิด session (เปลี่ยนจาก 403 plain text เดิม เพื่อให้ callback ทุก outcome ใช้
-      redirect+reason contract เดียวกัน — user-directed consistency)
-- B5  WHEN submit ฟอร์มด้วย subject ที่มี `ProducerAccount` อยู่แล้ว
-      THE SYSTEM SHALL CONTINUE TO แปลง unique-violation เป็น 409 ผ่าน unit of work
-- B6  WHEN ticket ถูก consume ไปแล้ว (`UsedAt` ถูก set)
-      THE SYSTEM SHALL CONTINUE TO ปฏิเสธการ replay ticket เดิม
+- B-1 WHEN ไม่มี pending ticket สำหรับ subject/email และ outcome เป็น `NotFound` THE SYSTEM SHALL CONTINUE TO ออก Registration ticket แล้ว redirect ไป register page
+- B-2 WHEN ไม่มี pending ticket และ outcome เป็น `Rejected` THE SYSTEM SHALL CONTINUE TO ออก Correction ticket แล้ว redirect ไป register page
+- B-3 WHEN ticket เดิมของ subject/email หมดอายุแล้ว (`ExpiresAt <= now`, ยังไม่ถูก consume) THE SYSTEM SHALL CONTINUE TO ถือว่าไม่ใช่ pending และยอมออก ticket ใหม่ได้
+- B-4 WHEN outcome เป็น `PendingApproval` THE SYSTEM SHALL redirect (302) ไป `ErrorPath?reason=awaiting-approval` โดยไม่ออก ticket ไม่เปิด session (เปลี่ยนจาก 403 plain text เดิม เพื่อให้ callback ทุก outcome ใช้ redirect+reason contract เดียวกัน — user-directed consistency)
+- B-5 WHEN submit ฟอร์มด้วย subject ที่มี `ProducerAccount` อยู่แล้ว THE SYSTEM SHALL CONTINUE TO แปลง unique-violation เป็น 409 ผ่าน unit of work
+- B-6 WHEN ticket ถูก consume ไปแล้ว (`UsedAt` ถูก set) THE SYSTEM SHALL CONTINUE TO ปฏิเสธการ replay ticket เดิม

@@ -1,6 +1,7 @@
 # Design: Hierarchical Naming (namespace + route)
 
-> Status: approved 2026-07-12, amended 2026-07-12 (rev 2 — rewritten after spec-architect critique; 2 blockers + 5 majors folded in)
+> Status: approved 2026-07-12
+> Notes:, amended 2026-07-12 (rev 2 — rewritten after spec-architect critique; 2 blockers + 5 majors folded in)
 > Mode: Design-First. `requirements.md` was derived FROM this design on 2026-07-12; the traceability
 > table below was backfilled at that time. Design remains upstream — a requirement that conflicts with
 > it is the requirement that is wrong.
@@ -453,15 +454,15 @@ Without this list an implementer will either rename the contract (wrong) or dilu
 
 ## Requirement Traceability
 
-| design element | REQ |
+| Section | REQ |
 |----------------|-----|
-| Architecture Overview — behavior-preserving bar; route table not silently rewritten by the host reorg | REQ-1 (all criteria), 16.4 |
+| Architecture Overview — behavior-preserving bar; route table not silently rewritten by the host reorg | REQ-1 (all criteria), REQ-16.4 |
 | L1-L8 written into `.ai/shared/ARCHITECTURE.md`; rf1 §149 amended; `api-route-scheme` REQ-2.1/2.8 amended and de-staled | REQ-2 (all criteria) |
 | §1 Module projects (`Admin`→`Admins`, `Cart`→`Carts`, `Checkout`→`Checkouts`); `pol-core.slnx`; `git mv`; schema stays `admin`; dead `Identity`/`Producer`/`Tenant` folders deleted | REQ-3 (all criteria) |
 | Component map — `src/Hosts/Api` grouped into `Api/<Area>/`, namespace `Api.<Area>`, prefix drop applied (D7) | REQ-16 (all criteria) |
 | §2 Domain type nesting + prefix drop; `Platform*` dissolved; L2 root-stays; `MasterDataItem`; L5 depth cap | REQ-4 (all criteria) |
 | L6 alias discipline (fixed form, no `GlobalUsings`, no re-prefixing, no partial qualification, applies to `tests/`) | REQ-5 (all criteria) |
-| §3 Application/Infrastructure derived from L4, with L4's illegibility floor | 4.2, 4.3 |
+| §3 Application/Infrastructure derived from L4, with L4's illegibility floor | REQ-4.2, REQ-4.3 |
 | §4 Routes: merchants/users, provision-merchant, approve/reject, master-data wrapper dropped, `{code}` unconstrained, `Location` headers, area guard | REQ-6 (all criteria) |
 | §5 Four controls re-attached on the moved endpoints; detectors written first | REQ-7 (all criteria) |
 | §5 CORS stays path-based; admin-plane table; fail-closed endpoint guard written before the move; preflight preserved | REQ-8 (all criteria) |
@@ -472,10 +473,10 @@ Without this list an implementer will either rename the contract (wrong) or dilu
 | §10 Integration events out of scope (L8) | REQ-13 (all criteria) |
 | Technology Decisions #2 + Sequence Diagrams — reset-only cutover, migrations rewritten in place, no-production-data precondition | REQ-14 (all criteria) |
 | Error Handling Strategy — no guard fails open; grep gate + its exception list | REQ-15 (all criteria) |
-| Technology Decisions #1 (`git mv`) | 3.4 |
-| Technology Decisions #3 (keep path-based CORS) | 8.1 |
-| Technology Decisions #5 (no `GlobalUsings` aliases) | 5.2 |
-| Technology Decisions #7 (law into the canon) | 2.1 |
+| Technology Decisions #1 (`git mv`) | REQ-3.4 |
+| Technology Decisions #3 (keep path-based CORS) | REQ-8.1 |
+| Technology Decisions #5 (no `GlobalUsings` aliases) | REQ-5.2 |
+| Technology Decisions #7 (law into the canon) | REQ-2.1 |
 
 ## Resolved questions (user, 2026-07-12 — do not re-litigate)
 

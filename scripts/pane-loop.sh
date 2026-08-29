@@ -76,53 +76,60 @@ shift || true   # ทิ้ง $1 (feature) ถ้ามี — เหลือ 
 ALLINONE=""
 if [[ "${1:-}" == "all-in-one" || "${1:-}" == "--all-in-one" ]]; then ALLINONE=1; shift; fi
 
-GROUPS=""       # space-separated groups; id ในกลุ่มคั่นด้วย '+'
+PANE_GROUPS=""  # space-separated groups; id ในกลุ่มคั่นด้วย '+'
 if [[ -n "$ALLINONE" ]]; then
-  # ทุก pending task (เรียงตามไฟล์) → 1 group เดียวคั่นด้วย '+' (ข้าม Batch tag/args อื่น)
-  GROUPS="$(python3 - "$TASKS" <<'PY'
-import re, sys
-ids = [m.group(1) for m in (re.match(r'^- \[ \] (\d+)\.', l) for l in open(sys.argv[1])) if m]
-print('+'.join(ids))
-PY
-)"
-  [[ -n "$GROUPS" ]] && echo "โหมด: all-in-one (1 session สำหรับทุก pending task)"
+  # ทุก pending task เรียงตามไฟล์จาก shared engine (REQ-4.1: string IDs, file order)
+  PANE_GROUPS="$(python3 scripts/spec_contract.py task-ids --feature "$FEATURE" --pending | paste -sd+ -)" \
+    || { rc=$?; echo "เลือก pending task ไม่สำเร็จ" >&2; exit "$rc"; }
+  [[ -n "$PANE_GROUPS" ]] && echo "โหลด: all-in-one (1 session สำหรับทุก pending task)"
 elif [[ $# -gt 0 ]]; then
-  for grp in "$@"; do                       # แต่ละ arg = 1 group (1 pane)
+  # manual args: validate against the ENGINE's exact string ID sets (REQ-4.4)
+  PENDING_OUTPUT="$(python3 scripts/spec_contract.py task-ids --feature "$FEATURE" --pending)" \
+    || { rc=$?; echo "เลือก pending task ไม่สำเร็จ" >&2; exit "$rc"; }
+  mapfile -t PENDING_IDS <<<"$PENDING_OUTPUT"
+  declare -A PENDING_SET=()
+  for pid in "${PENDING_IDS[@]}"; do PENDING_SET["$pid"]=1; done
+  for grp in "$@"; do
     members=""
-    for id in ${grp//+/ }; do               # แตก group เป็น id ตรวจทีละตัว
-      if grep -qE "^- \[x\] $id\." "$TASKS"; then     # เสร็จแล้ว → ข้าม กัน implement ซ้ำ
-        echo "!!! task $id = [x] อยู่แล้ว — ข้าม" >&2; continue
+    for id in ${grp//+/ }; do
+      if [[ -z "${PENDING_SET[$id]:-}" ]]; then
+        grep -qF -- "- [x] $id." "$TASKS" \
+          && echo "!!! task $id = [x] อยู่แล้ว — ข้าม" >&2 \
+          || echo "!!! task $id ไม่ใช่ pending/ไม่พบ — ข้าม" >&2
+        continue
       fi
-      grep -qE "^- \[ \] $id\." "$TASKS" || { echo "!!! task $id ไม่ใช่ pending/ไม่พบ — ข้าม" >&2; continue; }
-      members="${members:+$members+}$id"    # ต่อกลับด้วย '+' คงการ batch
+      members="${members:+$members+}$id"
     done
-    [[ -n "$members" ]] && GROUPS="$GROUPS $members"
+    [[ -n "$members" ]] && PANE_GROUPS="$PANE_GROUPS $members"
   done
 else
-  # default: pending task ทุกตัว — auto-group ด้วย `Batch:` tag ใน tasks.md เอง
-  # (tag เดียวกัน = group เดียว/pane เดียว; ไม่มี tag = อันละ pane). tag อยู่บรรทัด
-  # task หรือบรรทัด continuation ก็ได้ → ใช้ python parse (portable, ไม่พึ่ง gawk).
-  GROUPS="$(python3 - "$TASKS" <<'PY'
-import re, sys
-lines = open(sys.argv[1]).read().splitlines()
-bullet = re.compile(r'^- \[([ x])\] (\d+)\.')
-btag   = re.compile(r'Batch:\s*([A-Za-z0-9_-]+)')
-order, batch = [], {}            # pending ids (file order); id -> tag
-cur, pending = None, False
+  # default: pending task ทุกตัว — IDs จาก shared engine, auto-group ด้วย `Batch:` tag
+  # (tag เดียวกัน = group เดียว). Batch scan จับคู่ ID แบบ exact-string ตาม file order.
+PANE_GROUPS="$(python3 - "$FEATURE" <<'PY'
+import subprocess, sys, re
+feature = sys.argv[1]
+proc = subprocess.run(
+    ["python3", "scripts/spec_contract.py", "task-ids", "--feature", feature, "--pending"],
+    capture_output=True, text=True,
+)
+if proc.returncode:
+    sys.stderr.write(proc.stderr)
+    raise SystemExit(proc.returncode)
+ids = proc.stdout.split()
+lines = open(f".ai/specs/{feature}/tasks.md").read().splitlines()
+batch = {}
+opening = re.compile(r"^- \[([ x])\] ([A-Za-z0-9][A-Za-z0-9_.\-]*)\.")
+tag_re = re.compile(r"Batch:\s*([A-Za-z0-9_-]+)")
 for ln in lines:
-    mb = bullet.match(ln)
-    if mb:
-        cur, pending = mb.group(2), (mb.group(1) == ' ')
-        if pending:
-            order.append(cur)
-            mt = btag.search(ln)
-            if mt: batch[cur] = mt.group(1)
+    m = opening.match(ln)
+    if not m:
         continue
-    if cur is not None and pending:          # continuation line of current task
-        mt = btag.search(ln)
-        if mt: batch[cur] = mt.group(1)
-groups, seen = [], {}            # preserve first-appearance order
-for idn in order:
+    tid = m.group(2)
+    mt = tag_re.search(ln)
+    if mt and tid in ids:
+        batch[tid] = mt.group(1)
+groups, seen = [], {}
+for idn in ids:
     tag = batch.get(idn)
     if tag is None:
         groups.append([idn])
@@ -130,12 +137,12 @@ for idn in order:
         groups[seen[tag]].append(idn)
     else:
         seen[tag] = len(groups); groups.append([idn])
-print(' '.join('+'.join(g) for g in groups))
+print(" ".join("+".join(g) for g in groups))
 PY
-)"
+)" || { rc=$?; echo "เลือก pending task ไม่สำเร็จ" >&2; exit "$rc"; }
 fi
-[[ -n "$GROUPS" ]] || { echo "ไม่มี task ที่จะรันใน $FEATURE"; exit 0; }
-echo "Feature: $FEATURE | groups: $GROUPS"
+[[ -n "$PANE_GROUPS" ]] || { echo "ไม่มี task ที่จะรันใน $FEATURE"; exit 0; }
+echo "Feature: $FEATURE | groups: $PANE_GROUPS"
 
 # --- iTerm helpers (operate on a session by id) -----------------------------
 open_pane() {  # -> echoes new session id ; opens interactive claude in a split
@@ -178,7 +185,29 @@ end tell
 APPLESCRIPT
 }
 
-task_done() { grep -qE "^- \[x\] $1\." "$TASKS"; }       # task $1 marked [x]?
+task_done() { grep -qF -- "- [x] $1." "$TASKS"; }          # task $1 marked [x]?
+
+# Retro completion = retrospective artifact bytes changed (REQ-4 / design §509-512):
+# sorted sha256 inventory of retrospectives/**/*.md captured before /spec-retro;
+# success when a new path appears OR a hash changes. Git HEAD is irrelevant.
+retro_inventory() {  # -> "sha256:path" sorted lines
+  python3 - <<'PY'
+import glob, hashlib, os
+rows = []
+for p in glob.glob("retrospectives/**/*.md", recursive=True):
+    if os.path.isfile(p):
+        rows.append(hashlib.sha256(open(p, "rb").read()).hexdigest() + ":" + os.path.relpath(p))
+print("\n".join(sorted(rows)))
+PY
+}
+
+retro_artifact_changed() { # $1=baseline snapshot file ; compares current inventory
+  if [[ ! -s "$1" ]]; then          # empty baseline -> any artifact counts as change
+    [[ -n "$(retro_inventory)" ]]
+    return
+  fi
+  [[ "$(retro_inventory)" != "$(cat "$1")" ]]
+}
 
 wait_for() {  # $1=predicate-cmd-string  $2=timeout-s  -> 0 ok / 1 timeout
   local waited=0
@@ -192,14 +221,16 @@ wait_for() {  # $1=predicate-cmd-string  $2=timeout-s  -> 0 ok / 1 timeout
 # --- main loop --------------------------------------------------------------
 # 1 group = 1 pane/session. implement ทุก id ในกลุ่มก่อน แล้ว retro+clear ครั้งเดียว
 # (batch → cache-write เย็นจ่ายรอบเดียวต่อกลุ่ม แทน 1 รอบ/task).
-for group in $GROUPS; do
+for group in $PANE_GROUPS; do
   ids="${group//+/ }"
   echo "::: group [$ids] — เปิด pane interactive"
   SID="$(open_pane | tr -d '[:space:]')"
   [[ -n "$SID" ]] || { echo "!!! เปิด pane ไม่สำเร็จ"; exit 1; }
   sleep 12   # รอ claude TUI บูต
 
-  head_before="$(git rev-parse HEAD 2>/dev/null)"
+  RETRO_SNAP="$(mktemp "${TMPDIR:-/tmp}/sdd-retro-snap.XXXXXX")"
+  trap 'rm -f "$RETRO_SNAP"' EXIT
+  retro_inventory >"$RETRO_SNAP"
 
   for id in $ids; do
     echo "::: task $id — พิมพ์ /spec-implement $id"
@@ -214,11 +245,13 @@ for group in $GROUPS; do
   echo "::: group [$ids] — /spec-retro (รวมทุก task ในกลุ่ม)"
   send_text "$SID" "/spec-retro"
 
-  # retro มัก commit ใน pane-loop (implement เปลี่ยนไฟล์ → retro ไม่ใช่ no-op) → detect ด้วย
-  # git HEAD เปลี่ยน. no-op skip (session ไม่มีการเปลี่ยน) จะไม่ commit → timeout แล้วไปต่อ (ไม่ใช่ error)
-  wait_for "[[ \$(git rev-parse HEAD 2>/dev/null) != '$head_before' ]]" 360 \
-    && echo "::: group [$ids] — retro committed" \
-    || echo "::: group [$ids] — retro timeout (ไปต่อ)"
+  # retro success = retrospective artifact bytes changed (แผน Task 5; ไม่อ่าน HEAD,
+  # ไม่ commit เอง — commit ผูกกับ human Ship flow). no-op session → timeout แล้วไปต่อ.
+  if ! wait_for "retro_artifact_changed '$RETRO_SNAP'" 360; then
+    echo "!!! group [$ids] — retro timeout/failure; หยุดและคง pane ไว้ให้ตรวจ" >&2
+    exit 1
+  fi
+  echo "::: group [$ids] — retro artifact เขียนแล้ว"
 
   sleep 6   # ให้ agent จบ turn ก่อนพิมพ์ /clear (กัน race)
   echo "::: group [$ids] — /clear แล้วปิด pane"

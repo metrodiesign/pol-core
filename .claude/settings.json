@@ -34,6 +34,15 @@
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/spec-edit-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-snapshot.sh"
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -41,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -n --arg b \"$(git branch --show-current 2>/dev/null)\" --arg s \"$(ls .ai/specs 2>/dev/null | tr '\\n' ' ')\" '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:(\"Branch: \"+$b+\". Active specs: \"+$s)}}'"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/session-start-active-specs.sh"
           }
         ]
       }

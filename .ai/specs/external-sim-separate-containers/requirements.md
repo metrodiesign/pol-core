@@ -1,6 +1,6 @@
 # Requirements: external-sim-separate-containers
 
-> Status: approved 2026-08-04 (quick, no gates)
+> Status: unknown
 > Scope: แยก simulated upstream databases `hippodb`/`mammothdb` (spec `products-sp-gateway`) ออกจาก
 > SQL Server instance เดียวกับ `VCentralPay` (container `pol-db`, :11433) เป็น 2 SQL Server container
 > ของตัวเอง (`hippo-db` :11434, `mammoth-db` :11435) ทุก environment (local compose, CI GitHub+GitLab,

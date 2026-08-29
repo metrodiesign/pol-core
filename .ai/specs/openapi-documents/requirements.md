@@ -1,6 +1,6 @@
 # Requirements: OpenAPI Documents by Audience
 
-> Status: approved 2026-08-12 (quick, no gates)
+> Status: unknown
 
 แยกสัญญา OpenAPI ตามผู้ใช้หลัก เพื่อให้ Scalar และ client generator เห็นเฉพาะ surface ที่เกี่ยวข้อง
 โดยไม่เปลี่ยน route หรือ authorization ของ API จริง

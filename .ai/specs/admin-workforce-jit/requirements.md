@@ -1,6 +1,7 @@
 # Requirements: Microsoft Workforce JIT Provisioning
 
-> Status: approved 2026-08-22, amended 2026-08-22
+> Status: approved 2026-08-22
+> Notes:, amended 2026-08-22
 
 ## Overview
 

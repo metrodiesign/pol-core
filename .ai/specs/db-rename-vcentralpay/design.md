@@ -1,6 +1,7 @@
 # Design: Rename database `PaymentOrchestration` -> `VCentralPay`
 
-> Status: approved 2026-07-08, amended 2026-07-08
+> Status: approved 2026-07-08
+> Notes:, amended 2026-07-08
 > Mode: design-first (requirements.md derived 2026-07-08 — REQ IDs backfilled below)
 
 ## Architecture Overview
@@ -161,7 +162,7 @@ Design-first — map กับ behaviors (B1-B7); REQ IDs backfill โดย `/s
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | Architecture Overview — inventory ตารางจุดแก้ (literal surfaces) | REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4 |
 | Architecture Overview — "ขอบเขตชัดเจน — ไม่แตะ" | REQ-2.1, REQ-2.2, REQ-2.3 |

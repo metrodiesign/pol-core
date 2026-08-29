@@ -224,10 +224,10 @@ Integration/E2E (Hosts.Tests + WebApplicationFactory):
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
-| appsettings CIAM authority + compose mapping | REQ-1.1, 3.2, 3.3 |
-| framework default issuer validation (ลบ custom validator) | REQ-1.3, 1.4, 2.2, 2.5 |
+| appsettings CIAM authority + compose mapping | REQ-1.1, REQ-3.2, REQ-3.3 |
+| framework default issuer validation (ลบ custom validator) | REQ-1.3, REQ-1.4, REQ-2.2, REQ-2.5 |
 | challenge จาก discovery ของ authority ใหม่ | REQ-1.2 |
 | คง subject=oid / email fallback / emailVerified=false | REQ-1.6 |
 | ไม่แตะ validation อื่นของ framework | REQ-1.7 |
@@ -235,14 +235,14 @@ Integration/E2E (Hosts.Tests + WebApplicationFactory):
 | AllowedTenants gate ใน OnTokenValidated | REQ-2.4 |
 | RequireOidcProviders ตัดเงื่อนไข section | REQ-3.1 |
 | blank ClientId skip เดิม (ไม่แตะ) | REQ-3.4 |
-| ResolveQuery/ResolveLoginQuery รับ (Provider, Subject) | REQ-4.1, 4.2 |
-| allowlist prefix parsing + provider check | REQ-4.3, 4.4 |
-| migration Provider column default google + unique (Provider, Subject) filtered ฝั่ง admin, คง ExternalLogins | REQ-4.5, 4.6 |
+| ResolveQuery/ResolveLoginQuery รับ (Provider, Subject) | REQ-4.1, REQ-4.2 |
+| allowlist prefix parsing + provider check | REQ-4.3, REQ-4.4 |
+| migration Provider column default google + unique (Provider, Subject) filtered ฝั่ง admin, คง ExternalLogins | REQ-4.5, REQ-4.6 |
 | route `{merchantUserId:guid}` + `FindByIdAsync` เท่านั้น (approve/reject/registrations) | REQ-4.7 |
 | `RegistrationAudits.TargetUserId` NOT NULL + FK + backfill + read ด้วย internal id | REQ-4.8 |
 | `RegistrationAudits.ActorAdminId` (required สำหรับ admin actions) | REQ-4.9 |
 | upgrade migration test (seed identity เดิมแล้ว migrate) | REQ-6.7 |
-| invitation form field provider + verified-email allowlist | REQ-5.1, 5.2, 5.3, 5.4, 5.5 |
+| invitation form field provider + verified-email allowlist | REQ-5.1, REQ-5.2, REQ-5.3, REQ-5.4, REQ-5.5 |
 | E2E callback suite | REQ-6.1 |
 | error path suite | REQ-6.2 |
 | issuer test suite | REQ-6.3 |

@@ -1,6 +1,7 @@
 # Design: products-sp-gateway
 
-> Status: approved 2026-07-31, amended 2026-08-01
+> Status: approved 2026-07-31
+> Notes:, amended 2026-08-01
 > Requirements: [requirements.md](requirements.md) (approved 2026-07-31, amended 2026-07-31) — 11 REQ / 73 criteria
 > Contract ต้นเรื่อง: `docs/reference/vcentralpay-sp-quick-reference.pdf` v1.0
 
@@ -432,7 +433,7 @@ detail `"Invalid request"` ของ handler เดิม — spec นี้ไ�
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | `02-external-sim.sql` — CREATE DATABASE + `dbo.Documents` + deviation ตารางเดียว + unique DocumentNo | REQ-1.1, REQ-1.2, REQ-1.3 |
 | `02-external-sim.sql` — seed (prefix แยกฝั่ง) + self-check | REQ-1.4, REQ-1.5 |

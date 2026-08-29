@@ -1,6 +1,6 @@
 # Requirements: Merchant Frontend Real API Backend Contract
 
-> Status: approved 2026-08-10 (mirror of approved Merchant spec)
+> Status: unknown
 
 เอกสารนี้ mirror เฉพาะเกณฑ์ที่ `pol-core` เป็นเจ้าของจาก
 `pol-merchant/.claude/specs/merchant-real-api-integration/requirements.md`. หมายเลข REQ คงเดิมเพื่อให้

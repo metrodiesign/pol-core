@@ -11,7 +11,10 @@ Commit งานใน working tree ปัจจุบันแล้วเป�
 
 ## Pre-flight (หยุดทันทีถ้าไม่ผ่าน)
 
-1. `git status --short` — ต้องมีของให้ commit; review รายการไฟล์ว่าตรงกับงานที่ทำจริง
+1. `git status --short` — ต้องมีของให้ commit **หรือ** branch มี commit ที่ยังไม่ push/ไม่อยู่ใน base
+   (`git log --oneline origin/<base>..HEAD` ไม่ว่าง) — working tree ว่างแต่ commit พร้อมแล้ว = ผ่าน
+   ข้ามขั้น commit ไป push/เปิด PR ได้เลย; ทั้งสองว่างจึงหยุด (ไม่มีอะไรให้ ship)
+   มีไฟล์ค้าง → review รายการไฟล์ว่าตรงกับงานที่ทำจริง
    ไฟล์แปลกปลอม (`.env*`, secret, ไฟล์นอก scope งาน) ห้ามติดไป — unstage/แจ้ง user
 2. ถ้ายังไม่ได้รัน full gate ในบทสนทนานี้: รัน `dotnet build` + `dotnet test` ให้เขียวก่อน
    (Integration ต้อง `source .env.integration` ใน Bash call เดียวกับ `dotnet test`)

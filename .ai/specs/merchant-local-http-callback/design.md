@@ -2,7 +2,7 @@
 
 ใช้ ASP.NET Core launch profile และ OIDC configuration seam ที่มีอยู่แล้ว ไม่มี production branch ใหม่.
 
-> Status: superseded 2026-08-17 — design นี้ไม่ได้ implement. แนวทางสุดท้ายใช้ local API แบบ HTTPS-only
+> Status: unknown
 > ที่ `https://localhost:5001` และ canonical Merchant callback
 > `/api/v1/merchants/auth/microsoft/callback`. ดู `.ai/specs/bugfix-merchant-tier1-dev-oidc/`.
 

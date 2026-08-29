@@ -79,55 +79,31 @@ Manual บน dev: ลบ `Merchant:DevMerchantId` ออกจาก `appsettin
 
 ## Expected Behavior
 
-- F1 WHEN caller ใด ๆ (bound หรือไม่) resolve login ด้วย subject ที่มีบัญชีอยู่
-     THE SYSTEM SHALL คืนสถานะจริงของบัญชี (PendingApproval/Active/Rejected/Suspended)
-     โดยไม่ขึ้นกับค่า `MerchantId` ของแถว — rejected user ได้ `TicketPurpose.Correction`
-     ตาม REQ-5 เดิม
-- F2 WHEN rejected user ส่งคำขอลงทะเบียนซ้ำ (Correction submit) THE SYSTEM SHALL
-     resubmit แถวเดิม (`Rejected -> PendingApproval` ผ่าน `User.Resubmit()`) และตอบ 201
-     — ไม่ใช่ 409
-- F3 WHEN admin ที่ถือ `merchants.users.approve` และ merchant เป้าหมายอยู่ใน accessible
-     set approve บัญชี pending THE SYSTEM SHALL ทำงานครบใน tx เดียว: `Status = Active`
+- F-1 WHEN caller ใด ๆ (bound หรือไม่) resolve login ด้วย subject ที่มีบัญชีอยู่ THE SYSTEM SHALL คืนสถานะจริงของบัญชี (PendingApproval/Active/Rejected/Suspended) โดยไม่ขึ้นกับค่า `MerchantId` ของแถว — rejected user ได้ `TicketPurpose.Correction` ตาม REQ-5 เดิม
+- F-2 WHEN rejected user ส่งคำขอลงทะเบียนซ้ำ (Correction submit) THE SYSTEM SHALL resubmit แถวเดิม (`Rejected -> PendingApproval` ผ่าน `User.Resubmit()`) และตอบ 201 — ไม่ใช่ 409
+- F-3 WHEN admin ที่ถือ `merchants.users.approve` และ merchant เป้าหมายอยู่ใน accessible set approve บัญชี pending THE SYSTEM SHALL ทำงานครบใน tx เดียว: `Status = Active`
      + set `MerchantId` + insert `RoleAssignment` + append `RegistrationAudits` โดย
      write floor อนุญาต
-- F4 WHEN admin ที่ถือ `merchants.users.reject` reject บัญชี pending THE SYSTEM SHALL
-     ทำงานครบ: `Status = Rejected` + revoke ทุก session + append audit พร้อม reason
-     (read ไม่ 404 อีก)
-- F5 WHEN session authentication ตั้ง principal ที่มี `merchant_id` claim แล้ว
-     THE SYSTEM SHALL เห็น claim นั้นในส่วนที่เหลือของ request เดียวกัน
-     (`IActorContext.HasActor = true`, `MerchantId` = ค่า claim) — การอ่าน claims
-     ต้อง lazy ไม่ snapshot ที่ constructor
-- F6 WHEN session auth handler re-resolve บัญชีของ caller ด้วย id (pre-bind by
-     construction) THE SYSTEM SHALL พบบัญชีเสมอไม่ว่าสถานะ/merchant ใด
+- F-4 WHEN admin ที่ถือ `merchants.users.reject` reject บัญชี pending THE SYSTEM SHALL ทำงานครบ: `Status = Rejected` + revoke ทุก session + append audit พร้อม reason (read ไม่ 404 อีก)
+- F-5 WHEN session authentication ตั้ง principal ที่มี `merchant_id` claim แล้ว THE SYSTEM SHALL เห็น claim นั้นในส่วนที่เหลือของ request เดียวกัน (`IActorContext.HasActor = true`, `MerchantId` = ค่า claim) — การอ่าน claims ต้อง lazy ไม่ snapshot ที่ constructor
+- F-6 WHEN session auth handler re-resolve บัญชีของ caller ด้วย id (pre-bind by construction) THE SYSTEM SHALL พบบัญชีเสมอไม่ว่าสถานะ/merchant ใด
 
 ## Unchanged Behavior
 
-- B1  WHEN subject เดิม submit Registration ซ้ำ (ไม่ใช่ Correction) THE SYSTEM SHALL
-      CONTINUE TO ตอบ 409 ผ่าน `UNIQUE(Subject)` -> `ConflictException` mapping เดิม
-- B2  WHEN bound in-session flow (เช่น `SetUserRolesHandler`) อ่านผ่าน `IUserRepository`
-      THE SYSTEM SHALL CONTINUE TO เห็นเฉพาะแถวของ merchant ตัวเอง (query filter คงเดิม
-      สำหรับ bound reads)
-- B3  WHEN admin-plane write แตะ entity นอกชุด approve (product plane ฯลฯ) หรือ merchant
-      นอก accessible set THE SYSTEM SHALL CONTINUE TO deny ที่ write floor
-- B4  WHEN unbound self-service registration เขียน entity ที่ tenant key เป็น NULL/Empty
-      THE SYSTEM SHALL CONTINUE TO อนุญาตตาม carve-out เดิม และ non-empty target อื่น
-      ยังต้องมี bound actor ตรงกัน (ยกเว้น outbox sentinel เดิม)
-- B5  WHEN suspended user พยายาม login THE SYSTEM SHALL CONTINUE TO deny พร้อม
-      `?reason=suspended` + append auth-denied audit
-- B6  WHEN pending user login THE SYSTEM SHALL CONTINUE TO redirect
-      `?reason=awaiting-approval` โดยไม่สร้าง session
-- B7  WHEN Correction ticket ถูก submit ให้บัญชีที่ไม่ใช่ Rejected THE SYSTEM SHALL
-      CONTINUE TO ปฏิเสธ (guard ใน `User.Resubmit()` คงเดิม)
-- B8  WHEN admin approve บัญชีที่ไม่ pending -> 409; subject ไม่รู้จัก -> 404;
+- B-1 WHEN subject เดิม submit Registration ซ้ำ (ไม่ใช่ Correction) THE SYSTEM SHALL CONTINUE TO ตอบ 409 ผ่าน `UNIQUE(Subject)` -> `ConflictException` mapping เดิม
+- B-2 WHEN bound in-session flow (เช่น `SetUserRolesHandler`) อ่านผ่าน `IUserRepository` THE SYSTEM SHALL CONTINUE TO เห็นเฉพาะแถวของ merchant ตัวเอง (query filter คงเดิม สำหรับ bound reads)
+- B-3 WHEN admin-plane write แตะ entity นอกชุด approve (product plane ฯลฯ) หรือ merchant นอก accessible set THE SYSTEM SHALL CONTINUE TO deny ที่ write floor
+- B-4 WHEN unbound self-service registration เขียน entity ที่ tenant key เป็น NULL/Empty THE SYSTEM SHALL CONTINUE TO อนุญาตตาม carve-out เดิม และ non-empty target อื่น ยังต้องมี bound actor ตรงกัน (ยกเว้น outbox sentinel เดิม)
+- B-5 WHEN suspended user พยายาม login THE SYSTEM SHALL CONTINUE TO deny พร้อม `?reason=suspended` + append auth-denied audit
+- B-6 WHEN pending user login THE SYSTEM SHALL CONTINUE TO redirect `?reason=awaiting-approval` โดยไม่สร้าง session
+- B-7 WHEN Correction ticket ถูก submit ให้บัญชีที่ไม่ใช่ Rejected THE SYSTEM SHALL CONTINUE TO ปฏิเสธ (guard ใน `User.Resubmit()` คงเดิม)
+- B-8 WHEN admin approve บัญชีที่ไม่ pending หรือ subject ไม่รู้จัก หรือ merchant เป้าหมายอยู่นอก accessible set THEN THE SYSTEM SHALL ปฏิเสธด้วย 409, 404, 404 (no-existence-leak) ตาม host guard เดิม
       merchant เป้าหมายนอก accessible set -> 404 (no-existence-leak) — พฤติกรรม host
       guard เดิมทั้งหมด (`Program.cs:1459-1496`)
-- B9  external contracts แช่แข็ง: outbox event `MerchantUserRegistrationSubmitted`,
+- B-9 WHEN spec นี้ถูก implement THE SYSTEM SHALL คง outbox event `MerchantUserRegistrationSubmitted`, routes, config keys, auth schemes และ DB schema เดิมทั้งหมด โดยไม่เพิ่มตารางใหม่หรือ migration
       routes, config keys, auth schemes, DB schema — spec นี้ไม่มีตารางใหม่/ไม่มี migration
-- B10 WHEN webhook bind `AmbientActor` หรือ background dispatch ใช้ scope-discriminated
-      authorizer THE SYSTEM SHALL CONTINUE TO ทำงานเดิม (precedence `AmbientActor` >
-      claims > dev fallback คงเดิม)
-- B11 WHEN dev config ตั้ง `Merchant:DevMerchantId` และ request ไม่มี merchant_id claim
-      THE SYSTEM SHALL CONTINUE TO ใช้ fallback merchant เดิม (dev-only convenience)
+- B-10 WHEN webhook bind `AmbientActor` หรือ background dispatch ใช้ scope-discriminated authorizer THE SYSTEM SHALL CONTINUE TO ทำงานเดิม (precedence `AmbientActor` > claims > dev fallback คงเดิม)
+- B-11 WHEN dev config ตั้ง `Merchant:DevMerchantId` และ request ไม่มี merchant_id claim THE SYSTEM SHALL CONTINUE TO ใช้ fallback merchant เดิม (dev-only convenience)
 
 ## Scope constraints (hard — งานใดแตะไฟล์กลุ่มนี้ = spec conflict)
 

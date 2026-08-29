@@ -1,6 +1,6 @@
 # Requirements: Admin Console Real API Backend Contract
 
-> Status: approved 2026-08-10 (mirror of approved source-reconciled Admin spec)
+> Status: unknown
 
 เอกสารนี้ mirror เฉพาะเกณฑ์ที่ `pol-core` เป็นเจ้าของจาก
 `pol-admin/.claude/specs/real-api-integration/requirements.md`. หมายเลขเกณฑ์คงเดิมเพื่อให้

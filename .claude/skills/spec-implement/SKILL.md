@@ -16,23 +16,74 @@ with any unchecked tasks. If more than one folder qualifies: interactive → lis
 them and ask, never guess; unattended (pane-loop/CI) → require the feature name in
 the argument and stop with that message instead of waiting.
 
-If tasks.md is still `> Status: draft`: interactive → warn in Thai and ask for
-confirmation (if I confirm, flip it to `> Status: approved <YYYY-MM-DD>` as part
-of that confirmation); unattended → treat it as a hard stop, state the reason and
-stop immediately — never sit waiting for an answer no one will give.
+เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:
 
-Once, before the loop: run `scripts/spec-state.sh <feature>` and reconcile tasks.md
-with the filesystem for the target tasks and their dependencies. The filesystem is
-ground truth — checkboxes and git log can lie, and untracked files never appear in
-`git diff --stat`. If a checkbox contradicts reality (marked [x] but artifacts
-missing, or [ ] but already built), fix the checkbox and note the reconciliation
-in tasks.md before implementing.
+- มี `bugfix.md` และไม่มี `requirements.md`/`design.md` → `bugfix`
+- มี `requirements.md` กับ `design.md` และไม่มี `bugfix.md` → feature shape ที่
+  Requirements-First และ Design-First converge แล้ว (`requirements-first` กับ
+  `design-first` ใช้ phase contract เดียวกันสำหรับ implement); ใช้
+  `requirements-first` เป็น canonical label ของ shape นี้โดยไม่เดาประวัติจาก prose
+- shape อื่น → หยุด เพราะ missing หรือ ambiguous
 
-For EACH task:
+ก่อนอ่าน implementation context, แก้ source หรือแก้ `tasks.md` ให้รัน shared phase gate:
 
-1. Read the task plus its linked IDs in requirements.md (or bugfix.md with its
-   F-IDs/B-IDs, for a bugfix spec), the relevant parts of design.md (if present
-   — bugfix specs have none), and @.ai/shared/ARCHITECTURE.md.
+```bash
+python3 scripts/spec_contract.py gate phase --feature <feature> --phase implement --workflow <workflow>
+```
+
+คำสั่งต้องคืน exit `0` ก่อนจึงทำต่อได้ หาก artifact missing, malformed, unknown หรือ
+ไม่ approved ให้หยุดตาม diagnostic ของ engine ทันที ห้ามใช้ conversation, checkbox
+หรือ code existence แทน approval และห้าม flip upstream status เพื่อข้าม gate.
+
+Resolve selector ผ่าน shared engine ให้เป็น exact `<task-id>` ตาม file order โดยอ่านเฉพาะ
+ID ที่ CLI คืน ห้ามอ่าน task body ก่อน slice.
+
+หาก `$ARGUMENTS == all` ให้เลือกเฉพาะ pending task IDs:
+
+```bash
+python3 scripts/spec_contract.py task-ids --feature <feature> --pending --format lines
+```
+
+หาก `$ARGUMENTS` เป็น exact ID หรือ numeric range ให้ใช้ selector เดิม:
+
+```bash
+python3 scripts/spec_contract.py task-ids --feature <feature> --selector "$ARGUMENTS" --format lines
+```
+
+ทั้งสอง branch ต้องคืน exit `0` ก่อนเข้า loop; selector unknown หรือคำสั่งคืน non-zero ให้หยุด
+ตาม diagnostic ทันที. นำทุก ID ที่ CLI คืนเข้า loop ด้านล่างตาม file order โดยไม่ข้าม ID.
+
+For EACH exact task ID:
+
+0. รัน slice ก่อนอ่าน implementation context อื่น:
+
+   ```bash
+   scripts/spec-slice.sh <feature> <task-id>
+   ```
+
+   ถ้า `spec-slice.sh` คืน non-zero ให้หยุดทันที ใช้ output ที่ exit `0` เป็น initial slice
+   และห้ามแทนด้วย grep หรือ parser ใน skill.
+
+   หาก output มี `MISSING:` ให้ full-read upstream artifacts ทั้งหมดตาม workflow:
+
+   - feature: `requirements.md`, `design.md` และ `tasks.md`
+   - bugfix: `bugfix.md` และ `tasks.md`
+
+   หลัง full-read ให้รัน gate ซ้ำด้วย workflow เดิม:
+
+   ```bash
+   python3 scripts/spec_contract.py gate phase --feature <feature> --phase implement --workflow <workflow>
+   ```
+
+   gate ซ้ำต้องคืน exit `0` ก่อนทำต่อ ห้ามเดา mapping ที่หาย หาก full-read พบ artifact
+   missing, malformed, unknown หรือไม่ approved ให้หยุดโดยไม่แก้ source หรือ `tasks.md`.
+
+1. หลัง slice, fallback และ gate ซ้ำเสร็จแล้ว จึงรัน `scripts/spec-state.sh <feature>` และ
+   reconcile target task กับ dependencies เทียบ filesystem โดยถือ filesystem เป็น ground
+   truth; checkbox กับ git log อาจผิด และ untracked files ไม่อยู่ใน `git diff --stat`.
+   ถ้าพบความขัดแย้ง ให้หยุดรายงานก่อนแก้ `tasks.md`. จากนั้นอ่าน task slice กับ supplemental
+   context ที่ slice ระบุ พร้อม @.ai/shared/ARCHITECTURE.md โดย slice เป็น context เริ่มต้นที่
+   authoritative; full-read ใช้เฉพาะ fallback `MISSING:` ข้างต้น.
 2. Plan the task with your own internal TODO list, then implement the WHOLE task in
    one cohesive pass. It may span many files — that is expected; keep the entire
    task in context rather than splitting it across turns.

@@ -1,6 +1,6 @@
 # Requirements: Captive Intra-Group Payment Alignment
 
-> Status: approved-for-implementation 2026-07-26 (delegated autonomous run — PENDING HUMAN REVIEW
+> Status: unknown
 > 2026-07-27; reviewer may reject any REQ. See "Gate note".)
 
 ## Overview

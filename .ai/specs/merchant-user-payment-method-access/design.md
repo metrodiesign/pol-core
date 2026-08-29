@@ -587,7 +587,7 @@ scripts/spec-trace.sh merchant-user-payment-method-access
 
 ## Requirement Traceability
 
-| Design element | Requirement coverage |
+| Section | REQ |
 |---|---|
 | Identity reuse, applicant boundary, single Merchant, uniqueness, Guid และ no admin/password shortcut | REQ-1.1–REQ-1.12 |
 | Fifteen-concept map, canonical codes, normalized source, option parents, config/credential separation และ input normalization | REQ-2.1–REQ-2.15 |

@@ -1,6 +1,6 @@
 # Requirements: Producer Google SSO + Role RBAC
 
-> Status: approved 2026-06-25 (AFK-delegated per /goal directive — autonomous completion, /spec-analyze F1–F10 applied; amended 2026-06-25 to sync design-critique B1/B2/S1/S5/S6/S7 into REQ-16.5/20.2/20.4/23.2/23.3; review at PR gate)
+> Status: unknown
 
 > **Amended 2026-07-01 (registration ticket made stateless):** the server-side `RegistrationTickets` row + its
 > single-use conditional-UPDATE consume are REMOVED. The registration/correction wire ticket is now a stateless

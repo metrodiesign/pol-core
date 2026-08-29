@@ -1,6 +1,7 @@
 # Requirements: products-sp-gateway
 
-> Status: approved 2026-07-31, amended 2026-07-31 (spec-architect design critique B1/B2/M6/M7/M9 — ดู design.md "Design review log")
+> Status: approved 2026-07-31
+> Notes:, amended 2026-07-31 (spec-architect design critique B1/B2/M6/M7/M9 — ดู design.md "Design review log")
 > Scope: ชั้น DTO/port แยก Domain ของ repo ออกจาก wire contract ของ VCentralPay SP + adapter ADO.NET จริง + database จำลอง `hippodb`/`mammothdb` (SP เต็มตาม contract) ใน pol-db container — อ้าง `docs/reference/vcentralpay-sp-quick-reference.pdf` v1.0 (§1-§6) และแผนที่ approve `~/.claude/plans/src-modules-products-dto-hidden-sketch.md`
 
 ## บริบท

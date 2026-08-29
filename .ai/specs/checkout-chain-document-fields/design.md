@@ -1,6 +1,6 @@
 # Design: checkout-chain-document-fields
 
-> Status: approved-for-implementation 2026-07-30
+> Status: unknown
 > อ่าน `requirements.md` ก่อน. งานนี้ทำบน branch `feat/products-insurance-document` เข้า PR #143 เดิม (user ยืนยัน)
 
 ## หลักการ

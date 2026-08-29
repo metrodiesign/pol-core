@@ -1,137 +1,165 @@
 #!/usr/bin/env bash
-# gate-task.sh — harness-agnostic task-boundary quality gate (.ai/bin engine)
-# Ported from .claude/hooks/task-gate.sh. The code-green check is STACK-AGNOSTIC: a project
-# declares its typecheck/test commands via $SDD_TYPECHECK_CMD / $SDD_TEST_CMD, and a Node
-# project that ships package.json scripts is auto-detected for backward-compat; when neither
-# is present the check is skipped and only the Evidence gate applies. The Evidence check is
-# PER TASK (scoped to each flipped [x] region) and requires non-trivial content, so every
-# adapter input shape yields the same verdict (PR #24 findings #6/#19/#20/#28).
+# gate-task.sh — command resolution + Evidence + safe cache + build/test, one verdict.
+# Task 3 (sdd-operating-layer-parity): replaces the awk Evidence parser and the
+# zero-test exception. All task/Evidence semantics live in scripts/spec_contract.py;
+# this script owns ONLY: GateSelection call, command resolution, cache I/O,
+# process execution and exit mapping (design §Command resolution / §Safe cache).
 #
-# Fires only when a .ai/specs/*/tasks.md (or legacy .claude/specs/*/) checkbox is being flipped to [x].
-# เขียว = เงียบ exit 0, แดง = exit 2 + stderr ให้แก้ก่อน mark เสร็จ
-#
-# Interface (harness-agnostic):
-#   $1 / $GATE_FILE      = tasks.md file path being edited
-#   $2 / $GATE_NEW       = the new_string / content the edit introduces (the flip text).
-#                          May be a scoped flipped hunk (Claude/Codex) OR the whole
-#                          post-edit file (OpenCode) — the engine scopes Evidence PER
-#                          TASK so the verdict is IDENTICAL across those input shapes.
-# The caller's adapter is responsible for extracting these from its own hook payload.
-# When $GATE_NEW carries a "- [x]" line it is treated as a flip; a NON-TRIVIAL Evidence:
-# block is then required INSIDE THE REGION of EACH flipped [x] task (not just somewhere
-# in the input). A pre-existing Evidence line belonging to a different task therefore
-# cannot satisfy the gate for a task that has none of its own.
+# Interface:
+#   $1 = repo-relative tasks.md path        $4 = changed-ranges JSON file
+#   $2 = before snapshot file ("-" = absent)$5 = source enum (claude-edit|codex-edit|opencode|pre-commit|ci)
+#   $3 = after snapshot file
+# Exit: 0 green (Evidence+build+test) · 2 block with deterministic stderr diagnostics.
+set -uo pipefail
 
-FILE="${1:-${GATE_FILE:-}}"
-NEW="${2:-${GATE_NEW:-}}"
-
-case "$FILE" in
-  */.ai/specs/*/tasks.md) ;;
-  .ai/specs/*/tasks.md) ;;
-  */.claude/specs/*/tasks.md) ;;
-  .claude/specs/*/tasks.md) ;;
-  *) exit 0 ;;
-esac
-
-# trigger only on a flip to [x] in the new content
-printf '%s\n' "$NEW" | grep -qi -- '- \[x\]' || exit 0
-
-# --- code-green check (STACK-AGNOSTIC, optional) ---
-# The framework does not assume Node/npm. A project declares how its code is proven green:
-#   $SDD_TYPECHECK_CMD / $SDD_TEST_CMD  — explicit commands for ANY stack (e.g. "pytest -q").
-# Backward-compat: a Node project that ships package.json with "typecheck"/"test" scripts is
-# auto-detected so it keeps the original npm behavior with no config. When neither a command
-# nor a matching package.json script exists, the check is skipped and only the Evidence gate
-# (below) applies. Commands are operator-provided config, run via eval to honor their quoting.
-TYPECHECK_CMD="${SDD_TYPECHECK_CMD:-}"
-TEST_CMD="${SDD_TEST_CMD:-}"
-if [ -z "$TYPECHECK_CMD" ] && [ -f package.json ] && grep -q '"typecheck"' package.json; then
-  TYPECHECK_CMD='npm run typecheck --silent'
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+if ROOT_CANDIDATE="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"; then
+  REPO="$ROOT_CANDIDATE"
 fi
-if [ -z "$TEST_CMD" ] && [ -f package.json ] && grep -q '"test"' package.json; then
-  TEST_CMD='npm test --silent'
+# Test seam: fixtures redirect the repo root to a sandbox (production leaves this unset).
+if [[ -n "${SDD_GATE_REPO:-}" ]]; then
+  REPO="${SDD_GATE_REPO}"
 fi
+# Engine binaries bind to the installation floor, not the target repo (so the
+# SDD_GATE_REPO sandbox seam keeps working); REPO is only where work executes.
+INSTALL="$(cd "$(dirname "$0")/../.." && pwd)"
+ENGINE="$INSTALL/scripts/spec_contract.py"
+CHECK_EVIDENCE="$INSTALL/.ai/bin/check-evidence.sh"
 
-if [ -n "$TYPECHECK_CMD" ]; then
-  OUT=$(eval "$TYPECHECK_CMD" 2>&1) || {
-    echo 'Task gate: typecheck ไม่ผ่าน — ห้าม mark [x] จนกว่าเขียว' >&2
-    echo "$OUT" | tail -20 >&2
-    exit 2
-  }
-fi
-if [ -n "$TEST_CMD" ]; then
-  OUT=$(eval "$TEST_CMD" 2>&1) || {
-    # a runner that exits non-zero ONLY because it found no tests is not a red test —
-    # don't block a task that legitimately has none (vitest / pytest phrasings).
-    if ! echo "$OUT" | grep -qiE 'no test files found|no tests ran|collected 0 items'; then
-      echo 'Task gate: test ไม่ผ่าน — ห้าม mark [x] จนกว่าเขียว' >&2
-      echo "$OUT" | tail -20 >&2
-      exit 2
-    fi
-  }
-fi
-
-# evidence gate (PER TASK, non-trivial content): code-green is checked first (above);
-# only then require that EACH flipped `- [x]` task carries its own `Evidence:` line —
-# scoped to that task's region — whose value is non-trivial (not empty / placeholder).
-#
-# Region of a task = from its `- [x]` checkbox line up to (but excluding) the next
-# checkbox line (`- [ ]` / `- [x]`) or EOF. Scoping per task makes the verdict identical
-# whether $NEW is a single flipped hunk (Claude/Codex) or the whole file (OpenCode):
-# Evidence belonging to a *different* task can no longer satisfy a task that has none.
-#
-# Non-trivial = after stripping the `Evidence:` label the remaining value must contain a
-# real character and not be a bare placeholder (TODO/TBD/???/-/.). The explicit `n/a`
-# escape stays valid — but it is the AGENT's choice in the file, never auto-fabricated.
-EV_FAIL=$(printf '%s\n' "$NEW" | awk '
-  # real() = a value that is neither empty nor a bare placeholder. Shared by the
-  # inline Evidence form and the multiline-block bullets so both judge content
-  # the same way.
-  function real(s,  l) {
-    gsub(/^[[:space:]`"'"'"']+|[[:space:]`"'"'"']+$/, "", s)
-    l=tolower(s)
-    return (s != "" && l != "todo" && l != "tbd" && l != "???" && \
-            l != "-" && l != "." && l != "none" && l != "pending" && \
-            l != "n/a (write path)")
-  }
-  # A checkbox line starts a new task region. Track only [x] regions for Evidence.
-  /^[[:space:]]*-[[:space:]]\[[xX]\]/ {
-    # entering a new [x] task: the previous [x] region just closed — verdict it.
-    if (in_x && !have_ev) { print prev_task; failed=1 }
-    in_x=1; have_ev=0; ev_open=0
-    prev_task=$0
-    next
-  }
-  /^[[:space:]]*-[[:space:]]\[[[:space:]]\]/ {
-    # a [ ] (unchecked) task closes any open [x] region.
-    if (in_x && !have_ev) { print prev_task; failed=1 }
-    in_x=0; have_ev=0; ev_open=0
-    next
-  }
-  {
-    # within the current region, look for non-trivial Evidence.
-    if (in_x && !have_ev) {
-      line=$0
-      # match an Evidence: label (case-insensitive), capture the value after the colon.
-      if (line ~ /^[[:space:]]*[Ee][Vv][Ii][Dd][Ee][Nn][Cc][Ee]:/) {
-        val=line
-        sub(/^[[:space:]]*[Ee][Vv][Ii][Dd][Ee][Nn][Cc][Ee]:[[:space:]]*/, "", val)
-        if (real(val)) have_ev=1          # inline form: `Evidence: <value>`
-        else if (val == "") ev_open=1     # documented header form: bullets follow
-      } else if (ev_open && line ~ /^[[:space:]]*[-*][[:space:]]/) {
-        # a bullet inside the Evidence: block (`- test: ...`, `- viewports: ...`):
-        # one with real content satisfies the gate.
-        v=line
-        sub(/^[[:space:]]*[-*][[:space:]]*/, "", v)
-        if (real(v)) have_ev=1
-      }
-    }
-  }
-  END { if (in_x && !have_ev) { print prev_task; failed=1 } exit (failed?1:0) }
-')
-if [ -n "$EV_FAIL" ]; then
-  echo 'Task gate: ขาด Evidence (per-task) — แต่ละ task ที่ mark [x] ต้องมี Evidence: ของตัวเอง (test result + viewports 375/768/1440 หรือ n/a + deviations) ในบล็อกของ task นั้น ก่อน mark [x]' >&2
-  echo "$EV_FAIL" | head -5 >&2
+if [[ $# -ne 5 ]]; then
+  printf 'Usage: %s <path> <before-file|-> <after-file> <ranges-json> <source>\n' "$0" >&2
   exit 2
 fi
+PATH_ARG="$1"; BEFORE="$2"; AFTER="$3"; RANGES="$4"; SOURCE="$5"
+
+fail() { printf '%s\n' "$1" >&2; exit 2; }
+
+# --- Evidence first: always validated, never cached -------------------------
+ENVELOPE="$(bash "$CHECK_EVIDENCE" "$PATH_ARG" "$BEFORE" "$AFTER" "$RANGES" "$SOURCE")"
+EV_RC=$?
+printf '%s\n' "$ENVELOPE" >&2
+[[ "$EV_RC" -eq 0 ]] || fail "Task gate: Evidence/selection red — mark [x] ถูก block"
+
+# --- Command resolution ------------------------------------------------------
+TYPECHECK_CMD="${SDD_TYPECHECK_CMD:-}"
+TEST_CMD="${SDD_TEST_CMD:-}"
+if [[ -z "$TYPECHECK_CMD" && -f "$REPO/pol-core.slnx" ]]; then
+  TYPECHECK_CMD='dotnet build pol-core.slnx -warnaserror'
+fi
+if [[ -z "$TEST_CMD" && -f "$REPO/pol-core.slnx" ]]; then
+  TEST_CMD='dotnet test pol-core.slnx --no-build --filter "Category!=Integration"'
+fi
+if [[ -z "$TYPECHECK_CMD" || -z "$TEST_CMD" ]]; then
+  fail 'COMMAND_UNRESOLVED: build/test command resolve ไม่ได้ — block'
+fi
+
+NO_CACHE="${SDD_GATE_NO_CACHE:-}"
+CACHE_DIR=""
+cache_key=""
+
+if [[ "$NO_CACHE" != "1" ]]; then
+  GIT_DIR="$(git -C "$REPO" rev-parse --absolute-git-dir 2>/dev/null)" || GIT_DIR=""
+  if [[ -z "$GIT_DIR" ]]; then NO_CACHE=1; fi
+fi
+
+if [[ "$NO_CACHE" != "1" ]]; then
+  CACHE_DIR="$GIT_DIR/sdd-gate-cache/v1"
+  KEY_JSON="$(python3 - "$REPO" "$CACHE_DIR" "$TYPECHECK_CMD" "$TEST_CMD" <<'PY'
+import hashlib, json, os, stat as _stat, subprocess, sys
+repo, cache_dir, build, test = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+def inventory():
+    tracked = subprocess.run(["git", "-C", repo, "ls-files", "-s", "-z"], capture_output=True).stdout.split(b"\0")
+    others = subprocess.run(["git", "-C", repo, "ls-files", "--others", "--exclude-standard", "-z"], capture_output=True).stdout.split(b"\0")
+    entries = []
+    for raw in tracked:
+        if not raw:
+            continue
+        meta, rel = raw.split(b"\t", 1)
+        mode = meta.split()[0].decode()
+        path = os.path.join(repo, os.fsdecode(rel))
+        try:
+            data = open(path, "rb").read()
+        except OSError:
+            return None
+        entries.append((os.fsdecode(rel), mode, hashlib.sha256(data).hexdigest()))
+    for raw in others:
+        if not raw:
+            continue
+        rel = os.fsdecode(raw)
+        path = os.path.join(repo, rel)
+        try:
+            st = os.lstat(path)
+            data = open(path, "rb").read()
+        except OSError:
+            continue
+        if _stat.S_ISLNK(st.st_mode):
+            return None          # submodule/symlink inventory undigestible -> disable cache
+        if rel.startswith((".ai/specs/", ".git/")) or "/.ai/specs/" in "/" + rel or cache_dir in rel:
+            continue
+        entries.append((rel, format(st.st_mode & 0o777), hashlib.sha256(data).hexdigest()))
+    entries.sort(key=lambda e: e[0])
+    return entries
+
+def toolchain(cmd):
+    binary = cmd.split()[0]
+    resolved = subprocess.run(["bash", "-lc", f"command -v {binary}"], capture_output=True, text=True).stdout.strip()
+    version = subprocess.run(["bash", "-lc", f"{binary} --version"], capture_output=True, text=True).stdout.strip()
+    return [resolved, hashlib.sha256(version.encode()).hexdigest()]
+
+entries = inventory()
+if entries is None:
+    print(json.dumps({"disabled": True}))
+    raise SystemExit(0)
+filtered = [e for e in entries if not (e[0] == ".ai/specs" or e[0].startswith(".ai/specs/") or e[0].startswith(".git/"))]
+material = json.dumps({"entries": filtered, "build": build, "test": test,
+                       "toolchain": toolchain(build) + toolchain(test)}, sort_keys=True).encode()
+print(json.dumps({"key": hashlib.sha256(material).hexdigest()}))
+PY
+)" || KEY_JSON=""
+  cache_key="$(printf '%s' "$KEY_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("key",""))' 2>/dev/null || true)"
+fi
+
+if [[ "$NO_CACHE" != "1" && -n "$cache_key" && -f "$CACHE_DIR/$cache_key" ]]; then
+  exit 0   # reuse of an observed green build/test pair only; Evidence was re-validated above
+fi
+
+# --- Execute (real exit status; no zero-tests special pass) ------------------
+GATE_SHELL="${SDD_GATE_SHELL:-bash -lc}"   # fixture seam: production default is bash -lc
+OUT_B="$(mktemp)" || fail 'engine-fail: temp สร้างไม่ได้'
+if ! (cd "$REPO" && $GATE_SHELL "$TYPECHECK_CMD" >"$OUT_B" 2>&1); then
+  { echo 'Task gate: typecheck/build ไม่ผ่าน — ห้าม mark [x] จนกว่าเขียว'; head -c 16384 "$OUT_B" | tail -40; } >&2
+  rm -f "$OUT_B"; exit 2
+fi
+if ! (cd "$REPO" && $GATE_SHELL "$TEST_CMD" >>"$OUT_B" 2>&1); then
+  { echo 'Task gate: test ไม่ผ่าน — ห้าม mark [x] จนกว่าเขียว'; head -c 16384 "$OUT_B" | tail -40; } >&2
+  rm -f "$OUT_B"; exit 2
+fi
+rm -f "$OUT_B"
+
+# --- Persist green cache (atomic; prune best-effort) -------------------------
+if [[ "$NO_CACHE" != "1" && -n "$cache_key" ]]; then
+  TMP_KEY="$CACHE_DIR/.tmp-$cache_key.$$"
+  python3 - "$CACHE_DIR" "$cache_key" <<'PY' >/dev/null 2>&1 || true
+import json, os, sys
+cache_dir, key = sys.argv[1], sys.argv[2]
+try:
+    os.makedirs(cache_dir, exist_ok=True)
+    tmp = os.path.join(cache_dir, f".tmp-{key}")
+    record = {"schema_version": 1, "key": key, "result": "green"}
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(record, fh, sort_keys=True)
+    os.replace(tmp, os.path.join(cache_dir, key))
+    keys = sorted(
+        (os.path.getmtime(os.path.join(cache_dir, name)), name)
+        for name in os.listdir(cache_dir)
+        if not name.startswith(".tmp-")
+    )
+    for _, stale in keys[:-8]:
+        os.unlink(os.path.join(cache_dir, stale))
+except Exception as prune_error:
+    print(f"sdd-gate-cache: prune failed ({prune_error})", file=sys.stderr)
+PY
+fi
+
 exit 0

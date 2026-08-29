@@ -1,3 +1,4 @@
+> Status: unknown
 # Requirements — foundation-scaffold
 
 > WHAT the foundation must do. EARS notation (ดู `.ai/shared/EARS.md`). REQ-ID เสถียร —

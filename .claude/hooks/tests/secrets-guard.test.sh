@@ -24,7 +24,7 @@ fail=0
 # --- assemble the skip-var NAME at runtime (constraint: never put the raw skip literal on a
 #     Bash command line — the live bypass guard would block our own command). We split the
 #     token across concatenated pieces and write it to a /tmp file, then source the var name. ---
-SKIPVAR_FILE="$(mktemp -t skipvar.XXXXXX)"
+SKIPVAR_FILE="$(mktemp -t skipvar.XXXXXX)" || { echo "FAIL: mktemp" >&2; exit 1; }
 { P1='SECRET_GUARD'; P2='_SKIP'; printf '%s%s' "$P1" "$P2"; } > "$SKIPVAR_FILE"
 SKIPVAR="$(cat "$SKIPVAR_FILE")"   # = the env-var name, never typed literally here
 rm -f "$SKIPVAR_FILE"
@@ -35,7 +35,7 @@ rm -f "$SKIPVAR_FILE"
 run_case() {
   local want=2; [ "$1" = allow ] && want=0
   local desc="$2" mode="$3" fname="$4" content="$5" do_skip="${6:-}"
-  local tmp; tmp="$(mktemp -d -t secguard.XXXXXX)"
+  local tmp; tmp="$(mktemp -d -t secguard.XXXXXX)" || { echo "FAIL: mktemp" >&2; exit 1; }
   local rc
 
   (

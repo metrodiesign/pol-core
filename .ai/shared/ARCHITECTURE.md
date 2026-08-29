@@ -247,3 +247,56 @@ control (เช่น open-redirect allowlist) แบบเงียบๆ โ�
 - ห้ามฝังสูตรคำนวณ/business logic ตรงในตัว view
 - ห้าม mark task `[x]` ทั้งที่ typecheck/test ยังไม่เขียว หรือไม่มี Evidence
 - test ต้อง assert พฤติกรรมที่สังเกตได้ ไม่ใช่ snapshot รายละเอียดภายในที่เปราะ
+
+## As-built registry
+
+Machine-readable assertions the alignment engine (`scripts/repo_policy_alignment.py`)
+parses เพื่อเทียบกับ filesystem/workflow จริง — แก้สองฝั่งพร้อมกันเสมอ ห้ามลบ section นี้
+
+### Modules
+
+| Module | Role |
+|---|---|
+| `Admins` | admin identity, sessions, RBAC tier |
+| `Carts` | cart aggregate + checkout command |
+| `Divisions` | reference data (standalone) |
+| `Governance` | maker-checker approvals |
+| `Iam` | merchant-user identity plane |
+| `Levels` | reference data (standalone) |
+| `Merchants` | provisioning saga + vault |
+| `Notifications` | cross-module `INotification` host |
+| `Offices` | reference data (standalone) |
+| `Orders` | order lifecycle |
+| `Payments` | PSP adapter + webhook source of truth |
+| `Positions` | reference data (standalone) |
+| `Products` | product catalog |
+| `Reporting` | read-side reports |
+
+(Empty retired containers `Checkouts`/`MasterData` ไม่นับเป็น module)
+
+### Runtime DbContexts
+
+| Context | Cluster |
+|---|---|
+| `ControlPlaneDbContext` | admin/iam/masterdata — no merchant filter |
+| `MerchantUserDbContext` | merchant identity/session — filter Users/RoleAssignments |
+| `MerchantRuntimeDbContext` | shop/txn data — filter IMerchant-bound entities |
+
+(`PolDbContext` = migration owner only, NOT registered at runtime)
+
+### CI topology
+
+| Provider | Job |
+|---|---|
+| `github:verify` | spec/scope/static checks |
+| `github:dotnet` | restore/build/test |
+| `github:docker-build` | image build |
+| `github:dotnet-integration` | live SQL integration |
+| `gitlab:verify` | spec/scope static equivalent |
+| `gitlab:dotnet` | build/test |
+| `gitlab:integration` | live SQL integration |
+| `gitlab:package` | artifact packaging |
+| `gitlab:deploy-uat` | UAT release (manual) |
+| `gitlab:deploy-prod` | prod release (manual) |
+
+(GitLab hidden/template jobs ขึ้นต้น `.` ไม่นับ)

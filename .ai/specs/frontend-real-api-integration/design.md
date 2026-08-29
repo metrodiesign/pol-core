@@ -1,6 +1,6 @@
 # Design: Merchant Frontend Real API Backend Contract
 
-> Status: approved 2026-08-10 (mirror of approved Merchant design)
+> Status: unknown
 
 `pol-core` extends existing domain owners and host routes. No second auth system, cart model, payment ledger,
 invitation store, role catalog, or cross-context coordinator is introduced.
@@ -84,7 +84,7 @@ sequenceDiagram
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 | --- | --- |
 | OIDC, session, proxy trust | REQ-2, REQ-3, REQ-12 |
 | Registration boundary | REQ-4, REQ-12 |

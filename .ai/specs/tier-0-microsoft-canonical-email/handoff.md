@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff: Tier 0 Microsoft canonical email
 
 > From: Codex `/root` | To: human review | Date: 2026-08-23

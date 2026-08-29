@@ -1,6 +1,6 @@
 # Design: Identity & RBAC — TenantUser realm
 
-> Status: approved 2026-06-23 (autonomous, AFK). Derived from requirements.md (REQ-1..10) + reference 2.5.
+> Status: unknown
 > Mirrors the proven Tenant provisioning patterns (aggregate + allowlist-style validation, admin-scoped
 > keyed DI, central migration + RLS + grants, ProblemDetails mapping).
 
@@ -117,13 +117,13 @@ Reuse `ProblemDetailsExceptionHandler`: `ArgumentException` -> 400, `NotFoundExc
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | TenantUser aggregate + enums | REQ-1, REQ-7.1 |
 | ExternalLogin | REQ-2 |
 | RegistrationTicket entity + store | REQ-3 |
 | IssueRegistrationTicket / CompleteRegistration handlers | REQ-4, REQ-3 |
-| ApproveTenantUser handler + ITenantDirectory | REQ-5, REQ-10.2/10.3 |
+| ApproveTenantUser handler + ITenantDirectory | REQ-5, REQ-10.2/REQ-10.3 |
 | TenantUserContext (runtime resolver) + AmbientTenant bind | REQ-6 |
 | RequireTenantRole gating | REQ-7 |
 | AddIdentityTables migration + RLS + grants | REQ-8 |

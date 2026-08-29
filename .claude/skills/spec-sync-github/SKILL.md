@@ -16,9 +16,20 @@ flags `--dry-run` (preview only, never write) and `--epic-only` (epic, no sub-is
 Transport: use the GitHub MCP tools (`mcp__plugin_github_github__*`), NOT `gh` in
 Bash — the RTK hook rewrites bash stdout into a summary, which mangles `gh --json`
 output and loses issue numbers. MCP tools return structured fields directly and skip
-permission prompts. Confirm the repo with `git remote -v` (expected
-`metrodiesign/spec-driven-development`). Use Bash ONLY for read-only spec parsing and
-writing the manifest file.
+permission prompts. Use Bash ONLY for read-only spec parsing and writing the manifest file.
+
+Repository binding (REQ-4.7–4.9): derive the target repo from the current checkout,
+never from a hardcoded value.
+
+```bash
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null)" || { echo "REPO_ORIGIN_MISSING" >&2; exit 2; }
+OWNER_REPO="$(python3 -c 'import re,sys; u=sys.argv[1]; m=re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?/?$",u); print(m.group(1) if m else "")' "$ORIGIN_URL")"
+[[ -n "$OWNER_REPO" ]] || { echo "REPO_ORIGIN_MISSING" >&2; exit 2; }
+```
+
+Then compare against `.github-sync.json`'s `"repo"` field BEFORE any GitHub I/O;
+a mismatch stops with `REPO_MANIFEST_MISMATCH` (exit 1). Sync only ever targets
+the repo recorded in the feature's own manifest AND resolved from `origin`.
 
 ## Steps
 
@@ -93,7 +104,7 @@ closes its sub-issue and advances the epic progress bar.
 {
   "schemaVersion": 1,
   "feature": "<feature>",
-  "repo": "metrodiesign/spec-driven-development",
+  "repo": "<owner/repo ที่ resolve จาก git remote get-url origin>",
   "epic": { "issue": 0, "nodeId": "", "bodyHash": "sha256:..." },
   "tasks": {
     "1": { "issue": 0, "nodeId": "", "subIssueLinked": true, "bodyHash": "sha256:...", "state": "open|closed" }

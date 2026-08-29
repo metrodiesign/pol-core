@@ -30,17 +30,12 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 **Acceptance Criteria (EARS):**
 
 - 1.1 THE SYSTEM SHALL ตอบ `GET /products` จากผลลัพธ์ของ stored procedure ต้นทางเท่านั้น
-- 1.2 WHEN `GET /products` ทำงาน THE SYSTEM SHALL ไม่เกิด `SaveChanges` และไม่มีคำสั่ง
-  INSERT/UPDATE/DELETE ใด ๆ ในเส้นทางการตอบคำขอนั้น
-- 1.3 THE SYSTEM SHALL คงรูปแบบ response envelope `ProductPage` (§5.1: `totalRows`, `totalPages`,
-  `pageNo`, `pageSize`, `hasNextPage`, `hasPreviousPage`, `countMode`, `searchWindowMonths`) ตามเดิม
+- 1.2 WHEN `GET /products` ทำงาน THE SYSTEM SHALL ไม่เกิด `SaveChanges` และไม่มีคำสั่ง INSERT/UPDATE/DELETE ใด ๆ ในเส้นทางการตอบคำขอนั้น
+- 1.3 THE SYSTEM SHALL คงรูปแบบ response envelope `ProductPage` (§5.1: `totalRows`, `totalPages`, `pageNo`, `pageSize`, `hasNextPage`, `hasPreviousPage`, `countMode`, `searchWindowMonths`) ตามเดิม
 - 1.4 THE SYSTEM SHALL คงลำดับแถวตามที่ procedure คืนมา โดยไม่จัดเรียงใหม่
 - 1.5 THE SYSTEM SHALL คงค่า `totalRows`/`totalPages` ตามที่ procedure รายงาน โดยไม่นับใหม่เอง
-- 1.6 IF แถวจากต้นทางขาดฟิลด์บังคับ (`DocumentNo` ว่าง, `SaleCode` ว่าง, `TotalPremium` ไม่มากกว่า 0,
-  หรือค่า enum นอกสัญญา) THEN THE SYSTEM SHALL ข้ามแถวนั้นออกจากผลลัพธ์และบันทึก log ระดับ warning
-  พร้อมเหตุผล
-- 1.7 IF แถวสองแถวในหน้าเดียวกันมี `DocumentNo` ซ้ำกัน (เทียบตาม REQ-2.3) THEN THE SYSTEM SHALL
-  คงไว้แถวแรกและข้ามแถวถัดมาพร้อม log ระดับ warning
+- 1.6 IF แถวจากต้นทางขาดฟิลด์บังคับ (`DocumentNo` ว่าง, `SaleCode` ว่าง, `TotalPremium` ไม่มากกว่า 0, หรือค่า enum นอกสัญญา) THEN THE SYSTEM SHALL ข้ามแถวนั้นออกจากผลลัพธ์และบันทึก log ระดับ warning พร้อมเหตุผล
+- 1.7 IF แถวสองแถวในหน้าเดียวกันมี `DocumentNo` ซ้ำกัน (เทียบตาม REQ-2.3) THEN THE SYSTEM SHALL คงไว้แถวแรกและข้ามแถวถัดมาพร้อม log ระดับ warning
 - 1.8 THE SYSTEM SHALL ไม่มีฟิลด์ `id` ชนิด `Guid` ในแต่ละรายการของผลลัพธ์
 
 ---
@@ -52,18 +47,13 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 2.1 THE SYSTEM SHALL ใช้ `documentNo` (string ยาวไม่เกิน 150) เป็นตัวระบุเอกสารในทุก request/response
-  ที่เคยใช้ `productId`
-- 2.2 THE SYSTEM SHALL เก็บ `DocumentNo` แทนคอลัมน์ `ProductId` ในตารางรายการของตะกร้า, checkout session
-  และ order
-- 2.3 THE SYSTEM SHALL เทียบ `DocumentNo` สองค่าว่าเป็นเอกสารเดียวกัน เมื่อตรงกันทั้งสตริงหลังตัดช่องว่าง
-  หัวท้าย โดยไม่สนตัวพิมพ์ใหญ่เล็ก
+- 2.1 THE SYSTEM SHALL ใช้ `documentNo` (string ยาวไม่เกิน 150) เป็นตัวระบุเอกสารในทุก request/response ที่เคยใช้ `productId`
+- 2.2 THE SYSTEM SHALL เก็บ `DocumentNo` แทนคอลัมน์ `ProductId` ในตารางรายการของตะกร้า, checkout session และ order
+- 2.3 THE SYSTEM SHALL เทียบ `DocumentNo` สองค่าว่าเป็นเอกสารเดียวกัน เมื่อตรงกันทั้งสตริงหลังตัดช่องว่าง หัวท้าย โดยไม่สนตัวพิมพ์ใหญ่เล็ก
 - 2.4 THE SYSTEM SHALL ไม่มี endpoint หรือ payload ใดที่ยังรับหรือคืน `productId` ชนิด `Guid`
-- 2.5 IF request อ้าง `documentNo` ที่ว่าง เป็นช่องว่างล้วน หรือยาวเกิน 150 ตัวอักษร THEN THE SYSTEM SHALL
-  ตอบ 400
+- 2.5 IF request อ้าง `documentNo` ที่ว่าง เป็นช่องว่างล้วน หรือยาวเกิน 150 ตัวอักษร THEN THE SYSTEM SHALL ตอบ 400
 - 2.6 THE SYSTEM SHALL บันทึก `DocumentNo` ตามที่ต้นทางสะกดมา หลังตัดช่องว่างหัวท้าย โดยไม่แปลงตัวพิมพ์
-- 2.7 THE SYSTEM SHALL ให้คอลัมน์ `DocumentNo` ทุกตารางใน VCentralPay ใช้ collation ที่เทียบแบบไม่สน
-  ตัวพิมพ์และรองรับอักษรไทย เหมือนกันทุกตาราง เพื่อให้การเทียบฝั่ง SQL ให้ผลตรงกับ REQ-2.3
+- 2.7 THE SYSTEM SHALL ให้คอลัมน์ `DocumentNo` ทุกตารางใน VCentralPay ใช้ collation ที่เทียบแบบไม่สน ตัวพิมพ์และรองรับอักษรไทย เหมือนกันทุกตาราง เพื่อให้การเทียบฝั่ง SQL ให้ผลตรงกับ REQ-2.3
 
 ---
 
@@ -74,18 +64,13 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 3.1 THE SYSTEM SHALL มีทางอ่านเอกสารใบเดียวจากต้นทาง โดยรับ `documentNo` และ `productGroup` จากผู้เรียก
-  ส่วน `saleCode` มาจากฝั่ง server ตาม REQ-4.8
-- 3.2 THE SYSTEM SHALL เลือก procedure ฝั่ง Motor หรือ NonMotor จาก `productGroup` ที่ได้รับ
-  (CMI/VMI = Motor, FIRE/MISC = NonMotor)
-- 3.3 THE SYSTEM SHALL ค้นด้วย `@PaymentStatus = 'ALL'` เพื่อให้เห็นสถานะจริงของเอกสาร ไม่ใช่เฉพาะที่ยัง
-  ไม่จ่าย
+- 3.1 THE SYSTEM SHALL มีทางอ่านเอกสารใบเดียวจากต้นทาง โดยรับ `documentNo` และ `productGroup` จากผู้เรียก ส่วน `saleCode` มาจากฝั่ง server ตาม REQ-4.8
+- 3.2 THE SYSTEM SHALL เลือก procedure ฝั่ง Motor หรือ NonMotor จาก `productGroup` ที่ได้รับ (CMI/VMI = Motor, FIRE/MISC = NonMotor)
+- 3.3 THE SYSTEM SHALL ค้นด้วย `@PaymentStatus = 'ALL'` เพื่อให้เห็นสถานะจริงของเอกสาร ไม่ใช่เฉพาะที่ยัง ไม่จ่าย
 - 3.4 THE SYSTEM SHALL คืนเฉพาะแถวที่ `DocumentNo` ตรงกับที่ขอตาม REQ-2.3
-- 3.5 THE SYSTEM SHALL ใช้ค่าจากแถวที่ต้นทางคืนเป็นค่าจริงของเอกสารทุกฟิลด์ รวมถึง `productGroup`
-  โดยค่าที่ผู้เรียกส่งมาใช้เพียงเพื่อเลือก procedure เท่านั้น
+- 3.5 THE SYSTEM SHALL ใช้ค่าจากแถวที่ต้นทางคืนเป็นค่าจริงของเอกสารทุกฟิลด์ รวมถึง `productGroup` โดยค่าที่ผู้เรียกส่งมาใช้เพียงเพื่อเลือก procedure เท่านั้น
 - 3.6 IF ไม่พบแถวที่ตรง THEN THE SYSTEM SHALL ปฏิเสธคำขอนั้นตามบริบท (REQ-4.5 / REQ-7.4)
-- 3.7 IF ต้นทางคืนแถวที่ตรงมากกว่าหนึ่งแถว THEN THE SYSTEM SHALL ปฏิเสธคำขอและบันทึก log ระดับ error
-  โดยไม่เลือกแถวใดแถวหนึ่งเอง
+- 3.7 IF ต้นทางคืนแถวที่ตรงมากกว่าหนึ่งแถว THEN THE SYSTEM SHALL ปฏิเสธคำขอและบันทึก log ระดับ error โดยไม่เลือกแถวใดแถวหนึ่งเอง
 - 3.8 THE SYSTEM SHALL ไม่เปิดการอ่านเอกสารรายใบเป็น HTTP endpoint — ใช้ได้จากภายในระบบเท่านั้น
 
 ---
@@ -97,26 +82,17 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 4.1 WHEN มีการเพิ่มรายการเข้าตะกร้า THE SYSTEM SHALL ตั้งราคาต่อหน่วยจาก `TotalPremium` ที่ต้นทางคืน
-  ในคำขอนั้น
+- 4.1 WHEN มีการเพิ่มรายการเข้าตะกร้า THE SYSTEM SHALL ตั้งราคาต่อหน่วยจาก `TotalPremium` ที่ต้นทางคืน ในคำขอนั้น
 - 4.2 THE SYSTEM SHALL ไม่รับฟิลด์ราคาใด ๆ จาก request body ของการเพิ่มรายการเข้าตะกร้า
 - 4.3 THE SYSTEM SHALL มินต์สกุลเงิน THB ที่ขอบตะกร้าเพียงจุดเดียว เหมือนพฤติกรรมเดิม
-- 4.4 WHEN เริ่ม checkout THE SYSTEM SHALL อ่านเอกสารสดจากต้นทางอีกครั้งต่อหนึ่งบรรทัดในตะกร้า
-  แล้วใช้ค่าที่ได้เป็น snapshot ของ `DocumentNo`, `ProductGroup`, `DocumentType`, `PolicyNumber`,
-  `StartDate`, `EndDate`
+- 4.4 WHEN เริ่ม checkout THE SYSTEM SHALL อ่านเอกสารสดจากต้นทางอีกครั้งต่อหนึ่งบรรทัดในตะกร้า แล้วใช้ค่าที่ได้เป็น snapshot ของ `DocumentNo`, `ProductGroup`, `DocumentType`, `PolicyNumber`, `StartDate`, `EndDate`
 - 4.5 IF อ่านเอกสารตอนเพิ่มรายการเข้าตะกร้าไม่พบ THEN THE SYSTEM SHALL ตอบ 400
-- 4.6 THE SYSTEM SHALL คงใช้ราคาที่บันทึกไว้ในตะกร้าเป็นราคาขายตอน checkout (พฤติกรรมเดิม —
-  ไม่เปลี่ยนราคาตามที่อ่านสดได้ใหม่)
-- 4.7 THE SYSTEM SHALL เก็บ `DocumentNo`, `SaleCode` และ `ProductGroup` ของแต่ละรายการในตะกร้า
-  ด้วยค่าที่ต้นทางคืนกลับมา ไม่ใช่ค่าที่ client ส่งมา
-- 4.8 THE SYSTEM SHALL กำหนด `saleCode` ที่ใช้ค้นต้นทางจากฟิลด์ `SaleCode` ของ merchant user ที่ยืนยัน
-  ตัวตนแล้ว โดย client เลือก `saleCode` เองไม่ได้
-- 4.9 IF merchant user ที่เรียกไม่มี `SaleCode` ผูกอยู่ THEN THE SYSTEM SHALL ปฏิเสธคำขอที่ต้องใช้
-  แคตตาล็อกด้วย 403
-- 4.10 IF ค่า `SaleCode` ที่ส่งมากับฟอร์มสมัครยาวเกิน 20 ตัวอักษรหลังตัดช่องว่างหัวท้าย หรือมีอักขระ
-  นอกช่วง ASCII ที่พิมพ์ได้ THEN THE SYSTEM SHALL ตอบ 400 และไม่บันทึกค่านั้น
-- 4.11 THE SYSTEM SHALL ไม่ส่งค่า `saleCode` ที่ถูกตัดทอนหรือถูกแปลงอักขระไปยังต้นทาง — ค่าที่ผูกกับ
-  พารามิเตอร์ต้องเท่ากับค่าที่เก็บไว้ทุกตัวอักษร มิฉะนั้นต้องปฏิเสธคำขอ ไม่ใช่ค้นด้วยค่าที่เพี้ยน
+- 4.6 THE SYSTEM SHALL คงใช้ราคาที่บันทึกไว้ในตะกร้าเป็นราคาขายตอน checkout (พฤติกรรมเดิม — ไม่เปลี่ยนราคาตามที่อ่านสดได้ใหม่)
+- 4.7 THE SYSTEM SHALL เก็บ `DocumentNo`, `SaleCode` และ `ProductGroup` ของแต่ละรายการในตะกร้า ด้วยค่าที่ต้นทางคืนกลับมา ไม่ใช่ค่าที่ client ส่งมา
+- 4.8 THE SYSTEM SHALL กำหนด `saleCode` ที่ใช้ค้นต้นทางจากฟิลด์ `SaleCode` ของ merchant user ที่ยืนยัน ตัวตนแล้ว โดย client เลือก `saleCode` เองไม่ได้
+- 4.9 IF merchant user ที่เรียกไม่มี `SaleCode` ผูกอยู่ THEN THE SYSTEM SHALL ปฏิเสธคำขอที่ต้องใช้ แคตตาล็อกด้วย 403
+- 4.10 IF ค่า `SaleCode` ที่ส่งมากับฟอร์มสมัครยาวเกิน 20 ตัวอักษรหลังตัดช่องว่างหัวท้าย หรือมีอักขระ นอกช่วง ASCII ที่พิมพ์ได้ THEN THE SYSTEM SHALL ตอบ 400 และไม่บันทึกค่านั้น
+- 4.11 THE SYSTEM SHALL ไม่ส่งค่า `saleCode` ที่ถูกตัดทอนหรือถูกแปลงอักขระไปยังต้นทาง — ค่าที่ผูกกับ พารามิเตอร์ต้องเท่ากับค่าที่เก็บไว้ทุกตัวอักษร มิฉะนั้นต้องปฏิเสธคำขอ ไม่ใช่ค้นด้วยค่าที่เพี้ยน
 
 ---
 
@@ -127,35 +103,22 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 5.1 THE SYSTEM SHALL ถือว่าเอกสารถูกขายแล้ว เมื่อมี order สถานะ `Paid` อย่างน้อยหนึ่งใบที่มีรายการซึ่ง
-  `DocumentNo` (ตาม REQ-2.3) และ `ProductGroup` ตรงกันทั้งคู่
+- 5.1 THE SYSTEM SHALL ถือว่าเอกสารถูกขายแล้ว เมื่อมี order สถานะ `Paid` อย่างน้อยหนึ่งใบที่มีรายการซึ่ง `DocumentNo` (ตาม REQ-2.3) และ `ProductGroup` ตรงกันทั้งคู่
 - 5.2 THE SYSTEM SHALL ตรวจเงื่อนไข 5.1 ข้ามทุก merchant โดยไม่ถูกจำกัดด้วย merchant floor
 - 5.3 THE SYSTEM SHALL ถือว่าเอกสารที่ต้นทางรายงานสถานะ `PAID` เป็นเอกสารที่ขายไม่ได้เช่นกัน
 - 5.4 WHEN มีการเพิ่มรายการเข้าตะกร้าด้วยเอกสารที่ขายไม่ได้ THE SYSTEM SHALL ตอบ 400
-- 5.5 WHEN เริ่ม checkout แล้วมีบรรทัดที่เอกสารขายไม่ได้ THE SYSTEM SHALL ตอบ 409 และไม่สร้าง
-  checkout session
-- 5.6 WHEN สร้าง payment session THE SYSTEM SHALL ตรวจเงื่อนไข 5.1 อีกครั้งกับทุกรายการของ order นั้น
-  และตอบ 409 ก่อนสร้างรายการเรียกเก็บเงินกับ PSP หากพบว่ามีเอกสารที่ถูกขายไปแล้วโดย order อื่น
+- 5.5 WHEN เริ่ม checkout แล้วมีบรรทัดที่เอกสารขายไม่ได้ THE SYSTEM SHALL ตอบ 409 และไม่สร้าง checkout session
+- 5.6 WHEN สร้าง payment session THE SYSTEM SHALL ตรวจเงื่อนไข 5.1 อีกครั้งกับทุกรายการของ order นั้น และตอบ 409 ก่อนสร้างรายการเรียกเก็บเงินกับ PSP หากพบว่ามีเอกสารที่ถูกขายไปแล้วโดย order อื่น
 - 5.7 THE SYSTEM SHALL ไม่เปิดเผยรหัสหรือชื่อ merchant อื่นในข้อความตอบกลับของ 5.4-5.6
-- 5.8 WHEN `GET /products` ถูกเรียกด้วย `paymentStatus` เป็น `UNPAID` (รวมกรณีไม่ระบุ) THE SYSTEM SHALL
-  ตัดเอกสารที่ขายไม่ได้ตาม 5.1 ออกจากรายการที่ตอบกลับ
-- 5.9 THE SYSTEM SHALL ระบุในผลลัพธ์ของ `GET /products` ว่าเอกสารแต่ละใบถูกขายผ่านแพลตฟอร์มนี้แล้วหรือไม่
-  โดยไม่แก้ค่า `paymentStatus` ที่ต้นทางรายงาน
-- 5.10 WHILE order มี payment session ที่ยังชำระได้ (ยังไม่ถึงสถานะสิ้นสุดแบบไม่มีการชำระ และอายุยังไม่ครบ
-  ตามที่ระบบกำหนด) หรือมี payment session ที่ผู้ให้บริการชำระเงินยืนยันแล้ว THE SYSTEM SHALL ถือว่าเอกสาร
-  ในนั้นขายไม่ได้
-- 5.11 WHILE order อยู่ในสถานะ `AwaitingPayment` โดยไม่มี payment session ตาม 5.10 THE SYSTEM SHALL
-  ถือว่าเอกสารในนั้นขายได้
-- 5.12 WHILE order อยู่ในสถานะ `Cancelled` และไม่มี payment session ตาม 5.10 THE SYSTEM SHALL ถือว่า
-  เอกสารในนั้นขายได้
-- 5.13 THE SYSTEM SHALL ให้การล็อกตาม 5.10 หมดฤทธิ์เองเมื่อ payment session พ้นอายุ โดยไม่ต้องรอให้มี
-  คำขอใดมาแก้สถานะของแถวนั้นก่อน
-- 5.14 THE SYSTEM SHALL ให้การตรวจสถานะขายแล้วคืนเลขเอกสาร, รหัส order และเหตุผลของการล็อก
-  (ขายแล้ว หรือกำลังอยู่ระหว่างชำระเงิน) ไม่ใช่ค่าจริง/เท็จ
-- 5.15 THE SYSTEM SHALL ตรวจเงื่อนไข 5.1 และ 5.10 ให้ทุก `DocumentNo` ในคำขอหนึ่ง ด้วยการอ่านฐานข้อมูล
-  ครั้งเดียว ไม่ใช่ครั้งละหนึ่งเอกสาร
-- 5.16 IF เอกสารใบเดียวกันปรากฏใน order สถานะ `Paid` มากกว่าหนึ่งใบ THEN THE SYSTEM SHALL บันทึก log
-  ระดับ critical พร้อมเลขเอกสารและ order ทั้งสองใบ โดยไม่นับ order ที่กำลังประมวลผลอยู่เป็นใบที่สอง
+- 5.8 WHEN `GET /products` ถูกเรียกด้วย `paymentStatus` เป็น `UNPAID` (รวมกรณีไม่ระบุ) THE SYSTEM SHALL ตัดเอกสารที่ขายไม่ได้ตาม 5.1 ออกจากรายการที่ตอบกลับ
+- 5.9 THE SYSTEM SHALL ระบุในผลลัพธ์ของ `GET /products` ว่าเอกสารแต่ละใบถูกขายผ่านแพลตฟอร์มนี้แล้วหรือไม่ โดยไม่แก้ค่า `paymentStatus` ที่ต้นทางรายงาน
+- 5.10 WHILE order มี payment session ที่ยังชำระได้ (ยังไม่ถึงสถานะสิ้นสุดแบบไม่มีการชำระ และอายุยังไม่ครบ ตามที่ระบบกำหนด) หรือมี payment session ที่ผู้ให้บริการชำระเงินยืนยันแล้ว THE SYSTEM SHALL ถือว่าเอกสาร ในนั้นขายไม่ได้
+- 5.11 WHILE order อยู่ในสถานะ `AwaitingPayment` โดยไม่มี payment session ตาม 5.10 THE SYSTEM SHALL ถือว่าเอกสารในนั้นขายได้
+- 5.12 WHILE order อยู่ในสถานะ `Cancelled` และไม่มี payment session ตาม 5.10 THE SYSTEM SHALL ถือว่า เอกสารในนั้นขายได้
+- 5.13 THE SYSTEM SHALL ให้การล็อกตาม 5.10 หมดฤทธิ์เองเมื่อ payment session พ้นอายุ โดยไม่ต้องรอให้มี คำขอใดมาแก้สถานะของแถวนั้นก่อน
+- 5.14 THE SYSTEM SHALL ให้การตรวจสถานะขายแล้วคืนเลขเอกสาร, รหัส order และเหตุผลของการล็อก (ขายแล้ว หรือกำลังอยู่ระหว่างชำระเงิน) ไม่ใช่ค่าจริง/เท็จ
+- 5.15 THE SYSTEM SHALL ตรวจเงื่อนไข 5.1 และ 5.10 ให้ทุก `DocumentNo` ในคำขอหนึ่ง ด้วยการอ่านฐานข้อมูล ครั้งเดียว ไม่ใช่ครั้งละหนึ่งเอกสาร
+- 5.16 IF เอกสารใบเดียวกันปรากฏใน order สถานะ `Paid` มากกว่าหนึ่งใบ THEN THE SYSTEM SHALL บันทึก log ระดับ critical พร้อมเลขเอกสารและ order ทั้งสองใบ โดยไม่นับ order ที่กำลังประมวลผลอยู่เป็นใบที่สอง
 
 ---
 
@@ -167,20 +130,15 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 **Acceptance Criteria (EARS):**
 
 - 6.1 THE SYSTEM SHALL DROP ตาราง `shop.Products` ใน migration เดียวกับที่เปลี่ยนคอลัมน์ตัวระบุ
-- 6.2 WHEN migration ทำงาน THE SYSTEM SHALL เติมค่า `DocumentNo`, `SaleCode` และ `ProductGroup` ของ
-  รายการในตะกร้าที่มีอยู่เดิม จากตาราง `shop.Products` ก่อนที่ตารางนั้นจะถูก DROP
-- 6.3 IF รายการในตะกร้าเดิมหาแถวใน `shop.Products` ไม่เจอ THEN THE SYSTEM SHALL ลบรายการนั้นทิ้ง
-  แทนที่จะปล่อยค่าว่างไว้
+- 6.2 WHEN migration ทำงาน THE SYSTEM SHALL เติมค่า `DocumentNo`, `SaleCode` และ `ProductGroup` ของ รายการในตะกร้าที่มีอยู่เดิม จากตาราง `shop.Products` ก่อนที่ตารางนั้นจะถูก DROP
+- 6.3 IF รายการในตะกร้าเดิมหาแถวใน `shop.Products` ไม่เจอ THEN THE SYSTEM SHALL ลบรายการนั้นทิ้ง แทนที่จะปล่อยค่าว่างไว้
 - 6.4 THE SYSTEM SHALL ไม่มีโค้ดที่อ้างถึงตาราง `shop.Products` หลังงานนี้เสร็จ
-- 6.5 THE SYSTEM SHALL ลบ aggregate `Product`, `ProductInput`, พอร์ตและอะแดปเตอร์ของ repository,
-  EF configuration, `CreateProductCommand`, `GetProductByIdQuery` และ consumer ที่ mark เอกสารเป็น PAID
+- 6.5 THE SYSTEM SHALL ลบ aggregate `Product`, `ProductInput`, พอร์ตและอะแดปเตอร์ของ repository, EF configuration, `CreateProductCommand`, `GetProductByIdQuery` และ consumer ที่ mark เอกสารเป็น PAID
 - 6.6 THE SYSTEM SHALL ลบสิทธิ์ GRANT ของตาราง `shop.Products` ที่ให้ principal ของแอป
 - 6.7 THE SYSTEM SHALL ลบรายการ entity `Product` ออกจาก write authorizer ทุกตัวที่ยังอ้างถึง
-- 6.8 IF migration ถูก rollback THEN THE SYSTEM SHALL สร้างโครงสร้างตารางและคอลัมน์เดิมกลับคืนได้
-  โดยไม่คืนข้อมูลเดิม
+- 6.8 IF migration ถูก rollback THEN THE SYSTEM SHALL สร้างโครงสร้างตารางและคอลัมน์เดิมกลับคืนได้ โดยไม่คืนข้อมูลเดิม
 - 6.9 THE SYSTEM SHALL ปรับ seed/demo script และ script ตรวจฐานข้อมูลใหม่ ให้ไม่อ้างตารางที่ถูกลบ
-- 6.10 THE SYSTEM SHALL ตั้งค่า `SaleCode` ของ merchant user ในสคริปต์ seed เป็นรหัสที่มีอยู่จริงใน
-  ข้อมูลของระบบต้นทาง เพื่อให้การค้นแคตตาล็อกบนเครื่อง demo คืนผลลัพธ์ที่ไม่ว่าง
+- 6.10 THE SYSTEM SHALL ตั้งค่า `SaleCode` ของ merchant user ในสคริปต์ seed เป็นรหัสที่มีอยู่จริงใน ข้อมูลของระบบต้นทาง เพื่อให้การค้นแคตตาล็อกบนเครื่อง demo คืนผลลัพธ์ที่ไม่ว่าง
 
 ---
 
@@ -190,15 +148,11 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 7.1 IF การเรียกต้นทางล้มเหลวด้วยเหตุ transport (ต่อไม่ติด, timeout, ผิดพลาดที่ไม่ใช่ §6) THEN
-  THE SYSTEM SHALL ตอบ 503 ทั้งกรณีค้นรายการและกรณีอ่านเอกสารรายใบ
+- 7.1 IF การเรียกต้นทางล้มเหลวด้วยเหตุ transport (ต่อไม่ติด, timeout, ผิดพลาดที่ไม่ใช่ §6) THEN THE SYSTEM SHALL ตอบ 503 ทั้งกรณีค้นรายการและกรณีอ่านเอกสารรายใบ
 - 7.2 IF ต้นทาง raise ข้อผิดพลาดตามสัญญา §6 (50001-50009) THEN THE SYSTEM SHALL ตอบ 400 พร้อมสาระเดิม
-- 7.3 THE SYSTEM SHALL ไม่เปิดเผยรายละเอียด SQL, ชื่อ procedure หรือ connection string ใน response
-  โดยบันทึกรายละเอียดไว้ฝั่ง server เท่านั้น
-- 7.4 IF อ่านเอกสารตอนเริ่ม checkout ไม่พบ (รวมกรณีเอกสารหลุดออกนอกหน้าต่างค้นหาของต้นทาง) THEN
-  THE SYSTEM SHALL ตอบ 409 และไม่สร้าง checkout session
-- 7.5 IF การเรียกต้นทางตอนเริ่ม checkout ล้มเหลวด้วยเหตุ transport THEN THE SYSTEM SHALL ตอบ 503
-  และไม่สร้าง checkout session
+- 7.3 THE SYSTEM SHALL ไม่เปิดเผยรายละเอียด SQL, ชื่อ procedure หรือ connection string ใน response โดยบันทึกรายละเอียดไว้ฝั่ง server เท่านั้น
+- 7.4 IF อ่านเอกสารตอนเริ่ม checkout ไม่พบ (รวมกรณีเอกสารหลุดออกนอกหน้าต่างค้นหาของต้นทาง) THEN THE SYSTEM SHALL ตอบ 409 และไม่สร้าง checkout session
+- 7.5 IF การเรียกต้นทางตอนเริ่ม checkout ล้มเหลวด้วยเหตุ transport THEN THE SYSTEM SHALL ตอบ 503 และไม่สร้าง checkout session
 
 ---
 
@@ -209,16 +163,12 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 8.1 THE SYSTEM SHALL ตัดฟิลด์ `ProductId` ออกจาก `CheckoutConfirmedItem` โดยใช้ `DocumentNo` ที่สัญญา
-  นั้นพกอยู่แล้วเป็นตัวระบุ
+- 8.1 THE SYSTEM SHALL ตัดฟิลด์ `ProductId` ออกจาก `CheckoutConfirmedItem` โดยใช้ `DocumentNo` ที่สัญญา นั้นพกอยู่แล้วเป็นตัวระบุ
 - 8.2 WHEN order ถูกเปลี่ยนสถานะเป็น `Paid` THE SYSTEM SHALL ตรวจเงื่อนไข double-sell ตาม REQ-5.16
-- 8.3 THE SYSTEM SHALL ลบ integration event ที่ไม่เหลือผู้บริโภคหลังงานนี้ ออกจากทั้งสัญญาและทะเบียน
-  ชนิดของ outbox
-- 8.4 THE SYSTEM SHALL ให้ request เริ่ม checkout อ้างผู้เอาประกันด้วย `documentNo` และยังบังคับว่า
-  รายชื่อผู้เอาประกันต้องครอบทุกบรรทัดในตะกร้าพอดีหนึ่งครั้ง
+- 8.3 THE SYSTEM SHALL ลบ integration event ที่ไม่เหลือผู้บริโภคหลังงานนี้ ออกจากทั้งสัญญาและทะเบียน ชนิดของ outbox
+- 8.4 THE SYSTEM SHALL ให้ request เริ่ม checkout อ้างผู้เอาประกันด้วย `documentNo` และยังบังคับว่า รายชื่อผู้เอาประกันต้องครอบทุกบรรทัดในตะกร้าพอดีหนึ่งครั้ง
 - 8.5 IF request เริ่ม checkout มี `documentNo` ซ้ำกันในรายชื่อผู้เอาประกัน THEN THE SYSTEM SHALL ตอบ 400
-- 8.6 THE SYSTEM SHALL คงฟิลด์และการทำงานของรายงานกรมธรรม์, หน้ารายละเอียด order และ order summary
-  ตามเดิม โดยอ้างเอกสารด้วย `DocumentNo`
+- 8.6 THE SYSTEM SHALL คงฟิลด์และการทำงานของรายงานกรมธรรม์, หน้ารายละเอียด order และ order summary ตามเดิม โดยอ้างเอกสารด้วย `DocumentNo`
 - 8.7 THE SYSTEM SHALL คงการทำงานของ `ItemPolicy` (1:1 กับ order item) โดยไม่เปลี่ยนความสัมพันธ์
 
 ---
@@ -230,8 +180,7 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 9.1 THE SYSTEM SHALL อ้างรายการในตะกร้าด้วยรหัสรายการ (`itemId`, `Guid`) ใน route ของการลบและการแก้
-  จำนวน ไม่ใช่ด้วย `documentNo`
+- 9.1 THE SYSTEM SHALL อ้างรายการในตะกร้าด้วยรหัสรายการ (`itemId`, `Guid`) ใน route ของการลบและการแก้ จำนวน ไม่ใช่ด้วย `documentNo`
 - 9.2 THE SYSTEM SHALL คืนค่า `itemId` ของทุกบรรทัดในผลลัพธ์การดูตะกร้า
 - 9.3 IF `itemId` ที่อ้างไม่มีอยู่ในตะกร้านั้น THEN THE SYSTEM SHALL ตอบ 404
 - 9.4 IF มีการเพิ่มเอกสารใบที่อยู่ในตะกร้านั้นอยู่แล้ว THEN THE SYSTEM SHALL ตอบ 400 แทนการรวมจำนวน
@@ -246,21 +195,14 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 10.1 THE SYSTEM SHALL เปลี่ยนชื่อฟิลด์ `ProducerCode` เป็น `SaleCode` บน merchant user และบน snapshot
-  ของการสมัคร (registration attempt)
+- 10.1 THE SYSTEM SHALL เปลี่ยนชื่อฟิลด์ `ProducerCode` เป็น `SaleCode` บน merchant user และบน snapshot ของการสมัคร (registration attempt)
 - 10.2 THE SYSTEM SHALL เปลี่ยนชื่อคอลัมน์ในฐานข้อมูลด้วยคำสั่งเปลี่ยนชื่อ โดยข้อมูลเดิมทุกแถวต้องคงอยู่
-- 10.3 THE SYSTEM SHALL เปลี่ยนชื่อฟิลด์บน wire จาก `producerCode` เป็น `saleCode` ทั้งในฟอร์มสมัคร
-  (`POST /api/v1/merchants/users/register`) และในผลลัพธ์ประวัติการสมัครฝั่ง admin
-  (`GET /api/v1/admins/merchants/users/{subject}/registrations`) โดยไม่รับชื่อเดิมอีกต่อไป
+- 10.3 THE SYSTEM SHALL เปลี่ยนชื่อฟิลด์บน wire จาก `producerCode` เป็น `saleCode` ทั้งในฟอร์มสมัคร (`POST /api/v1/merchants/users/register`) และในผลลัพธ์ประวัติการสมัครฝั่ง admin (`GET /api/v1/admins/merchants/users/{subject}/registrations`) โดยไม่รับชื่อเดิมอีกต่อไป
 - 10.4 THE SYSTEM SHALL ไม่คงชื่อ `ProducerCode`/`producerCode` ไว้ที่ใดในโค้ด สคริปต์ seed หรือ payload
 - 10.5 THE SYSTEM SHALL คงกฎการปกปิดข้อมูลของฟิลด์นี้ไว้เหมือนเดิม (ไม่ถูก mask) ในประวัติการสมัคร
-- 10.6 THE SYSTEM SHALL ให้คอลัมน์ `SaleCode` ทั้งบน merchant user และบน snapshot ของการสมัคร
-  เป็นชนิดไม่ใช่ unicode ยาว 20 ให้ตรงกับพารามิเตอร์และคอลัมน์ของสัญญาต้นทาง
-- 10.7 THE SYSTEM SHALL มี test ที่ยึดชื่อฟิลด์บน wire ไว้ทั้งสองทาง — ส่งฟอร์มด้วยคีย์ `saleCode`
-  แล้วค่าต้องถูกบันทึก, ส่งด้วยคีย์ `producerCode` แล้วค่าต้องไม่ถูกบันทึก, และผลลัพธ์ประวัติการสมัคร
-  ต้องมีคีย์ `saleCode` ไม่มีคีย์ `producerCode`
-- 10.8 THE SYSTEM SHALL ปรับเอกสารอ้างอิงที่บรรยายสัญญาของ endpoint ทั้งสอง ให้สะกดชื่อฟิลด์ใหม่
-  ตรงกับที่ระบบรับจริง
+- 10.6 THE SYSTEM SHALL ให้คอลัมน์ `SaleCode` ทั้งบน merchant user และบน snapshot ของการสมัคร เป็นชนิดไม่ใช่ unicode ยาว 20 ให้ตรงกับพารามิเตอร์และคอลัมน์ของสัญญาต้นทาง
+- 10.7 THE SYSTEM SHALL มี test ที่ยึดชื่อฟิลด์บน wire ไว้ทั้งสองทาง — ส่งฟอร์มด้วยคีย์ `saleCode` แล้วค่าต้องถูกบันทึก, ส่งด้วยคีย์ `producerCode` แล้วค่าต้องไม่ถูกบันทึก, และผลลัพธ์ประวัติการสมัคร ต้องมีคีย์ `saleCode` ไม่มีคีย์ `producerCode`
+- 10.8 THE SYSTEM SHALL ปรับเอกสารอ้างอิงที่บรรยายสัญญาของ endpoint ทั้งสอง ให้สะกดชื่อฟิลด์ใหม่ ตรงกับที่ระบบรับจริง
 
 ---
 

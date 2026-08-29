@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
-"""ตัวตรวจ requirements traceability (deterministic) สำหรับ spec ใต้ .ai/specs/<feature>/.
+"""Compatibility trace for the historical SDD corpus.
 
-ตรวจ 2 เรื่อง:
-1. coverage — เกณฑ์ (criterion) ทุกข้อใน requirements.md (บรรทัด `- N.M ...` ใต้หัวข้อ
-   `## REQ-N:`) ต้องถูกอ้างถึงทั้งใน design.md (เฉพาะ section `## Requirement Traceability`)
-   และใน tasks.md (เฉพาะบรรทัด `Satisfies:`). รูปแบบอ้างอิงที่ขยายให้:
-     - id เปล่า:        15.1, 15.3
-     - ช่วง dash:       17.1-17.4  -> 17.1, 17.2, 17.3, 17.4
-     - prefix:          REQ-1.2
-     - ทั้ง REQ:        REQ-1 / REQ-1 (all criteria) -> ทุกเกณฑ์ของ REQ-1
-   วงเล็บกำกับ เช่น `(partial)` ไม่ทำให้ parse พัง.
-2. EARS lint — ทุกเกณฑ์ต้องมี THE SYSTEM SHALL / WHEN / WHILE / WHERE / IF...THEN
-   (ดูข้อความเต็มของเกณฑ์รวมบรรทัดต่อเนื่องที่ indent).
-
-requirements.md ที่ไม่มีหัวข้อ `## REQ-N:` เลย (เช่น bugfix spec) -> ข้ามการตรวจ, exit 0.
-เกณฑ์ตกหล่น/EARS ไม่ผ่าน -> รายงานเป็นภาษาไทยแล้ว exit 1; ครบหมด -> 1 บรรทัด OK, exit 0.
+This entry point deliberately preserves the pre-cutover `scripts/spec-trace.sh`
+contract. Strict canonical parsing remains available through `spec_contract.py`
+and becomes the default only after the approved retrofit and CI cutover tasks.
 """
+from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path
 
+import spec_contract as sc
+
 REQ_HEADING_RE = re.compile(r"^## REQ-(\d+):")
 CRITERION_RE = re.compile(r"^- (\d+)\.(\d+) ")
-# บรรทัดที่ "เกือบ" เป็นเกณฑ์ (เช่น `- 2.3. text`) — ใช้เตือนกัน criterion หายเงียบ
 NEAR_MISS_RE = re.compile(r"^- \d+\.\d+")
-# อ้างอิงเกณฑ์: ลองช่วง dash ก่อน แล้วค่อย id เดี่ยว แล้วค่อยทั้ง REQ (ลำดับสำคัญ)
-# guard ขอบ token: ห้ามมีตัวอักษร/ตัวเลข/จุด ติดหน้า และห้ามมีตัวอักษร/ตัวเลข ติดหลัง
-# (กัน prose เช่น "v2.2" / "2.2s" นับเป็นการอ้างเกณฑ์ 2.2) — `,` `.` `-` ตามหลังยังผ่าน
 REF_RE = re.compile(
     r"(?<![A-Za-z0-9_.])"
     r"(?:"
@@ -41,19 +30,14 @@ EARS_IF_RE = re.compile(r"(?<![A-Za-z])IF(?![A-Za-z])")
 EARS_THEN_RE = re.compile(r"(?<![A-Za-z])THEN(?![A-Za-z])")
 
 
-def parse_requirements(text):
-    """คืน (criteria, has_headings).
-
-    criteria = list ของ (major:int, minor:int, full_text:str) ตามลำดับในไฟล์ —
-    เฉพาะบรรทัด `- N.M ` ที่อยู่ใต้หัวข้อ `## REQ-N:`; full_text รวมบรรทัดต่อเนื่อง
-    ที่ indent (join เป็นช่องว่างเดียว) เพื่อให้ lint เห็นคีย์เวิร์ดที่ถูกตัดขึ้นบรรทัดใหม่.
-    """
-    criteria = []
+def parse_requirements(text: str) -> tuple[list[tuple[int, int, str]], bool]:
+    """Return historical criteria and whether the artifact has REQ headings."""
+    criteria: list[tuple[int, int, str]] = []
     has_headings = False
     in_req_section = False
-    current = None  # (major, minor, [lines])
+    current: tuple[int, int, list[str]] | None = None
 
-    def flush():
+    def flush() -> None:
         nonlocal current
         if current is not None:
             major, minor, lines = current
@@ -67,159 +51,204 @@ def parse_requirements(text):
                 in_req_section = True
                 has_headings = True
             elif not line.startswith("###"):
-                in_req_section = False  # หัวข้อระดับ 1-2 ที่ไม่ใช่ REQ = จบ section
-            # หัวข้อระดับ 3+ (###) เป็นหัวข้อย่อยใน REQ — คง section เดิม
+                in_req_section = False
             continue
-        m = CRITERION_RE.match(line)
-        if m and in_req_section:
+        match = CRITERION_RE.match(line)
+        if match and in_req_section:
             flush()
-            current = (int(m.group(1)), int(m.group(2)), [line[m.end():]])
+            current = (int(match.group(1)), int(match.group(2)), [line[match.end():]])
             continue
         if in_req_section and NEAR_MISS_RE.match(line):
-            print("คำเตือน: บรรทัดคล้ายเกณฑ์แต่ไม่ตรงรูปแบบ '- N.M <ข้อความ>' "
-                  f"(จะไม่ถูกนับ): {line.strip()}", file=sys.stderr)
+            print(
+                "คำเตือน: บรรทัดคล้ายเกณฑ์แต่ไม่ตรงรูปแบบ '- N.M <ข้อความ>' "
+                f"(จะไม่ถูกนับ): {line.strip()}",
+                file=sys.stderr,
+            )
         if current is not None:
             if line.strip() and line.startswith(" "):
                 current[2].append(line.strip())
             else:
-                flush()  # บรรทัดว่าง / bullet อื่น / ข้อความชิดซ้าย = จบเกณฑ์
+                flush()
     flush()
     return criteria, has_headings
 
 
-def expand_refs(segment, criteria_by_req):
-    """ขยายข้อความอ้างอิงเป็น set ของ (major, minor).
-
-    criteria_by_req = dict major -> set(minor) ของเกณฑ์จริง (ใช้ขยายรูปทั้ง REQ).
-    """
-    covered = set()
-    for m in REF_RE.finditer(segment):
-        if m.group("a1"):  # ช่วง dash เช่น 17.1-17.4
-            a1, b1, a2, b2 = (int(m.group(g)) for g in ("a1", "b1", "a2", "b2"))
+def expand_refs(segment: str, criteria_by_req: dict[int, set[int]]) -> set[tuple[int, int]]:
+    """Expand the pre-cutover trace reference grammar."""
+    covered: set[tuple[int, int]] = set()
+    for match in REF_RE.finditer(segment):
+        if match.group("a1"):
+            a1, b1, a2, b2 = (int(match.group(group)) for group in ("a1", "b1", "a2", "b2"))
             if a1 == a2:
                 covered.update((a1, minor) for minor in range(min(b1, b2), max(b1, b2) + 1))
-            else:  # ช่วงข้าม REQ ไม่นิยาม — นับเฉพาะปลายทั้งสอง
+            else:
                 covered.update({(a1, b1), (a2, b2)})
-        elif m.group("a"):  # id เดี่ยว (มี/ไม่มี prefix REQ-)
-            covered.add((int(m.group("a")), int(m.group("b"))))
-        else:  # ทั้ง REQ เช่น REQ-1
-            major = int(m.group("whole"))
+        elif match.group("a"):
+            covered.add((int(match.group("a")), int(match.group("b"))))
+        else:
+            major = int(match.group("whole"))
             covered.update((major, minor) for minor in criteria_by_req.get(major, ()))
     return covered
 
 
-def design_traceability_text(design_text):
-    """คืนเนื้อหา section `## Requirement Traceability` (ถึงหัวข้อ ## ถัดไป) หรือ None."""
-    m = re.search(r"^##\s+Requirement Traceability\s*$", design_text, re.MULTILINE)
-    if not m:
+def design_traceability_text(design_text: str) -> str | None:
+    match = re.search(r"^##\s+Requirement Traceability\s*$", design_text, re.MULTILINE)
+    if not match:
         return None
-    rest = design_text[m.end():]
-    nxt = re.search(r"^## ", rest, re.MULTILINE)
-    return rest[: nxt.start()] if nxt else rest
+    rest = design_text[match.end():]
+    next_heading = re.search(r"^## ", rest, re.MULTILINE)
+    return rest[: next_heading.start()] if next_heading else rest
 
 
-def satisfies_text(tasks_text):
-    """รวมเฉพาะส่วนอ้างอิงบนบรรทัด `Satisfies:` (ตัดท้ายที่ Depends on:/Verify:/Batch:).
+def satisfies_text(tasks_text: str) -> str:
+    """Return explicit Satisfies refs plus migrated bare REQ lines.
 
-    บรรทัดต่อเนื่องที่ indent (ไม่ว่าง, ไม่ใช่ checkbox `- [ ]`/`- [x]` ใหม่)
-    ถูก join เข้ากับบรรทัด Satisfies: ก่อนตัดท้าย — กัน reference ที่ถูก wrap หล่นหาย.
+    Historical migration removed task metadata labels while preserving each
+    trace line as an indented line beginning with ``REQ-``. Keep this reader
+    compatible with both shapes; canonical validation stays in spec_contract.
     """
-    segments = []
-    lines = tasks_text.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        i += 1
-        if "Satisfies:" not in line:
+    segments: list[str] = []
+    visible, _diagnostics = sc._outside_fence(
+        tasks_text.splitlines(), Path("tasks.md")
+    )
+    in_comment = False
+    current_task = False
+    collecting_satisfies = False
+
+    for _number, raw in visible:
+        line = ""
+        rest = raw
+        while rest:
+            if in_comment:
+                marker = rest.find("-->")
+                if marker < 0:
+                    rest = ""
+                    continue
+                in_comment = False
+                rest = rest[marker + 3:]
+                continue
+            marker = rest.find("<!--")
+            if marker < 0:
+                line += rest
+                break
+            line += rest[:marker]
+            rest = rest[marker + 4:]
+            in_comment = True
+
+        if (
+            sc.TASK_OPENING_RE.match(line)
+            or re.match(r"^##\s+- \[[ x]\]\s+\S+", line)
+            or line.startswith("- Historical task (")
+        ):
+            current_task = True
+            collecting_satisfies = False
             continue
-        parts = [line.split("Satisfies:", 1)[1]]
-        while i < len(lines):
-            nxt = lines[i]
-            if not nxt.strip() or not nxt[0].isspace():
-                break
-            if nxt.lstrip().startswith(("- [ ]", "- [x]")):
-                break
-            parts.append(nxt.strip())
-            i += 1
-        segments.append(re.split(r"Depends on:|Verify:|Batch:", " ".join(parts))[0])
+        if re.match(r"^\s*(?:[-+*]|\d+[.)])\s*\[", line):
+            current_task = False
+            collecting_satisfies = False
+            continue
+        if re.match(r"^\s{0,3}#", line):
+            current_task = False
+            collecting_satisfies = False
+            continue
+        if not current_task:
+            continue
+        if "Satisfies:" in line:
+            segment = line.split("Satisfies:", 1)[1]
+            collecting_satisfies = True
+        elif collecting_satisfies and line[:1].isspace() and line.strip():
+            segment = line.strip()
+        elif re.match(r"^ {5}(?:REQ-\d+|\d+\.\d+)", line):
+            segment = line.strip()
+        else:
+            if not line.strip() or not line[:1].isspace():
+                collecting_satisfies = False
+            continue
+        segments.append(re.split(r"Depends on:|Verify:|Batch:", segment)[0])
     return "\n".join(segments)
 
 
-def ears_ok(text):
-    if "THE SYSTEM SHALL" in text:
-        return True
-    if EARS_KEYWORD_RE.search(text):
-        return True
-    return bool(EARS_IF_RE.search(text) and EARS_THEN_RE.search(text))
+def ears_ok(text: str) -> bool:
+    return (
+        "THE SYSTEM SHALL" in text
+        or bool(EARS_KEYWORD_RE.search(text))
+        or bool(EARS_IF_RE.search(text) and EARS_THEN_RE.search(text))
+    )
 
 
-def run(feature, specs_dir):
-    """ตรวจ feature เดียว; print ผลแล้วคืน exit code."""
-    feature_dir = specs_dir / feature
-    if not feature_dir.is_dir():
-        existing = ", ".join(sorted(p.name for p in specs_dir.iterdir() if p.is_dir())) \
-            if specs_dir.is_dir() else "-"
+def run(feature: str, specs_dir: Path) -> int:
+    """Run the historical trace contract for one feature."""
+    feature_dir, resolver_diagnostics = sc.resolve_feature_directory(specs_dir, feature)
+    if resolver_diagnostics or feature_dir is None:
+        if resolver_diagnostics:
+            sc._print_diagnostics(resolver_diagnostics)
+            return 2 if any(
+                diagnostic.verdict == "engine-fail"
+                for diagnostic in resolver_diagnostics
+            ) else 1
+        existing = ", ".join(sorted(path.name for path in specs_dir.iterdir() if path.is_dir())) if specs_dir.is_dir() else "-"
         print(f"ไม่พบ feature '{feature}' ใต้ {specs_dir} (ที่มี: {existing})", file=sys.stderr)
         print("ใช้: scripts/spec-trace.sh <feature>", file=sys.stderr)
         return 1
 
-    req_path = feature_dir / "requirements.md"
-    if not req_path.is_file():
+    requirements_data, requirements_diagnostics = sc._read_canonical_artifact(
+        feature_dir, "requirements.md", specs_dir
+    )
+    if requirements_data is None:
         if (feature_dir / "bugfix.md").is_file():
-            print(f"'{feature}' เป็น bugfix spec (มี bugfix.md ไม่มี requirements.md) — "
-                  "ข้ามการตรวจ traceability")
+            print(f"'{feature}' เป็น bugfix spec (มี bugfix.md ไม่มี requirements.md) — ข้ามการตรวจ traceability")
             return 0
-        print(f"ไม่พบไฟล์ {req_path}", file=sys.stderr)
-        print("ใช้: scripts/spec-trace.sh <feature>", file=sys.stderr)
-        return 1
+        sc._print_diagnostics(requirements_diagnostics)
+        return 2 if any(
+            diagnostic.verdict == "engine-fail"
+            for diagnostic in requirements_diagnostics
+        ) else 1
 
-    criteria, has_headings = parse_requirements(req_path.read_text(encoding="utf-8"))
+    criteria, has_headings = parse_requirements(requirements_data.decode("utf-8"))
     if not has_headings:
-        print(f"requirements.md ของ '{feature}' ไม่ใช่รูปแบบ REQ-based "
-              "(ไม่มีหัวข้อ '## REQ-N:') — ข้ามการตรวจ traceability")
+        print(f"requirements.md ของ '{feature}' ไม่ใช่รูปแบบ REQ-based (ไม่มีหัวข้อ '## REQ-N:') — ข้ามการตรวจ traceability")
         return 0
     if not criteria:
-        print(f"requirements.md ของ '{feature}' มีหัวข้อ REQ แต่ไม่พบเกณฑ์รูปแบบ '- N.M ...' เลย",
-              file=sys.stderr)
+        print(f"requirements.md ของ '{feature}' มีหัวข้อ REQ แต่ไม่พบเกณฑ์รูปแบบ '- N.M ...' เลย", file=sys.stderr)
         return 1
 
-    problems = []  # list ของ (หัวข้อกลุ่ม, [บรรทัดรายการ])
-
-    # --- EARS lint ---
-    ears_bad = [f"{maj}.{mnr}: {text[:80]}" for maj, mnr, text in criteria if not ears_ok(text)]
+    problems: list[tuple[str, list[str]]] = []
+    ears_bad = [f"{major}.{minor}: {text[:80]}" for major, minor, text in criteria if not ears_ok(text)]
     if ears_bad:
-        problems.append(("EARS lint ไม่ผ่าน (ต้องมี THE SYSTEM SHALL / WHEN / WHILE / WHERE / "
-                         "IF...THEN):", ears_bad))
+        problems.append(("EARS lint ไม่ผ่าน (ต้องมี THE SYSTEM SHALL / WHEN / WHILE / WHERE / IF...THEN):", ears_bad))
 
-    criteria_by_req = {}
-    for maj, mnr, _ in criteria:
-        criteria_by_req.setdefault(maj, set()).add(mnr)
-    all_ids = [(maj, mnr) for maj, mnr, _ in criteria]
+    criteria_by_req: dict[int, set[int]] = {}
+    for major, minor, _ in criteria:
+        criteria_by_req.setdefault(major, set()).add(minor)
+    all_ids = [(major, minor) for major, minor, _ in criteria]
 
-    # --- coverage: design.md ---
-    design_path = feature_dir / "design.md"
-    if not design_path.is_file():
-        print(f"ไม่พบไฟล์ {design_path} (spec แบบ REQ-based ต้องมี design.md)", file=sys.stderr)
-        return 1
-    trace = design_traceability_text(design_path.read_text(encoding="utf-8"))
+    design_data, design_diagnostics = sc._read_canonical_artifact(
+        feature_dir, "design.md", specs_dir
+    )
+    if design_data is None:
+        sc._print_diagnostics(design_diagnostics)
+        return 2 if any(
+            diagnostic.verdict == "engine-fail" for diagnostic in design_diagnostics
+        ) else 1
+    trace = design_traceability_text(design_data.decode("utf-8"))
     if trace is None:
-        problems.append(("design.md ไม่มี section '## Requirement Traceability' — "
-                         "ถือว่าทุกเกณฑ์ยังไม่ถูกอ้าง:", [f"{a}.{b}" for a, b in all_ids]))
+        problems.append(("design.md ไม่มี section '## Requirement Traceability' — ถือว่าทุกเกณฑ์ยังไม่ถูกอ้าง:", [f"{major}.{minor}" for major, minor in all_ids]))
     else:
         design_covered = expand_refs(trace, criteria_by_req)
-        missing = [f"{a}.{b}" for a, b in all_ids if (a, b) not in design_covered]
+        missing = [f"{major}.{minor}" for major, minor in all_ids if (major, minor) not in design_covered]
         if missing:
-            problems.append(("เกณฑ์ที่ไม่ถูกอ้างใน design.md (section Requirement Traceability):",
-                             missing))
+            problems.append(("เกณฑ์ที่ไม่ถูกอ้างใน design.md (section Requirement Traceability):", missing))
 
-    # --- coverage: tasks.md ---
-    tasks_path = feature_dir / "tasks.md"
-    if not tasks_path.is_file():
-        print(f"ไม่พบไฟล์ {tasks_path} (spec แบบ REQ-based ต้องมี tasks.md)", file=sys.stderr)
-        return 1
-    tasks_covered = expand_refs(satisfies_text(tasks_path.read_text(encoding="utf-8")),
-                                criteria_by_req)
-    missing = [f"{a}.{b}" for a, b in all_ids if (a, b) not in tasks_covered]
+    tasks_data, tasks_diagnostics = sc._read_canonical_artifact(
+        feature_dir, "tasks.md", specs_dir
+    )
+    if tasks_data is None:
+        sc._print_diagnostics(tasks_diagnostics)
+        return 2 if any(
+            diagnostic.verdict == "engine-fail" for diagnostic in tasks_diagnostics
+        ) else 1
+    tasks_covered = expand_refs(satisfies_text(tasks_data.decode("utf-8")), criteria_by_req)
+    missing = [f"{major}.{minor}" for major, minor in all_ids if (major, minor) not in tasks_covered]
     if missing:
         problems.append(("เกณฑ์ที่ไม่ถูกอ้างใน tasks.md (บรรทัด Satisfies:):", missing))
 
@@ -231,19 +260,31 @@ def run(feature, specs_dir):
                 print(f"  - {item}")
         return 1
 
-    print(f"OK: '{feature}' เกณฑ์ {len(criteria)} ข้อ ถูกอ้างครบใน design.md และ tasks.md, "
-          "EARS lint ผ่านทุกข้อ")
+    print(f"OK: '{feature}' เกณฑ์ {len(criteria)} ข้อ ถูกอ้างครบใน design.md และ tasks.md, EARS lint ผ่านทุกข้อ")
     return 0
 
 
-def main(argv):
-    if len(argv) != 2:
-        print("ใช้: scripts/spec-trace.sh <feature>   (feature = โฟลเดอร์ใต้ .ai/specs/)",
-              file=sys.stderr)
+def run_compatible_all(specs_dir: Path) -> int:
+    """Run compatibility trace across every requirements directory."""
+    features = sorted(
+        path.name
+        for path in specs_dir.iterdir()
+        if path.is_dir() and (path / "requirements.md").is_file()
+    )
+    failures = [feature for feature in features if run(feature, specs_dir)]
+    print(f"compatibility trace: checked {len(features)} / failures {len(failures)}")
+    return 1 if failures else 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) not in (2, 3):
+        print("ใช้: scripts/spec-trace.sh <feature|--all-compatible> [<specs-dir>]", file=sys.stderr)
         return 1
-    specs_dir = Path(__file__).resolve().parent.parent / ".ai" / "specs"
+    specs_dir = Path(argv[2]) if len(argv) == 3 else Path(__file__).resolve().parent.parent / ".ai" / "specs"
+    if argv[1] == "--all-compatible":
+        return run_compatible_all(specs_dir)
     return run(argv[1], specs_dir)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    raise SystemExit(main(sys.argv))

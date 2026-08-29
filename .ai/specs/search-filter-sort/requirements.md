@@ -1,6 +1,6 @@
 # Requirements: Search / Filter / Sort (SFS) + Pagination
 
-> Status: approved 2026-07-02 (design-first — architecture in `docs/reference/search-filter-sort.md`; spec-architect adversarial review applied, spec-trace 59/59; approved for team implementation)
+> Status: unknown
 
 ## Overview
 

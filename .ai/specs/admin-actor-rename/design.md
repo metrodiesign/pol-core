@@ -1,6 +1,7 @@
 # Design: Admin Actor Rename + Admin Identity Foundation
 
-> Status: approved 2026-06-23, amended 2026-06-23
+> Status: approved 2026-06-23
+> Notes:, amended 2026-06-23
 
 > **Implementation note (PR `feat/admin-identity-rbac`, 2026-06-23):** PR แรกส่งมอบเฉพาะ **admin-identity
 > foundation** (Task B) + `GET /admin/me`. **Producer rename (Task A) DEFERRED** — design ด้านล่างคงไว้เป็น
@@ -399,10 +400,10 @@ scoped-admin. floor ย้ายมา app, บังคับด้วย **3 c
 
 ## Requirement Traceability
 
-| design element | REQ |
+| Section | REQ |
 |---|---|
 | §C# + EF rename map; §Renamed tables/columns | REQ-1 |
-| §External HTTP contract changes | REQ-2.1, 2.2, 2.4 |
+| §External HTTP contract changes | REQ-2.1, REQ-2.2, REQ-2.4 |
 | §Audience-role key `tenant` — RETAINED (descoped) | REQ-2.3 |
 | §Data Models — AdminAccounts; New interfaces — AdminAccount | REQ-3 |
 | §Data Models — AdminTenantAssignments; seq "Super creates Scoped" | REQ-4 |

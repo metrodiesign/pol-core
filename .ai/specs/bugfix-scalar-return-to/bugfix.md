@@ -2,7 +2,8 @@
 
 บันทึกรากเหตุและขอบเขตแก้ไข redirect หลัง Admin OIDC login สำหรับ Scalar ใน Development
 
-> Status: approved 2026-08-08, amended 2026-08-17 (`local-api-port-5001`)
+> Status: approved 2026-08-08
+> Notes:, amended 2026-08-17 (`local-api-port-5001`)
 
 ## Current Behavior (Defect)
 

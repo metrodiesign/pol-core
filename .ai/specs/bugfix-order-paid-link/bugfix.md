@@ -29,38 +29,19 @@ system-completion loop แกน `...→ PaymentPaid → Paid` (requirements.md:
 
 ## Expected Behavior
 
-- F1  WHEN `PaymentPaid` มาถึงและ `OrderId` ชี้ order ที่มีอยู่ใน tenant เดียวกัน สถานะ
-      `AwaitingPayment` และ amount+currency ตรงกับ order THE SYSTEM SHALL เปลี่ยน order เป็น
-      `Paid`, บันทึก `PaidAt`, และ raise domain event `OrderPaid` หนึ่งครั้ง
-- F2  WHEN `PaymentPaid` มาถึง THE SYSTEM SHALL ระบุ order เป้าหมายจาก `PaymentPaid.OrderId`
-      (field ชั้นหนึ่งของ contract ตาม foundation-scaffold REQ-2.2) — ไม่พึ่ง
-      `Order.PaymentSessionId` ที่ไม่มีเส้นทางเขียนค่าใน production
-- F3  WHEN `PaymentPaid` มี amount หรือ currency ไม่ตรงกับ order THE SYSTEM SHALL ไม่เปลี่ยน
-      สถานะ order และปล่อยให้ message ล้มเหลวแบบมีร่องรอย (`MarkFailed` → retry ตาม
-      `MaxAttempts` → DLQ/poison) — ห้าม ack เงียบ
-- F4  WHEN order เป้าหมายอยู่สถานะ `Cancelled` แล้ว `PaymentPaid` มาถึง THE SYSTEM SHALL ไม่
-      เปลี่ยนสถานะ order และปล่อยให้ message เข้า DLQ/poison เช่นเดียวกับ F3 (เงินจริงถูกจ่าย
-      บน order ที่ยกเลิก = anomaly ต้องมีคนเห็น)
+- F-1 WHEN `PaymentPaid` มาถึงและ `OrderId` ชี้ order ที่มีอยู่ใน tenant เดียวกัน สถานะ `AwaitingPayment` และ amount+currency ตรงกับ order THE SYSTEM SHALL เปลี่ยน order เป็น `Paid`, บันทึก `PaidAt`, และ raise domain event `OrderPaid` หนึ่งครั้ง
+- F-2 WHEN `PaymentPaid` มาถึง THE SYSTEM SHALL ระบุ order เป้าหมายจาก `PaymentPaid.OrderId` (field ชั้นหนึ่งของ contract ตาม foundation-scaffold REQ-2.2) — ไม่พึ่ง `Order.PaymentSessionId` ที่ไม่มีเส้นทางเขียนค่าใน production
+- F-3 WHEN `PaymentPaid` มี amount หรือ currency ไม่ตรงกับ order THE SYSTEM SHALL ไม่เปลี่ยน สถานะ order และปล่อยให้ message ล้มเหลวแบบมีร่องรอย (`MarkFailed` → retry ตาม `MaxAttempts` → DLQ/poison) — ห้าม ack เงียบ
+- F-4 WHEN order เป้าหมายอยู่สถานะ `Cancelled` แล้ว `PaymentPaid` มาถึง THE SYSTEM SHALL ไม่ เปลี่ยนสถานะ order และปล่อยให้ message เข้า DLQ/poison เช่นเดียวกับ F3 (เงินจริงถูกจ่าย บน order ที่ยกเลิก = anomaly ต้องมีคนเห็น)
 
 ## Unchanged Behavior
 
-- B1  WHEN `PaymentPaid` ซ้ำ (redelivery/replay) มาถึง order ที่เป็น `Paid` แล้ว THE SYSTEM
-      SHALL CONTINUE TO no-op แบบ idempotent — สถานะคง `Paid`, ไม่ raise `OrderPaid` ซ้ำ,
-      message ack ปกติ (`Order.cs:111-112`)
-- B2  WHEN `PaymentPaid` อ้าง `OrderId` ที่ไม่มีในโมดูลนี้ (foreign/unknown — at-least-once
-      delivery) THE SYSTEM SHALL CONTINUE TO ack-and-return โดยไม่ throw (ไม่ poison
-      dispatcher) (`OrderPaidConsumer.cs:35-41` เจตนาเดิมของ null-branch)
-- B3  WHEN worker consume `CheckoutConfirmed` THE SYSTEM SHALL CONTINUE TO สร้าง order เดียว
-      ต่อ `CheckoutSessionId` (idempotent ผ่าน filtered-unique index) พร้อม enqueue
-      `CustomerOrderNotification` เมื่อมี recipient (`CheckoutConfirmedConsumer.cs:33-40`)
-- B4  WHEN PSP webhook เข้ามา THE SYSTEM SHALL CONTINUE TO ทำ pipeline ฝั่ง Payments ครบเดิม
-      ใน transaction เดียว: verify signature → claim multi-key idempotency → fetch-to-confirm
-      → `PaymentSession.MarkPaid` → enqueue `PaymentPaid` (`HandlePspWebhookHandler.cs`) —
-      fix นี้ไม่แตะฝั่ง Payments
-- B5  WHEN `PaymentPaid` ถูก serialize/deserialize ผ่าน outbox THE SYSTEM SHALL CONTINUE TO
-      รักษา `OrderId` + `Money` (amount+currency) ครบถ้วนในรูป camelCase (`OutboxSerializerTests.cs`)
-- B6  WHEN เรียก reconciliation report THE SYSTEM SHALL CONTINUE TO aggregate เฉพาะ order
-      ของ tenant ที่ scope ไว้ (RLS floor) (`OrdersReconciliationIntegrationTests.cs`)
+- B-1 WHEN `PaymentPaid` ซ้ำ (redelivery/replay) มาถึง order ที่เป็น `Paid` แล้ว THE SYSTEM SHALL CONTINUE TO no-op แบบ idempotent — สถานะคง `Paid`, ไม่ raise `OrderPaid` ซ้ำ, message ack ปกติ (`Order.cs:111-112`)
+- B-2 WHEN `PaymentPaid` อ้าง `OrderId` ที่ไม่มีในโมดูลนี้ (foreign/unknown — at-least-once delivery) THE SYSTEM SHALL CONTINUE TO ack-and-return โดยไม่ throw (ไม่ poison dispatcher) (`OrderPaidConsumer.cs:35-41` เจตนาเดิมของ null-branch)
+- B-3 WHEN worker consume `CheckoutConfirmed` THE SYSTEM SHALL CONTINUE TO สร้าง order เดียว ต่อ `CheckoutSessionId` (idempotent ผ่าน filtered-unique index) พร้อม enqueue `CustomerOrderNotification` เมื่อมี recipient (`CheckoutConfirmedConsumer.cs:33-40`)
+- B-4 WHEN PSP webhook เข้ามา THE SYSTEM SHALL CONTINUE TO ทำ pipeline ฝั่ง Payments ครบเดิม ใน transaction เดียว: verify signature → claim multi-key idempotency → fetch-to-confirm → `PaymentSession.MarkPaid` → enqueue `PaymentPaid` (`HandlePspWebhookHandler.cs`) — fix นี้ไม่แตะฝั่ง Payments
+- B-5 WHEN `PaymentPaid` ถูก serialize/deserialize ผ่าน outbox THE SYSTEM SHALL CONTINUE TO รักษา `OrderId` + `Money` (amount+currency) ครบถ้วนในรูป camelCase (`OutboxSerializerTests.cs`)
+- B-6 WHEN เรียก reconciliation report THE SYSTEM SHALL CONTINUE TO aggregate เฉพาะ order ของ tenant ที่ scope ไว้ (RLS floor) (`OrdersReconciliationIntegrationTests.cs`)
 
 หมายเหตุ scope:
 - ไม่มี do-not-modify list (intake ข้อ 4: "ไม่มีข้อห้ามพิเศษ")

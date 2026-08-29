@@ -275,31 +275,31 @@ idempotent-by-code + no-op เมื่อ seed role หาย ยกมาค�
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
-| Schema `iam` 4 ตาราง + FK/CHECK/UNIQUE (Data Models) | REQ-1.1, 2.6, 3.1, 3.2, 3.3 |
-| `Iam.Domain.Permissions.Keys` vocabulary เดียว + `KeySide` | REQ-1.2, 1.3, 2.1, 2.2 |
-| ลบ catalog เก่า (Architecture Overview ข้อ 6, migration InitialSchema) | REQ-1.4, 1.5 |
+| Schema `iam` 4 ตาราง + FK/CHECK/UNIQUE (Data Models) | REQ-1.1, REQ-2.6, REQ-3.1, REQ-3.2, REQ-3.3 |
+| `Iam.Domain.Permissions.Keys` vocabulary เดียว + `KeySide` | REQ-1.2, REQ-1.3, REQ-2.1, REQ-2.2 |
+| ลบ catalog เก่า (Architecture Overview ข้อ 6, migration InitialSchema) | REQ-1.4, REQ-1.5 |
 | Architecture.Tests schema/reference rules | REQ-1.6 |
-| Seed table (Data Models — Seed) + SeedData migration | REQ-2.1, 2.2, 2.3, 2.5 |
-| `Role.IsSeedAnchor` + domain guard | REQ-2.4, 6.5 |
-| `RoleSideContext` + visibility/mutation filter ใน Iam.Application | REQ-3.4, 3.5, 3.6, 3.7, 3.8, 3.9 |
-| Unified `RequiredPermission` metadata + filter (Sequence 1) | REQ-4.1, 4.3 |
-| Resolution join ใน Admins/Merchants.Infrastructure (Sequence 1) | REQ-4.2, 4.6 |
+| Seed table (Data Models — Seed) + SeedData migration | REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.5 |
+| `Role.IsSeedAnchor` + domain guard | REQ-2.4, REQ-6.5 |
+| `RoleSideContext` + visibility/mutation filter ใน Iam.Application | REQ-3.4, REQ-3.5, REQ-3.6, REQ-3.7, REQ-3.8, REQ-3.9 |
+| Unified `RequiredPermission` metadata + filter (Sequence 1) | REQ-4.1, REQ-4.3 |
+| Resolution join ใน Admins/Merchants.Infrastructure (Sequence 1) | REQ-4.2, REQ-4.6 |
 | Gate sites คงเดิม 20 จุด (Wire contracts) | REQ-4.5 |
 | Revoke-next-request (ไม่ cache — Sequence 1) | REQ-4.4 |
-| `PermissionParity.Assert` side-aware (Sequence 3) | REQ-5.1, 5.2, 5.4 |
+| `PermissionParity.Assert` side-aware (Sequence 3) | REQ-5.1, REQ-5.2, REQ-5.4 |
 | ลบ guard เดิม 2 ตัว (Architecture Overview ข้อ 6) | REQ-5.3 |
-| Endpoint mapping เดิม + `Iam.Application` handlers (Wire contracts) | REQ-6.1, 6.2, 6.4 |
+| Endpoint mapping เดิม + `Iam.Application` handlers (Wire contracts) | REQ-6.1, REQ-6.2, REQ-6.4 |
 | กฎ role เดิมใน `Role` aggregate + store (Error Handling) | REQ-6.3 |
 | Grant side validation (Sequence 2, Error Handling) | REQ-6.6 |
 | Assignment FK re-point + `AssignedById` rename (Data Models) | REQ-7.1 |
-| Approve + SetRoles ผ่าน visible-set lookup | REQ-7.2, 7.3, 7.4 |
+| Approve + SetRoles ผ่าน visible-set lookup | REQ-7.2, REQ-7.3, REQ-7.4 |
 | ไม่มี admin endpoint จัดการ Merchant-scope role (RoleSideContext ฝั่ง admin = Platform) | REQ-7.5 |
 | Integration drift guard assignment scope | REQ-7.6 |
 | Bootstrap `SelfProvisionSuperAdmin` → `platform_admin` | REQ-8.1 |
-| Tier untouched (ไม่มี design element แตะ Tier/RLS/fn_merchant_predicate) + orthogonality test | REQ-8.2, 8.3 |
+| Tier untouched (ไม่มี design element แตะ Tier/RLS/fn_merchant_predicate) + orthogonality test | REQ-8.2, REQ-8.3 |
 | Grant matrix `iam` (Technology Decisions) | REQ-9.1 |
 | No-RLS + residual risk (Technology Decisions) | REQ-9.2 |
 | Migration strategy 3 ไฟล์ in-place (Technology Decisions) | REQ-9.3 |
-| Testing Strategy pins/drift guards | REQ-10.1, 10.2, 10.3, 10.4 |
+| Testing Strategy pins/drift guards | REQ-10.1, REQ-10.2, REQ-10.3, REQ-10.4 |

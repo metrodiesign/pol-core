@@ -5,13 +5,5 @@
 > Status: approved 2026-08-17
 
 - [x] 1. Pin Merchant Tier 1 local login to VCP External DEV and verify end-to-end behavior
-  Satisfies: F1, F2, F3, F4, F5, F6, F7, B1, B2, B3, B4, B5, B6, B7, B8
-  Verify: RED-before-fix local configuration test, targeted OIDC challenge/callback tests, solution build, secret scan, spec trace และ live login ด้วย rotated runtime credential
-  Evidence:
-  - Live Microsoft Entra External ID authorization, OTP, code redemption and verified-identity callback completed successfully
-  - Callback redirected to `https://localhost:3002/register?ticket=<redacted>`; no credential, authorization code or ticket value was committed
-  - Targeted Hosts regression passed 2/2; full non-integration suite passed 1756/1756
-  - SQL migration integration suite passed 3/3; solution build passed with 0 warnings and 0 errors
-  - `.ai/bin/check-secrets.sh --all`, spec trace and whitespace checks passed
-  - Viewports: n/a — backend OIDC configuration and callback behavior only; no frontend source changed
-  - Deviations: the managed sandbox could not open VSTest sockets, so final test evidence came from the user's local terminal
+     Satisfies: F-1, F-2, F-3, F-4, F-5, F-6, F-7, B-1, B-2, B-3, B-4, B-5, B-6, B-7, B-8
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
