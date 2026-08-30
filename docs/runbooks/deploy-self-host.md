@@ -259,7 +259,8 @@ Deploy approved immutable release:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, applies EF migrations, runs
+Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, applies `docker/migrations/schema.sql` (committed idempotent EF script; only the
+migrations missing from `__EFMigrationsHistory` run), runs
 `WorkforceIdentityMigrator`, then exits only after identity verification succeeds. API never auto-migrates outside
 Development.
 

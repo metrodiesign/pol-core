@@ -39,8 +39,9 @@ ENV HOST_DLL=${HOST_DLL} \
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# ---- migrate: one-shot — bootstrap principals (sqlcmd) then apply EF migrations. Runs from source.
-# Derives from `restore` (NOT `build`) so it never runs the host publish — it only needs source + EF tooling.
+# ---- migrate: one-shot — bootstrap principals + apply docker/migrations/schema.sql (both sqlcmd). Runs from source.
+# Derives from `restore` (NOT `build`) so it never runs the host publish — it only needs source + sqlcmd + the
+# WorkforceIdentityMigrator tool. No dotnet-ef: the schema script is generated at dev time and committed.
 FROM restore AS migrate
 USER root
 RUN apt-get update \
@@ -52,7 +53,6 @@ RUN apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends mssql-tools18 \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/opt/mssql-tools18/bin:/root/.dotnet/tools:${PATH}"
-RUN dotnet tool install --global dotnet-ef --version 10.0.8
 RUN dotnet build src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj -c Release --no-restore
 # DB CA trust for `sqlcmd -N` is installed at RUNTIME by migrate-entrypoint.sh from the mounted
 # db_ca_cert secret — a build-time install can't work because images are built in CI where the

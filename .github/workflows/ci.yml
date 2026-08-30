@@ -126,6 +126,12 @@ jobs:
           dotnet tool install --global dotnet-ef --version 10.0.8
           export PATH="$PATH:$HOME/.dotnet/tools"
           bash docker/bootstrap/assert-fresh-db.test.sh
+      - name: Schema script drift gate
+        # docker/migrations/schema.sql must equal `dotnet ef migrations script --idempotent` for the
+        # committed migrations — the migrate image applies the script, not the EF tool.
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          ./scripts/check-migration-script.sh
       - name: Test (unit + in-memory; integration excluded)
         run: dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
 
@@ -263,15 +269,16 @@ jobs:
         # `dotnet ef database update` builds the startup project, which needs a restored assets file
         # (the integration job has no prior restore/build step); `dotnet test` below restores itself.
         run: dotnet restore pol-core.slnx
-      - name: Apply fresh baseline migrations
-        env:
-          POL_DESIGN_SQL: "Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
+      - name: Apply fresh baseline migrations (same script + flags as docker/migrate-entrypoint.sh)
+        # Runs the committed idempotent script twice: empty DB (every batch executes — catches raw
+        # Sql() that references a column added earlier in the same migration, which only fails under
+        # batch compile, not under `ef database update`) and then fully-migrated DB (must be a no-op).
         run: |
+          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b -I \
+            -d "${POL_DB}" -i docker/migrations/schema.sql
+          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b -I \
+            -d "${POL_DB}" -i docker/migrations/schema.sql
           dotnet tool install --global dotnet-ef --version 10.0.8
-          export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet ef database update --context PolDbContext \
-            --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-            --startup-project src/Hosts/Api
       - name: Migration lineage gate
         # Fresh reset line is intentionally exactly InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage.
         env:
