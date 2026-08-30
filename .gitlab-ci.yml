@@ -65,11 +65,18 @@ verify:
         EVIDENCE_BASE="$COMPARE_BASE"
       fi
       [ -n "$COMPARE_BASE" ] || { echo "CI_PROTECTED_JOB_PARSE_FAILED: no comparison base" >&2; exit 2; }
-      python3 scripts/ci-workflow-preservation.py --base "$COMPARE_BASE"
-      git diff --quiet "$COMPARE_BASE"..HEAD -- src tests docker pol-core.slnx Directory.Packages.props || {
-        echo "protected product/runtime path changed" >&2
-        exit 1
-      }
+      # Same scope rule as GitHub verify: comparator + product-path guard apply only to a
+      # range that touches the SDD operating layer (bugfix-ci-sdd-scope-gate).
+      SDD_SCOPE="$(python3 scripts/ci-workflow-preservation.py --base "$COMPARE_BASE" --sdd-scope)"
+      if [ "$SDD_SCOPE" = "touched" ]; then
+        python3 scripts/ci-workflow-preservation.py --base "$COMPARE_BASE"
+        git diff --quiet "$COMPARE_BASE"..HEAD -- src tests docker pol-core.slnx Directory.Packages.props || {
+          echo "protected product/runtime path changed" >&2
+          exit 1
+        }
+      else
+        echo "SDD operating layer untouched since ${COMPARE_BASE} — protected job/product guards not applicable"
+      fi
       bash scripts/ci-evidence-scope.sh "$EVIDENCE_BASE" HEAD
       python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       python3 scripts/spec_contract.py check --all --strict

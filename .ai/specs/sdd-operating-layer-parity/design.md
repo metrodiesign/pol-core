@@ -830,6 +830,16 @@ CI cutover เกิดหลัง migration second dry-run เป็น no-op,
 
 Comparator รัน local ด้วย merge-base เดียวกับ CI และรันใน GitHub/GitLab verify ก่อน strict checks Failure ใด fail closed ห้าม skip เพราะ parser ไม่เข้าใจ workflow shape
 
+### Scope ของ comparator และ protected-path guard
+
+> เพิ่ม 2026-08-30 จาก `bugfix-ci-sdd-scope-gate`: guard สองตัวนี้พิสูจน์ว่า "งาน SDD layer ไม่แตะ product" (`REQ-1.1`-`1.11`, `REQ-7.10`) ไม่ใช่กฎห้ามแก้ product ถาวร การรันกับทุก range ทำให้ PR product ทุกตัวแดง (พบครั้งแรกบน PR #208 ที่แก้ `docker/` และ job `dotnet-integration`)
+
+- `ci-workflow-preservation.py --base SHA --sdd-scope` พิมพ์ `touched` เมื่อ diff `base..working tree` มี path ใน SDD operating layer และ `untouched` เมื่อไม่มี; base resolve ไม่ได้เป็น engine-fail `2`
+- SDD operating layer = `.ai/bin/**`, `.claude/hooks/**`, `.githooks/**`, `scripts/tests/**`, `scripts/spec*`, `scripts/ci-*`, `scripts/guard_contract.py`, `scripts/guard_policy.py`, `scripts/repo_policy_alignment.py`, `scripts/pane-loop*`; ไม่รวม `.ai/specs/**`, `.ai/shared/**` และไฟล์ workflow เอง เพราะ feature PR แก้สิ่งเหล่านี้ร่วมกับ product เป็นปกติ
+- verify path ทั้ง GitHub และ GitLab รัน comparator และ `git diff --quiet` protected-path guard เฉพาะเมื่อ `touched`; range ที่ `untouched` พิมพ์เหตุผลแล้วข้ามสองขั้นนี้ ส่วน Evidence scope, Python unit tests, strict all-spec, alignment และ conformance รันทุก range เหมือนเดิม
+- `test_real_merge_base_comparator_green` skip เมื่อ layer untouched ด้วยเงื่อนไขเดียวกัน เพราะ unit suite รันใน verify ของทุก PR
+- เมื่อ `touched` comparator ยังต้อง byte-identical ทุก protected job และ product path ต้องไม่เปลี่ยน เหมือนเดิมทุกประการ
+
 ### Diff range
 
 | Event | Range |

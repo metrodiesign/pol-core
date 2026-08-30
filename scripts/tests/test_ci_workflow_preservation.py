@@ -295,6 +295,71 @@ class NegativePolicyTest(ComparatorSandbox):
         self.assert_exit(self.run_cli(), 1, self.CODE_INVENTORY)
 
 
+class SddScopeTest(ComparatorSandbox):
+    """`--sdd-scope` decides whether the protected-job comparator and the product-path
+    guard apply: only a range touching the SDD operating layer is in their scope
+    (bugfix-ci-sdd-scope-gate F-1, F-2, B-1)."""
+
+    def run_scope(self) -> subprocess.CompletedProcess:
+        env = dict(os.environ, SDD_CI_PRESERVE_REPO=str(self.repo),
+                   PYTHONDONTWRITEBYTECODE="1")
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "ci-workflow-preservation.py"),
+             "--base", self.base, "--sdd-scope"],
+            capture_output=True, text=True, env=env)
+
+    def commit_file(self, rel: str, text: str) -> None:
+        target = self.repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", f"touch {rel}")
+
+    def test_product_only_range_is_untouched(self):
+        self.commit_file("src/Hosts/Api/Program.cs", "// product\n")
+        self.commit_file("docker/migrate-entrypoint.sh", "#!/bin/sh\n")
+        self.commit_file(".ai/specs/feature/tasks.md", "- [x] 1. done\n")
+        proc = self.run_scope()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "untouched")
+
+    def test_sdd_layer_range_is_touched(self):
+        for rel in (".ai/bin/check-x.sh", ".claude/hooks/x.sh", ".githooks/pre-commit",
+                    "scripts/tests/test_x.py", "scripts/spec_contract.py",
+                    "scripts/ci-evidence-scope.sh", "scripts/guard_policy.py"):
+            with self.subTest(rel=rel):
+                self.assertTrue(ciw.is_sdd_layer_path(rel))
+        for rel in ("src/x.cs", "docker/x.sh", "scripts/check-migration-lineage.sh",
+                    ".ai/specs/x/tasks.md", ".ai/shared/LESSONS.md",
+                    ".github/workflows/ci.yml", ".gitlab-ci.yml"):
+            with self.subTest(rel=rel):
+                self.assertFalse(ciw.is_sdd_layer_path(rel))
+        self.commit_file("src/Hosts/Api/Program.cs", "// product\n")
+        self.commit_file("scripts/tests/test_new.py", "# sdd\n")
+        proc = self.run_scope()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "touched")
+        self.assertIn("scripts/tests/test_new.py", proc.stderr)
+
+    def test_sdd_layer_range_still_fails_protected_mutation(self):
+        # Scope gate must not weaken the comparator once the layer IS touched (B-1).
+        self.commit_file("scripts/tests/test_new.py", "# sdd\n")
+        self.write_current(".github/workflows/ci.yml",
+                           GH_GOOD.replace("-warnaserror", "-warnaserror "))
+        self.assertEqual(self.run_scope().stdout.strip(), "touched")
+        self.assert_exit(self.run_cli(), 1, "CI_PROTECTED_JOB_CHANGED")
+
+    def test_unresolvable_base_is_engine_fail(self):
+        env = dict(os.environ, SDD_CI_PRESERVE_REPO=str(self.repo),
+                   PYTHONDONTWRITEBYTECODE="1")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "ci-workflow-preservation.py"),
+             "--base", "0" * 40, "--sdd-scope"],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("CI_PROTECTED_JOB_PARSE_FAILED", proc.stderr)
+
+
 class RealRepoCheck(unittest.TestCase):
 
     def test_verify_jobs_use_shared_strict_cutover_owners(self):
@@ -328,6 +393,9 @@ class RealRepoCheck(unittest.TestCase):
         if merge.returncode != 0:
             self.skipTest("no origin/develop locally")
         base = merge.stdout.strip()
+        if not ciw.sdd_layer_paths(REPO, base):
+            # Product-only range: the comparator is out of scope (bugfix-ci-sdd-scope-gate F-3)
+            self.skipTest("SDD operating layer untouched since merge-base")
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         proc = subprocess.run(
             [sys.executable, str(SCRIPTS / "ci-workflow-preservation.py"),
