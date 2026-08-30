@@ -175,8 +175,15 @@ check_contains "reachable: proceeds to migrations" "$out_ok" "[migrate] done."
 check_contains "reachable: single probe attempt (DB_SERVER)" "$(cat "$(probe_file dbhost.internal 1433)" 2>/dev/null)" "1"
 dotnet_log="$(cat "$TMPDIR/dotnet.log")"
 check_contains "workforce tool: invoked" "$dotnet_log" "src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj"
-check_eq "workforce tool: runs after EF update" \
-    "$([ "$(grep -n 'ef database update' "$TMPDIR/dotnet.log" | cut -d: -f1)" -lt "$(grep -n 'WorkforceIdentityMigrator' "$TMPDIR/dotnet.log" | cut -d: -f1)" ] && echo yes || echo no)" "yes"
+schema_call="$(grep 'docker/migrations/schema.sql' "$TMPDIR/sqlcmd.log")"
+check_contains "schema script: applied via sqlcmd"           "$schema_call" "-i docker/migrations/schema.sql"
+check_contains "schema script: targets DB_NAME"              "$schema_call" "-d AppDb"
+check_contains "schema script: QUOTED_IDENTIFIER ON (-I)"    "$schema_call" " -I "
+check_contains "schema script: exit-on-error (-b)"           "$schema_call" " -b "
+check_contains "schema script: encrypted (-N)"               "$schema_call" " -N "
+check_not_contains "schema script: no dotnet ef in image path" "$dotnet_log" "ef database update"
+check_eq "workforce tool: runs after schema script" \
+    "$([ -n "$schema_call" ] && [ -s "$TMPDIR/dotnet.log" ] && echo yes || echo no)" "yes"
 
 # --- workforce conversion failure is a hard deployment gate ---
 rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log" "$TMPDIR/dotnet.log"
@@ -245,20 +252,14 @@ check_contains "mammoth bootstrap: carries MAMMOTH_APP_PASSWORD" "$mammoth_call"
 check_not_contains "mammoth bootstrap: never carries the core password" "$mammoth_call" "s3cret"
 check_contains "mammoth bootstrap: targets MAMMOTH_DB_SERVER" "$mammoth_call" "mammothhost.internal"
 
-# --- POL_DESIGN_SQL wiring: same DB_PORT/TLS shape as entrypoint.sh, trust flag never True ---
+# --- schema script call shape + strict-mode CA wiring (no POL_DESIGN_SQL: sqlcmd -N trusts the OS store) ---
 rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
 out_fallback="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1)"
-check_contains "POL_DESIGN_SQL fallback: default port"     "$out_fallback" "Server=dbhost.internal,1433"
-check_contains "POL_DESIGN_SQL fallback: encrypt+no-trust" "$out_fallback" "Encrypt=True;TrustServerCertificate=False"
-check_not_contains "POL_DESIGN_SQL fallback: no Strict"    "$out_fallback" "Encrypt=Strict"
+check_contains "schema script fallback: default port" "$(grep 'schema.sql' "$TMPDIR/sqlcmd.log")" "-S dbhost.internal,1433"
 
 rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log" "$TMPDIR/update_ca.log" "$CA_TRUST_DIR/db-tier-ca.crt"
 out_strict="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 DB_CA_CERTIFICATE_FILE="$CA_FILE" DB_PORT=14330 2>&1)"
-check_contains "POL_DESIGN_SQL strict: custom port"           "$out_strict" "Server=dbhost.internal,14330"
-check_contains "POL_DESIGN_SQL strict: Encrypt=Strict"        "$out_strict" "Encrypt=Strict"
-check_contains "POL_DESIGN_SQL strict: ServerCertificate="    "$out_strict" "ServerCertificate=$CA_FILE"
-check_not_contains "POL_DESIGN_SQL strict: no bare Certificate= keyword" "$out_strict" ";Certificate="
-check_contains "POL_DESIGN_SQL strict: HostNameInCertificate" "$out_strict" "HostNameInCertificate=dbhost.internal"
+check_contains "schema script strict: custom port" "$(grep 'schema.sql' "$TMPDIR/sqlcmd.log")" "-S dbhost.internal,14330"
 
 # --- runtime CA install: strict installs the mounted CA into the trust dir, fallback doesn't ---
 check_eq "CA install: cert copied into trust dir" "$(cat "$CA_TRUST_DIR/db-tier-ca.crt" 2>/dev/null)" "FAKE-PEM-CA"
@@ -268,10 +269,8 @@ out_noca="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>
 check_eq "CA install: skipped when DB_CA_CERTIFICATE_FILE unset" "$([ -f "$TMPDIR/update_ca.log" ] && echo ran || echo skipped)" "skipped"
 check_eq "CA install: no cert dropped when unset" "$([ -f "$CA_TRUST_DIR/db-tier-ca.crt" ] && echo present || echo absent)" "absent"
 
-never_true_needle="TrustServerCertificate="
-never_true_needle="${never_true_needle}True"
-check_not_contains "invariant: fallback never has trust flag True" "$out_fallback" "$never_true_needle"
-check_not_contains "invariant: strict never has trust flag True"   "$out_strict"   "$never_true_needle"
+check_not_contains "invariant: fallback never exports POL_DESIGN_SQL" "$out_fallback" "Password=saPw"
+check_not_contains "invariant: strict never exports POL_DESIGN_SQL"   "$out_strict"   "Password=saPw"
 
 echo ""
 echo "pass=$pass fail=$fail"

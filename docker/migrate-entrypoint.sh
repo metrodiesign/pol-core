@@ -3,7 +3,7 @@
 # are separate hosts now, not same-compose services `depends_on` can gate on), (1) create the DB principal
 # (idempotent) as sa, (2) bootstrap hippodb (own instance, own hippo_app LOGIN) and mammothdb (own instance,
 # own mammoth_app LOGIN — each sim tier has its own principal and its own password, sim-db-separate-logins),
-# (3) apply the EF migrations (schema + the pol_app grant matrix). Must run to
+# (3) apply the committed idempotent schema script docker/migrations/schema.sql (schema + the pol_app grant matrix). Must run to
 # completion BEFORE the app hosts start (compose orders this via depends_on:
 # service_completed_successfully). Runs from the source tree (/src).
 set -eu
@@ -118,18 +118,15 @@ sqlcmd -S "${MAMMOTH_DB_SERVER},${MAMMOTH_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD
   -v MAMMOTH_APP_PASSWORD="$MAMMOTH_PW" \
   -i docker/bootstrap/03-mammoth-sim.sql
 
-echo "[migrate] applying EF migrations (schema + pol_app grant matrix)..."
-# Same DB_PORT/trust wiring as docker/entrypoint.sh: pinned CA cert -> Encrypt=Strict, else
-# Encrypt=True;TrustServerCertificate=False (OS trust store) — no input can make
-# TrustServerCertificate be True.
-if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
-    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
-else
-    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=False"
-fi
-dotnet ef database update --context PolDbContext \
-  --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-  --startup-project src/Hosts/Api
+echo "[migrate] applying schema script (schema + pol_app grant matrix)..."
+# docker/migrations/schema.sql is `dotnet ef migrations script --idempotent` output committed to the
+# repo (scripts/check-migration-script.sh keeps it in sync in CI). Every migration is wrapped in
+# IF NOT EXISTS (__EFMigrationsHistory) so an existing DB gets only the missing steps — same
+# incremental behaviour as `dotnet ef database update`, without the EF tooling in this image.
+# -I: QUOTED_IDENTIFIER ON (sqlcmd default is OFF; filtered indexes / persisted computed columns need ON).
+sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b -I \
+  -d "$DB_NAME" \
+  -i docker/migrations/schema.sql
 
 echo "[migrate] validating and converting workforce identities..."
 dotnet run --project src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj \
