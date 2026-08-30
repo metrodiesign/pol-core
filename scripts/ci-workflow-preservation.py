@@ -25,6 +25,26 @@ GITHUB_PROTECTED = ("dotnet", "docker-build", "dotnet-integration")
 GITLAB_PROTECTED = ("dotnet", "integration", "package", ".deploy-template",
                     "deploy-uat", "deploy-prod")
 
+# SDD operating-layer paths. The protected-job comparator and the product-path guard
+# prove that a change to THIS layer did not touch product runtime or product CI jobs
+# (REQ-1.1-1.11, REQ-7.10). A range that leaves the layer untouched is a product
+# change, which those two guards were never scoped to judge — `--sdd-scope` reports
+# `untouched` and the verify path skips them (bugfix-ci-sdd-scope-gate F-1/F-2).
+SDD_LAYER_PREFIXES = (".ai/bin/", ".claude/hooks/", ".githooks/", "scripts/tests/")
+SDD_LAYER_PATTERN = re.compile(
+    r"^scripts/(spec[_-]|ci-|guard_contract\.py$|guard_policy\.py$"
+    r"|repo_policy_alignment\.py$|pane-loop)")
+
+
+def is_sdd_layer_path(rel: str) -> bool:
+    return rel.startswith(SDD_LAYER_PREFIXES) or bool(SDD_LAYER_PATTERN.match(rel))
+
+
+def sdd_layer_paths(repo: Path, base_sha: str) -> list[str]:
+    """Changed paths (base..working tree) that belong to the SDD operating layer."""
+    proc = _git(repo, "diff", "--name-only", base_sha)
+    return sorted(p for p in proc.stdout.splitlines() if p and is_sdd_layer_path(p))
+
 
 def repo_root() -> Path:
     override = os.environ.get("SDD_CI_PRESERVE_REPO")
@@ -210,10 +230,22 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--base", required=True)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--sdd-scope", action="store_true",
+                        help="print `touched` or `untouched` for the SDD layer and exit 0")
     args, extras = parser.parse_known_args(argv)
     if extras:
         parser.print_usage(sys.stderr)
         return 2
+    if args.sdd_scope:
+        try:
+            paths = sdd_layer_paths(repo_root(), args.base)
+        except (RuntimeError, OSError) as error:
+            print(f"CI_PROTECTED_JOB_PARSE_FAILED: {error}", file=sys.stderr)
+            return 2
+        print("touched" if paths else "untouched")
+        for rel in paths:
+            print(f"  {rel}", file=sys.stderr)
+        return 0
     try:
         diagnostics, engine_failed = run_compare(args.base)
     except (RuntimeError, OSError) as error:
