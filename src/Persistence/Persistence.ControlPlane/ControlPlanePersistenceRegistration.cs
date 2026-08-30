@@ -44,6 +44,7 @@ public static class ControlPlanePersistenceRegistration
             var options = new DbContextOptionsBuilder<ControlPlaneDbContext>()
                 .UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(170))
                 .UseApplicationServiceProvider(sp)
+                .AddInterceptors(new UserUpdatedAtInterceptor(sp.GetRequiredService<IClock>()))
                 .Options;
             return new ControlPlaneDbContext(options, authorizerFactory(sp), sp.GetRequiredService<ISecurityTelemetry>());
         });
