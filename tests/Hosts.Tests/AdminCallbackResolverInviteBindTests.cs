@@ -5,8 +5,7 @@ using SharedKernel;
 
 namespace Hosts.Tests;
 
-// Admin callback no longer binds invites or bootstraps Google identities. Eligible Microsoft identities enter one
-// canonical resolve/bind/JIT command; eligibility is enforced before this resolver.
+// Admin callback keeps Microsoft tenant/object identity on a dedicated typed seam; generic providers never enter it.
 public sealed class AdminCallbackResolverInviteBindTests
 {
     [Fact]
@@ -16,7 +15,7 @@ public sealed class AdminCallbackResolverInviteBindTests
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
 
         var result = await resolver.ResolveAtCallbackAsync(
-            new ProviderIdentity("google", "google-sub-1"), "corr-1", default);
+            new ProviderIdentity("google", "google-sub-1"), null, "corr-1", default);
 
         Assert.Equal(ResolveOutcome.NotFound, result.Outcome);
         Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
@@ -24,16 +23,33 @@ public sealed class AdminCallbackResolverInviteBindTests
     }
 
     [Fact]
-    public async Task Microsoft_identity_dispatches_canonical_resolve_command_directly()
+    public async Task Microsoft_identity_is_rejected_by_the_generic_resolver_seam()
     {
         var mediator = new RecordingMediator();
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
 
-        await resolver.ResolveAtCallbackAsync(
-            new ProviderIdentity("microsoft", "employee@viriyah.co.th"), "corr-1", default);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAtCallbackAsync(
+            new ProviderIdentity("MICROSOFT", "mutable-value"), null, "corr-1", default));
+
+        Assert.Empty(mediator.Sent);
+    }
+
+    [Fact]
+    public async Task Microsoft_identity_dispatches_typed_tenant_object_command_directly()
+    {
+        var mediator = new RecordingMediator();
+        var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
+        var tenantId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+
+        await resolver.ResolveMicrosoftAtCallbackAsync(
+            tenantId, objectId, "employee@viriyah.co.th", "ZTEST1", "corr-1", default);
 
         var command = Assert.Single(mediator.Sent.OfType<ResolveMicrosoftAdminCommand>());
-        Assert.Equal("employee@viriyah.co.th", command.CanonicalEmail);
+        Assert.Equal(tenantId, command.TenantId);
+        Assert.Equal(objectId, command.ObjectId);
+        Assert.Equal("employee@viriyah.co.th", command.Email);
+        Assert.Equal("ZTEST1", command.EmployeeId);
         Assert.DoesNotContain(mediator.Sent, message => message is ResolveQuery);
         Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
     }

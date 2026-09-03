@@ -13,8 +13,17 @@ namespace Api.Admins;
 /// interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
 internal interface ICallbackResolver
 {
+    /// <param name="employeeId">Normalised Graph employeeId (tier0-graph-employee-profile); null = switch off.</param>
     Task<ResolveResult> ResolveAtCallbackAsync(
-        ProviderIdentity identity, string correlationId, CancellationToken cancellationToken);
+        ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken cancellationToken);
+
+    Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+        Guid tenantId,
+        Guid objectId,
+        string? email,
+        string? employeeId,
+        string correlationId,
+        CancellationToken cancellationToken);
 }
 
 internal sealed class CallbackResolver : ICallbackResolver
@@ -24,15 +33,22 @@ internal sealed class CallbackResolver : ICallbackResolver
     public CallbackResolver(IMediator mediator) => _mediator = mediator;
 
     public async Task<ResolveResult> ResolveAtCallbackAsync(
-        ProviderIdentity identity, string correlationId, CancellationToken cancellationToken)
+        ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken cancellationToken)
     {
-        if (string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.Ordinal))
-            return await _mediator.Send(
-                new ResolveMicrosoftAdminCommand(identity.Subject, correlationId), cancellationToken);
-
-        var result = await _mediator.Send(new ResolveQuery(identity), cancellationToken);
-        return result;
+        if (string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Microsoft callbacks require the tenant-aware resolver seam.");
+        return await _mediator.Send(new ResolveQuery(identity), cancellationToken);
     }
+
+    public async Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+        Guid tenantId,
+        Guid objectId,
+        string? email,
+        string? employeeId,
+        string correlationId,
+        CancellationToken cancellationToken) =>
+        await _mediator.Send(
+            new ResolveMicrosoftAdminCommand(tenantId, objectId, email, employeeId, correlationId), cancellationToken);
 }
 
 /// <summary>
@@ -82,29 +98,62 @@ internal sealed class LoginService
         TimeSpan.FromMinutes(_session.RotationMinutes),
         TimeSpan.FromSeconds(_session.GraceSeconds));
 
-    /// <summary>Establishes a session for a verified provider identity, or denies (REQ-2.5/2.6/2.7/3.1/12.1).
-    /// <paramref name="provider"/> = the lowercase provider slug ("google"/"microsoft") the identity came from.</summary>
+    /// <summary>Establishes a historical non-Microsoft provider session.</summary>
     public async Task EstablishSessionAsync(
-        HttpContext http, string provider, string? subject, string? returnTo, CancellationToken ct)
+        HttpContext http, string provider, string? subject, string? employeeId, string? returnTo, CancellationToken ct)
     {
-        var auditSubject = provider == User.MicrosoftProvider ? null : subject;
+        if (string.Equals(provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+        {
+            await DenyAsync(http, "workforce-access-denied", null, ct);
+            return;
+        }
         if (string.IsNullOrEmpty(subject))
         {
             await DenyAsync(http, "missing-subject", null, ct);
             return;
         }
 
+        var identity = new ProviderIdentity(provider, subject);
+        await EstablishResolvedSessionAsync(
+            http,
+            auditSubject: subject,
+            returnTo,
+            (correlationId, token) => _resolver.ResolveAtCallbackAsync(
+                identity, employeeId, correlationId, token),
+            ct);
+    }
+
+    /// <summary>Establishes a Microsoft session from the already validated tenant-aware callback record.</summary>
+    public Task EstablishMicrosoftSessionAsync(
+        HttpContext http,
+        MicrosoftWorkforceClaims claims,
+        string? returnTo,
+        CancellationToken cancellationToken) =>
+        EstablishResolvedSessionAsync(
+            http,
+            auditSubject: null,
+            returnTo,
+            (correlationId, token) => _resolver.ResolveMicrosoftAtCallbackAsync(
+                claims.TenantId, claims.ObjectId, claims.Email, claims.EmployeeId, correlationId, token),
+            cancellationToken);
+
+    private async Task EstablishResolvedSessionAsync(
+        HttpContext http,
+        string? auditSubject,
+        string? returnTo,
+        Func<string, CancellationToken, Task<ResolveResult>> resolve,
+        CancellationToken cancellationToken)
+    {
         var correlationId = http.TraceIdentifier;
         ResolveResult result;
         try
         {
-            result = await _resolver.ResolveAtCallbackAsync(
-                new ProviderIdentity(provider, subject), correlationId, ct);
+            result = await resolve(correlationId, cancellationToken);
         }
         catch (Exception)
         {
             _logger.LogError("Admin resolution failed at callback. CorrelationId {CorrelationId}.", correlationId);
-            await DenyAsync(http, "resolve-failed", auditSubject, ct);
+            await DenyAsync(http, "resolve-failed", auditSubject, cancellationToken);
             return;
         }
 
@@ -112,11 +161,18 @@ internal sealed class LoginService
         {
             var reason = result.Outcome switch
             {
+                ResolveOutcome.Resolved => throw new System.Diagnostics.UnreachableException(),
+                ResolveOutcome.NotFound => "not-provisioned",
                 ResolveOutcome.Suspended => "suspended",
                 ResolveOutcome.IdentityConflict => "identity-conflict",
-                _ => "not-provisioned",
+                ResolveOutcome.EmployeeProfileMissing => EmployeeProfileException.Missing,
+                ResolveOutcome.EmployeeProfileInvalid => EmployeeProfileException.Invalid,
+                ResolveOutcome.EmployeeProfileUnmapped => "employee-profile-unmapped",
+                ResolveOutcome.EmployeeProfileUnavailable => EmployeeProfileException.Unavailable,
+                _ => throw new System.Diagnostics.UnreachableException("Unmapped admin resolve outcome."),
             };
-            await DenyAsync(http, reason, auditSubject, ct);
+            await DenyAsync(
+                http, reason, auditSubject, cancellationToken, auditReason: result.DenialReason);
             return;
         }
 
@@ -129,34 +185,34 @@ internal sealed class LoginService
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
 
-            // session + login-success audit commit TOGETHER on the request's keyed pol_admin context (no partial).
             _sessions.Add(session);
-            _audit.Append(AuthAudit.For(AuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, auditSubject));
-            await _sessions.SaveChangesAsync(ct);
+            _audit.Append(AuthAudit.For(
+                AuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, auditSubject));
+            await _sessions.SaveChangesAsync(cancellationToken);
 
             _cookies.Write(http, sessionToken, csrfToken);
             http.Response.Redirect(SafeReturn(returnTo));
         }
         catch (Exception)
         {
-            // REQ-2.7: any failure after resolution -> no partial session (the half-built session on THIS context
-            // is never committed; the deny audit runs on a fresh scope), denied audit + error redirect, not 500.
             _logger.LogError(
                 "Admin session establishment failed for {AdminId}. CorrelationId {CorrelationId}.",
                 resolution.AdminId, correlationId);
-            await DenyAsync(http, "session-write-failed", auditSubject, ct);
+            await DenyAsync(http, "session-write-failed", auditSubject, cancellationToken);
         }
     }
 
     /// <summary>Records a denied/failed auth attempt (REQ-2.8/12.4) on a FRESH scope (clean context) and
     /// redirects to the SPA error page with a non-sensitive reason. Used by the OIDC failure events too.</summary>
-    public async Task DenyAsync(HttpContext http, string reason, string? subject, CancellationToken ct)
+    public async Task DenyAsync(
+        HttpContext http, string reason, string? subject, CancellationToken ct, string? auditReason = null)
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var audit = scope.ServiceProvider.GetRequiredService<IAuthAuditWriter>();
-            audit.Append(AuthAudit.For(AuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: reason));
+            audit.Append(AuthAudit.For(
+                AuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: auditReason ?? reason));
             await audit.SaveChangesAsync(ct);
         }
         catch (Exception)

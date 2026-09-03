@@ -6,18 +6,24 @@ using SharedKernel;
 namespace Admins.Application.Users;
 
 /// <summary>
-/// Runtime resolution of an authenticated admin provider identity <c>(Provider, Subject)</c> -> its ACTIVE <see cref="User"/> with
-/// the accessible-merchant set materialized (REQ-6). The outcome distinguishes <see cref="ResolveOutcome.NotFound"/>
-/// (no matching identity — the callback may enter the approved Microsoft workforce JIT flow) from
-/// <see cref="ResolveOutcome.Suspended"/> (deny, never re-provision — REQ-5.6/5.7). Admin tables live in
-/// control-plane persistence without merchant query filters.
+/// Historical non-Microsoft resolution of <c>(Provider, Subject)</c> to an ACTIVE <see cref="User"/> with
+/// the accessible-merchant set materialized (REQ-6). Microsoft callbacks use
+/// <see cref="ResolveMicrosoftAdminCommand"/> exclusively. The outcome distinguishes
+/// <see cref="ResolveOutcome.NotFound"/> from <see cref="ResolveOutcome.Suspended"/> (deny, never
+/// re-provision — REQ-5.6/5.7). Admin tables live in control-plane persistence without merchant query filters.
 /// </summary>
 public sealed record ResolveQuery(ProviderIdentity Identity) : IQuery<ResolveResult>;
 
-public enum ResolveOutcome { Resolved, Suspended, NotFound, IdentityConflict }
+/// <summary>The four <c>EmployeeProfile*</c> members are tier0-graph-employee-profile denials (REQ-1/3/4/5); hosts must
+/// switch over this enum EXHAUSTIVELY (no discard arm) so a new member can never fall through to "not-provisioned".</summary>
+public enum ResolveOutcome
+{
+    Resolved, Suspended, NotFound, IdentityConflict,
+    EmployeeProfileMissing, EmployeeProfileInvalid, EmployeeProfileUnmapped, EmployeeProfileUnavailable
+}
 
 /// <summary>An active admin's identity + reach, materialized once per request into <c>IAdminScope</c>.</summary>
-public sealed record Resolution(Guid AdminId, string Email, Tier Tier, AccessibleMerchants Accessible)
+public sealed record Resolution(Guid AdminId, string? Email, Tier Tier, AccessibleMerchants Accessible)
 {
     private static readonly IReadOnlySet<string> NoPermissions = new HashSet<string>();
 
@@ -30,11 +36,25 @@ public sealed record Resolution(Guid AdminId, string Email, Tier Tier, Accessibl
     public long AuthorizationVersion { get; init; }
 }
 
-public sealed record ResolveResult(ResolveOutcome Outcome, Resolution? Resolution)
+/// <summary><paramref name="DenialReason"/> = the internal audit reason when it differs from the browser reason
+/// (tier0-graph-employee-profile REQ-2.17/3.19): <c>employee-mismatch</c>/<c>employee-taken</c> behind an
+/// <see cref="ResolveOutcome.IdentityConflict"/>, <c>hr-source-unavailable</c> behind
+/// <see cref="ResolveOutcome.EmployeeProfileUnavailable"/>. Null = audit the browser reason (pre-existing outcomes).</summary>
+public sealed record ResolveResult(ResolveOutcome Outcome, Resolution? Resolution, string? DenialReason = null)
 {
+    public const string EmployeeMismatchReason = "employee-mismatch";
+    public const string EmployeeTakenReason = "employee-taken";
+    public const string HrSourceUnavailableReason = "hr-source-unavailable";
+
     public static readonly ResolveResult NotFound = new(ResolveOutcome.NotFound, null);
     public static readonly ResolveResult Suspended = new(ResolveOutcome.Suspended, null);
     public static readonly ResolveResult IdentityConflict = new(ResolveOutcome.IdentityConflict, null);
+    public static readonly ResolveResult EmployeeProfileMissing = new(ResolveOutcome.EmployeeProfileMissing, null);
+    public static readonly ResolveResult EmployeeProfileInvalid = new(ResolveOutcome.EmployeeProfileInvalid, null);
+    public static readonly ResolveResult EmployeeProfileUnmapped = new(ResolveOutcome.EmployeeProfileUnmapped, null);
+    public static readonly ResolveResult HrSourceUnavailable =
+        new(ResolveOutcome.EmployeeProfileUnavailable, null, HrSourceUnavailableReason);
+    public static ResolveResult EmployeeConflict(string reason) => new(ResolveOutcome.IdentityConflict, null, reason);
     public static ResolveResult Of(Resolution resolution) => new(ResolveOutcome.Resolved, resolution);
 }
 
@@ -51,6 +71,9 @@ public sealed class ResolveHandler : IQueryHandler<ResolveQuery, ResolveResult>
 
     public async ValueTask<ResolveResult> Handle(ResolveQuery query, CancellationToken cancellationToken)
     {
+        if (string.Equals(query.Identity.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities require tenant-aware resolution.", nameof(query));
+
         var account = await _admins.GetByIdentityAsync(query.Identity, cancellationToken);
         if (account is null)
             return ResolveResult.NotFound;

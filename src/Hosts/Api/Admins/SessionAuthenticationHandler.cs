@@ -106,7 +106,8 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
         // External provider subjects stay out of the session principal. Internal account id is the actor identity.
         var identity = new ClaimsIdentity(SchemeName);
         identity.AddClaim(new Claim("admin_tier", resolution.Tier.ToString()));
-        identity.AddClaim(new Claim("email", resolution.Email));
+        if (resolution.Email is not null)
+            identity.AddClaim(new Claim("email", resolution.Email));
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, resolution.AdminId.ToString("D")));
         var principal = new ClaimsPrincipal(identity);
 

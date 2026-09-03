@@ -1,6 +1,6 @@
 # Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> As-built 2026-08-23. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
+> As-built 2026-09-02. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
 > `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
@@ -33,16 +33,18 @@ Flow login:
 1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/microsoft/login?returnTo=<path>`
 2. Server redirect ไป Microsoft Entra (Authorization Code + PKCE + state + nonce)
 3. ผู้ใช้ยืนยันกับ Microsoft -> Microsoft redirect กลับมาที่ `/api/v1/admins/auth/microsoft/callback` (server-side, ไม่มีหน้าให้ FE)
-4. Server แลก code เป็น token, ตรวจ exact tenant และ canonical corporate email, resolve/bind/JIT admin, แล้ว
-   **set cookie**: `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
+4. Server แลก code เป็น token, ตรวจ signature/issuer/audience/nonce/lifetime แล้วบังคับ `tid`/`oid` อย่างละหนึ่งค่า
+   และ exact tenant จากนั้น resolve/JIT ด้วย `(microsoft, tid, oid)` แล้ว **set cookie**:
+   `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
 5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
 
 ไม่มี id_token ใน browser, ไม่มี GIS script, ไม่มี `Authorization` header.
 
-Tier 0 เลือก `email` ก่อนและ fallback ไป `preferred_username` เฉพาะเมื่อไม่มี `email`. ค่าที่เลือกถูก trim,
-ตรวจเป็น ASCII addr-spec ด้วย BCL, lowercase แบบ invariant และต้องอยู่ exact domain `viriyah.co.th`.
-Runtime ไม่อ่าน `roles` และไม่ใช้ `oid`; Microsoft subject คือ canonical email. Active Admin ที่ email ตรงและ
-ยัง unbound ถูก bind เข้าบัญชีเดิม ส่วน email ใหม่สร้าง roleless Scoped JIT account.
+Tier 0 ใช้ immutable tuple `Provider=microsoft`, validated tenant `tid` และ canonical directory object `oid`.
+Email เป็น optional non-unique contact อาจ absent, mutable, reused หรือซ้ำกันได้ Runtime ไม่ fallback ไป Email,
+UPN, `preferred_username`, `WorkforceEmailKey` หรือ `EmployeeId` และไม่อ่าน `roles` เพื่อให้สิทธิ์ Unknown exact tuple
+สร้าง roleless Scoped JIT account Existing Admin ถูก offline-map หรือ pre-bound invite ก่อน login ไม่มี runtime bind
+ด้วย Email.
 
 > **สำคัญสุด:** `returnTo` ต้องเป็น path เดียวกับ origin (relative, ขึ้นต้น `/`) และอยู่ใน allowlist ฝั่ง server
 > (`AdminSession:ReturnUrlAllowlist`). ค่านอก allowlist จะถูกแทนด้วย default path (กัน open-redirect).
@@ -159,11 +161,13 @@ Response shape (`AdminMeResponse`, `src/Hosts/Api/Program.cs:2393-2395`):
 
 // Scoped — เห็นเฉพาะ merchant ที่ถูก assign
 {
-  "adminId": "…", "email": "b@x.com", "tier": "Scoped",
+  "adminId": "…", "email": null, "tier": "Scoped",
   "accessibleMerchants": { "isUnrestricted": false, "merchants": [ { "id": "…", "code": "acme" } ] },
   "permissions": ["user.view"]
 }
 ```
+
+`email` เป็น nullable contact และห้าม FE ใช้เป็น stable identity หรือ deduplication key
 
 `tier` มี 2 ค่า: `"Super"` | `"Scoped"`. ใช้ตัดสินใจซ่อน/โชว์ action ที่เป็น Super-only; `permissions` = effective
 action permission ของ role ที่ Active (admin-role-rbac REQ-9.1) — axis แยกจาก tier. `merchants[].code` เป็น
@@ -205,7 +209,7 @@ Scoped ยิงโดน 403.
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
 | GET | `/api/v1/merchants/{code}` | any | — | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
 | POST | `/api/v1/merchants` | **Super** | ต้อง | provision body | 201 | provision merchant (ดู reference 2.4); dup code -> 409 |
-| POST | `/api/v1/admins` | **Super** | ต้อง | `{ "email": "…" }` | 201 | invite Scoped admin (bind ตอน login แรกของ invitee) |
+| POST | `/api/v1/admins` | **Super** | ต้อง | `{ "objectId": "…", "identityApprovalReference": "…", "email"?: "…" }` | 201 | pre-bound Microsoft Scoped admin; objectId จาก verified Entra export |
 | POST | `/api/v1/admins/{id}/merchants` | **Super** | ต้อง | `{ "merchantId": "…" }` | 200 | assign merchant; inactive/unknown/dup -> 409 |
 | DELETE | `/api/v1/admins/{id}/merchants/{merchantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
@@ -227,8 +231,10 @@ Scoped ยิงโดน 403.
 reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle/session ops gate ด้วย `Tier.Super`.
 กติกา: role ที่ให้ `user.roles` ควร grant `user.view` ด้วย ให้ operator เห็น directory ก่อน assign role.
 
-`POST /api/v1/admins` (invite, ตารางบน) รับ body `{ "email": "…", "positionId"?, "officeId"?, "levelId"?,
-"divisionId"? }` — 4 FK เป็น optional ตั้งได้ตั้งแต่ตอนเชิญ ไม่ต้องรอ `PUT .../profile` ทีหลัง.
+`POST /api/v1/admins` (invite, ตารางบน) รับ body `{ "objectId": "…", "identityApprovalReference": "…",
+"email"?, "positionId"?, "officeId"?, "levelId"?, "divisionId"? }` — `objectId` และ approval reference เป็น
+required; Email และ 4 profile FK เป็น optional Account ถูก bind กับ persisted workforce tenant + objectId ตั้งแต่
+สร้างและ first login resolve internal `AdminId` เดิมด้วย exact tuple.
 
 | Method | Path | Gate | CSRF | Success | Note |
 |---|---|---|---|---|---|
@@ -316,9 +322,9 @@ path นอก list — และ absolute URL — ถูก fallback เป็�
 | 409 | duplicate (code / assignment ซ้ำ) | conflict |
 | 400 | body ผิด format | validation error |
 
-> callback ที่ login ไม่ผ่าน (state ผิด / `email_verified=false` / hosted-domain ไม่ตรง / ไม่ allowlist /
-> suspended) server redirect ไป `AdminAuth:ErrorPath` พร้อม `?reason=<label>` (ไม่ใช่ JSON) — FE หน้า error
-> อ่าน `reason` ได้.
+> callback ที่ login ไม่ผ่าน (protocol/state/code exchange/signature/issuer/audience/nonce/lifetime ผิด,
+> `tid`/`oid` missing/duplicate/malformed, tenant mismatch, suspended หรือ profile denial) server redirect ไป
+> `AdminAuth:ErrorPath` พร้อม `?reason=<fixed-label>` (ไม่ใช่ JSON) — reason ไม่มี claim, Email หรือ EmployeeId.
 
 ## helper รวม (adminApi.js)
 
@@ -364,6 +370,8 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - backend dev ต้องใส่ Microsoft OIDC client id + secret จริงที่ `AdminAuth__Providers__Microsoft__ClientId` /
   `AdminAuth__Providers__Microsoft__ClientSecret` (user-secrets) และ tenant-pinned Authority ถึงจะ login จริงได้.
 - bootstrap Super ไม่ใช้ external allowlist; promote corporate account ผ่าน admin management API ก่อน production.
+- `WorkforceTenantBinding` ยังเป็น deployment singleton และ Authority ยัง pin tenant เดียว Triple identity index
+  ไม่ใช่ multi-tenant admission; ต้องมี approved tenant registry/allowlist design ก่อนรับ tenant ที่สอง.
 - OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish
 
 **backend ทำให้แล้ว (FE ไม่ต้องแตะ):**

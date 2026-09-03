@@ -6,8 +6,9 @@ namespace Admins.Application.Users;
 
 /// <summary>
 /// Persistence for the admin realm. Bound by the host to the pol_admin (RLS-bypass) connection — admin tables
-/// are control-plane (no per-merchant predicate), and resolution/provisioning run cross-merchant. Lookups are by
-/// subject (resolution), email (invite binding) and id (Super-only management); assignments back the
+/// are control-plane (no per-merchant predicate), and resolution/provisioning run cross-merchant. Microsoft lookup
+/// uses the tenant-aware tuple; subject/email lookups remain only for historical non-Microsoft flows, and id lookup
+/// serves Super-only management. Assignments back the
 /// accessible-merchant set (REQ-6). The SFS-paged directory backs the account-management console
 /// (admin-account-management REQ-1).
 /// </summary>
@@ -18,11 +19,15 @@ public interface IUserRepository
     void RemoveAssignment(MerchantAccess assignment);
 
     Task AcquireIdentityMutationLockAsync(CancellationToken cancellationToken);
-    Task<IReadOnlyList<User>> ListTier0CandidatesAsync(
-        string canonicalEmail, CancellationToken cancellationToken);
+    Task<User?> GetByMicrosoftIdentityAsync(
+        Guid tenantId, Guid objectId, CancellationToken cancellationToken);
     Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken);
     Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>The admin (other than <paramref name="exceptAdminId"/>) already bound to this normalised employeeId, or
+    /// null (tier0-graph-employee-profile REQ-2.10). Exact equality under the database default collation.</summary>
+    Task<User?> GetByEmployeeIdAsync(string employeeId, Guid exceptAdminId, CancellationToken cancellationToken);
 
     Task VerifyActiveSuperAsync(
         Guid callerId, long expectedAuthorizationVersion, CancellationToken cancellationToken);
@@ -43,7 +48,7 @@ public interface IUserRepository
 /// are the enums; the host projects them to lowercase wire strings (no global enum converter, B2).
 /// <see cref="SubjectBound"/> = the invite has been claimed (Subject != null, REQ-1.2).</summary>
 public sealed record UserListItem(
-    Guid AdminId, string Email, Tier Tier, UserStatus Status, DateTime CreatedAt, bool SubjectBound, long Version);
+    Guid AdminId, string? Email, Tier Tier, UserStatus Status, DateTime CreatedAt, bool SubjectBound, long Version);
 
 /// <summary>Stages an append-only <see cref="Audit"/> in the current transaction (REQ-10.2).</summary>
 public interface IAuditWriter
@@ -56,5 +61,5 @@ public interface IAuditWriter
 public interface IAdminIdentityRecoveryReader
 {
     Task<ResolveResult> ResolveAfterConflictAsync(
-        string canonicalEmail, CancellationToken cancellationToken);
+        Guid tenantId, Guid objectId, CancellationToken cancellationToken);
 }

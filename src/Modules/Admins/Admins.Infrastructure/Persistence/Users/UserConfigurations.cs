@@ -19,6 +19,7 @@ public sealed class WorkforceTenantBindingConfiguration : IEntityTypeConfigurati
         builder.ToTable("WorkforceTenantBindings", SchemaNames.Admin, table =>
             table.HasCheckConstraint("CK_WorkforceTenantBindings_Singleton", "[Id] = 1"));
         builder.HasKey(x => x.Id);
+        builder.HasAlternateKey(x => x.TenantId).HasName("AK_WorkforceTenantBindings_TenantId");
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.Property(x => x.TenantId).IsRequired();
     }
@@ -28,14 +29,16 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("Users", SchemaNames.Admin);
+        builder.ToTable("Users", SchemaNames.Admin, table => table.HasCheckConstraint(
+            "CK_Users_TenantId_MicrosoftProvider",
+            "[TenantId] IS NULL OR [Provider] COLLATE Latin1_General_100_BIN2 = N'microsoft'"));
         builder.HasKey(x => x.Id);
         // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
         // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
-        builder.Property(x => x.Subject).HasMaxLength(256); // nullable until an invited Scoped account binds it
-        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
-        builder.Property(x => x.WorkforceEmailKey).HasMaxLength(WorkforceEmail.MaxLength);
+        builder.Property(x => x.TenantId);
+        builder.Property(x => x.Subject).HasMaxLength(256);
+        builder.Property(x => x.Email).HasMaxLength(AdminContactEmail.MaxLength);
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
@@ -45,14 +48,20 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // concurrency-token WHERE clause (WHERE Id=@caller AND AuthorizationVersion=@expected).
         builder.Property(x => x.AuthorizationVersion).IsConcurrencyToken();
         builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
-        // Filtered unique: one account per bound (Provider, Subject) pair; invited (NULL-subject) rows are
-        // exempt (REQ-3.1, B2 — SQL Server treats NULLs as equal in an unfiltered unique index).
-        builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique().HasFilter("[Subject] IS NOT NULL");
-        builder.HasIndex(x => x.Email).IsUnique(); // the invite key before a subject is bound
-        builder.HasIndex(x => x.WorkforceEmailKey).IsUnique().HasFilter("[WorkforceEmailKey] IS NOT NULL");
+        builder.HasIndex(x => new { x.Provider, x.TenantId, x.Subject })
+            .IsUnique()
+            .HasFilter("[Subject] IS NOT NULL");
+        builder.HasIndex(x => x.TenantId);
+        // tier0-graph-employee-profile REQ-2.11/3.8/8.1-8.4: profile columns, EmployeeId filtered-unique.
+        builder.Property(x => x.EmployeeId).HasMaxLength(EmployeeIdPolicy.MaxLength);
+        builder.Property(x => x.FirstName).HasMaxLength(500);
+        builder.Property(x => x.LastName).HasMaxLength(500);
+        builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("[EmployeeId] IS NOT NULL");
 
         // Org-profile FKs to the master lists. Nullable (unknown at invite); Restrict so a referenced master
         // can't be hard-deleted (soft-deactivate via IsActive instead). No back-navigation on the master side.
+        builder.HasOne<WorkforceTenantBinding>().WithMany().HasForeignKey(x => x.TenantId)
+            .HasPrincipalKey(x => x.TenantId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Position>().WithMany().HasForeignKey(x => x.PositionId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Office>().WithMany().HasForeignKey(x => x.OfficeId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Level>().WithMany().HasForeignKey(x => x.LevelId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);

@@ -30,10 +30,13 @@ public sealed class AdminLoginServiceTests
 {
     private static readonly DateTime Now = new(2026, 6, 24, 9, 0, 0, DateTimeKind.Utc);
     private static readonly Guid AdminId = Guid.Parse("a1111111-1111-1111-1111-111111111111");
+    private static readonly Guid TenantId = Guid.Parse("11111111-1111-4111-8111-111111111111");
+    private static readonly Guid ObjectId = Guid.Parse("22222222-2222-4222-8222-222222222222");
     private static readonly string[] SensitiveCanaries =
     [
         "privacy.canary@viriyah.co.th",
-        "22222222-2222-4222-8222-222222222222",
+        TenantId.ToString("D"),
+        ObjectId.ToString("D"),
         "authorization-code-canary",
         "id-token-canary",
         "access-token-canary",
@@ -79,7 +82,7 @@ public sealed class AdminLoginServiceTests
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)));
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", employeeId: null, "/dashboard", default);
 
         var session = Assert.Single(store.Added);
         Assert.Equal(AdminId, session.AdminUserId);
@@ -99,7 +102,7 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.Suspended);
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-2", "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-2", employeeId: null, "/dashboard", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
@@ -113,8 +116,8 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.IdentityConflict);
 
-        await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, "employee@viriyah.co.th", "/dashboard", default);
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(), "/dashboard", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "identity-conflict");
@@ -127,10 +130,71 @@ public sealed class AdminLoginServiceTests
         // the resolver returns NotFound (not an existing admin, not invited, not allowlisted)
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-3", "/", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-3", employeeId: null, "/", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "not-provisioned");
+    }
+
+    // tier0-graph-employee-profile REQ-2.17, 3.4-3.5, 3.19: the four profile outcomes map to their browser reasons;
+    // the audit keeps the internal reason when the result carries one, otherwise the browser reason.
+    [Theory]
+    [InlineData(ResolveOutcome.EmployeeProfileMissing, null, "employee-profile-missing", "employee-profile-missing")]
+    [InlineData(ResolveOutcome.EmployeeProfileInvalid, null, "employee-profile-invalid", "employee-profile-invalid")]
+    [InlineData(ResolveOutcome.EmployeeProfileUnmapped, null, "employee-profile-unmapped", "employee-profile-unmapped")]
+    [InlineData(ResolveOutcome.EmployeeProfileUnavailable, "hr-source-unavailable", "employee-profile-unavailable", "hr-source-unavailable")]
+    [InlineData(ResolveOutcome.IdentityConflict, "employee-mismatch", "identity-conflict", "employee-mismatch")]
+    [InlineData(ResolveOutcome.IdentityConflict, "employee-taken", "identity-conflict", "employee-taken")]
+    [InlineData(ResolveOutcome.IdentityConflict, null, "identity-conflict", "identity-conflict")]
+    public async Task Employee_profile_outcomes_map_browser_reason_and_internal_audit_reason(
+        ResolveOutcome outcome, string? denialReason, string browserReason, string auditReason)
+    {
+        var (service, store, audit, http) = Build(new ResolveResult(outcome, null, denialReason));
+
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(employeeId: "ZTEST1"), "/dashboard", default);
+
+        Assert.Empty(store.Added);
+        var denied = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.AuthDenied);
+        Assert.Equal(auditReason, denied.Reason);
+        Assert.Null(denied.Subject);
+        Assert.Equal($"/login-error?reason={browserReason}", http.Response.Headers.Location);
+        Assert.DoesNotContain("ZTEST1", http.Response.Headers.Location.ToString(), StringComparison.Ordinal); // REQ-9.7
+    }
+
+    /// <summary>Exhaustiveness guard: every ResolveOutcome except Resolved must map to a browser reason (a new member
+    /// that reaches the discard arm throws here instead of shipping as "not-provisioned").</summary>
+    [Fact]
+    public async Task Every_resolve_outcome_is_mapped_to_a_browser_reason()
+    {
+        foreach (var outcome in Enum.GetValues<ResolveOutcome>().Where(o => o != ResolveOutcome.Resolved))
+        {
+            var (service, store, audit, http) = Build(new ResolveResult(outcome, null));
+            await service.EstablishMicrosoftSessionAsync(http, WorkforceClaims(), "/", default);
+            Assert.Empty(store.Added);
+            var denied = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.AuthDenied);
+            Assert.False(string.IsNullOrWhiteSpace(denied.Reason));
+            Assert.StartsWith("/login-error?reason=", http.Response.Headers.Location.ToString(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Employee_id_is_forwarded_to_the_resolver_verbatim()
+    {
+        var resolver = new RecordingResolver();
+        var (service, _, _, http) = Build(ResolveResult.NotFound, resolver: resolver);
+
+        await service.EstablishMicrosoftSessionAsync(http, WorkforceClaims(employeeId: "AB12"), "/", default);
+        Assert.Equal("AB12", resolver.EmployeeId);
+        Assert.Equal(TenantId, resolver.TenantId);
+        Assert.Equal(ObjectId, resolver.ObjectId);
+        Assert.Equal("employee@viriyah.co.th", resolver.Email);
+
+        await service.EstablishMicrosoftSessionAsync(http, WorkforceClaims(email: null), "/", default);
+        Assert.Null(resolver.EmployeeId);
+        Assert.Null(resolver.Email);
+        Assert.Equal(2, resolver.MicrosoftCalls);
+        Assert.Equal(0, resolver.GenericCalls);
     }
 
     [Fact]
@@ -139,10 +203,28 @@ public sealed class AdminLoginServiceTests
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
         await service.EstablishSessionAsync(
-            http, provider: "google", subject: null, returnTo: "/", ct: default);
+            http, provider: "google", subject: null, employeeId: null, returnTo: "/", ct: default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
+    }
+
+    [Fact]
+    public async Task Generic_session_seam_rejects_microsoft_before_resolution()
+    {
+        var resolver = new RecordingResolver();
+        var (service, store, audit, http) = Build(ResolveResult.NotFound, resolver: resolver);
+
+        await service.EstablishSessionAsync(
+            http, "MICROSOFT", ObjectId.ToString("D"), employeeId: null, returnTo: "/", ct: default);
+
+        Assert.Equal(0, resolver.GenericCalls);
+        Assert.Equal(0, resolver.MicrosoftCalls);
+        Assert.Empty(store.Added);
+        var denied = Assert.Single(audit.Appended);
+        Assert.Equal(AuthEventType.AuthDenied, denied.EventType);
+        Assert.Equal("workforce-access-denied", denied.Reason);
+        Assert.Null(denied.Subject);
     }
 
     [Fact]
@@ -152,8 +234,8 @@ public sealed class AdminLoginServiceTests
             ResolveResult.Of(new Resolution(
                 AdminId, "ops@org.com", Tier.Scoped, AccessibleMerchants.Of(new HashSet<Guid>()))));
 
-        await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, "ops@viriyah.co.th", "/dashboard", default);
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(email: "ops@viriyah.co.th"), "/dashboard", default);
 
         var entry = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess);
         Assert.Null(entry.Subject);
@@ -164,8 +246,8 @@ public sealed class AdminLoginServiceTests
     {
         var (service, _, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, "ops@viriyah.co.th", "/", default);
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(email: "ops@viriyah.co.th"), "/", default);
 
         var entry = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.AuthDenied);
         Assert.Null(entry.Subject);
@@ -181,11 +263,11 @@ public sealed class AdminLoginServiceTests
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
             spaBaseUrl: "https://localhost:3001");
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", employeeId: null, "/dashboard", default);
         Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
 
         var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "https://localhost:3001");
-        await denied.EstablishSessionAsync(deniedHttp, "google", "google-sub-2", "/", default);
+        await denied.EstablishSessionAsync(deniedHttp, "google", "google-sub-2", employeeId: null, "/", default);
         Assert.Equal("https://localhost:3001/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
     }
 
@@ -200,7 +282,7 @@ public sealed class AdminLoginServiceTests
             allowlist: ["/", "/dashboard", "/scalar"],
             defaultReturnPath: "/dashboard");
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/scalar", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", employeeId: null, "/scalar", default);
 
         Assert.Equal("https://localhost:5001/scalar", http.Response.Headers.Location);
     }
@@ -214,7 +296,7 @@ public sealed class AdminLoginServiceTests
             spaBaseUrl: "https://localhost:3001",
             defaultReturnPath: "/dashboard");
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/scalar", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", employeeId: null, "/scalar", default);
 
         Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
     }
@@ -228,8 +310,8 @@ public sealed class AdminLoginServiceTests
             ResolveResult.NotFound, resolver: resolver, logger: logger);
         http.TraceIdentifier = "safe-correlation";
 
-        await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, SensitiveCanaries[0], "/", default);
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(email: SensitiveCanaries[0]), "/", default);
 
         Assert.Empty(store.Added);
         var denied = Assert.Single(audit.Appended, entry => entry.EventType == AuthEventType.AuthDenied);
@@ -254,8 +336,8 @@ public sealed class AdminLoginServiceTests
         store.SaveFailure = new InvalidOperationException(string.Join('|', SensitiveCanaries));
         http.TraceIdentifier = "safe-session-correlation";
 
-        await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, SensitiveCanaries[0], "/", default);
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(email: SensitiveCanaries[0]), "/", default);
 
         var denied = Assert.Single(audit.Appended, entry => entry.EventType == AuthEventType.AuthDenied);
         Assert.Null(denied.Subject);
@@ -266,6 +348,10 @@ public sealed class AdminLoginServiceTests
     }
 
     // --- harness ---
+
+    private static MicrosoftWorkforceClaims WorkforceClaims(
+        string? email = "employee@viriyah.co.th", string? employeeId = null) =>
+        new(TenantId, ObjectId, email, employeeId);
 
     private static (LoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(
         ResolveResult resolve,
@@ -303,15 +389,53 @@ public sealed class AdminLoginServiceTests
     private sealed class FakeResolver(ResolveResult result) : ICallbackResolver
     {
         public Task<ResolveResult> ResolveAtCallbackAsync(
-            ProviderIdentity identity, string correlationId, CancellationToken ct) =>
+            ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);
+
+        public Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+            Guid tenantId, Guid objectId, string? email, string? employeeId,
+            string correlationId, CancellationToken ct) => Task.FromResult(result);
+    }
+
+    private sealed class RecordingResolver : ICallbackResolver
+    {
+        public int GenericCalls { get; private set; }
+        public int MicrosoftCalls { get; private set; }
+        public Guid? TenantId { get; private set; }
+        public Guid? ObjectId { get; private set; }
+        public string? Email { get; private set; }
+        public string? EmployeeId { get; private set; }
+
+        public Task<ResolveResult> ResolveAtCallbackAsync(
+            ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken ct)
+        {
+            GenericCalls++;
+            EmployeeId = employeeId;
+            return Task.FromResult(ResolveResult.NotFound);
+        }
+
+        public Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+            Guid tenantId, Guid objectId, string? email, string? employeeId,
+            string correlationId, CancellationToken ct)
+        {
+            MicrosoftCalls++;
+            TenantId = tenantId;
+            ObjectId = objectId;
+            Email = email;
+            EmployeeId = employeeId;
+            return Task.FromResult(ResolveResult.NotFound);
+        }
     }
 
     private sealed class ThrowingResolver(Exception error) : ICallbackResolver
     {
         public Task<ResolveResult> ResolveAtCallbackAsync(
-            ProviderIdentity identity, string correlationId, CancellationToken ct) =>
+            ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken ct) =>
             Task.FromException<ResolveResult>(error);
+
+        public Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+            Guid tenantId, Guid objectId, string? email, string? employeeId,
+            string correlationId, CancellationToken ct) => Task.FromException<ResolveResult>(error);
     }
 
     private sealed class FakeSessionStore : ISessionStore

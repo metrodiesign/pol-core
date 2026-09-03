@@ -22,7 +22,7 @@ public sealed class ListAdminsHandler(IUserRepository admins)
 public sealed record GetAdminByIdQuery(Guid AdminId) : IQuery<Detail?>;
 
 public sealed record Detail(
-    Guid AdminId, string Email, Tier Tier, UserStatus Status, DateTime CreatedAt,
+    Guid AdminId, string? Email, Tier Tier, UserStatus Status, DateTime CreatedAt,
     bool SubjectBound, AccessibleMerchants Accessible, IReadOnlyList<string> RoleCodes,
     ProfileRef? Position, ProfileRef? Office, ProfileRef? Level, ProfileRef? Division, long Version);
 

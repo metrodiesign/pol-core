@@ -8,6 +8,8 @@ public static class AuditAction
     public const string SelfProvision = "self-provision";
     public const string JitProvision = "jit-provision";
     public const string MicrosoftEmailBind = "microsoft-email-bind";
+    // tier0-graph-employee-profile REQ-2.14: first EmployeeId bind, same transaction as the bind.
+    public const string EmployeeBind = "employee-bind";
     public const string CreateScoped = "create-scoped";
     public const string AssignMerchant = "assign-merchant";
     public const string UnassignMerchant = "unassign-merchant";
@@ -39,8 +41,7 @@ public sealed class Audit : Entity<Guid>
 {
     public string Action { get; private set; } = default!;
 
-    /// <summary>The actor kind. Only <c>"admin"</c> in Spec 1 (intentional forward-compat for a future
-    /// system/automation actor).</summary>
+    /// <summary>The actor kind: <c>"admin"</c> for runtime actions or <c>"system"</c> for approved migration work.</summary>
     public string ActorType { get; private set; } = default!;
 
     /// <summary>The acting <see cref="User.Id"/>.</summary>
@@ -59,11 +60,11 @@ public sealed class Audit : Entity<Guid>
 
     private Audit() { }
 
-    private Audit(Guid id, string action, Guid actorId, Guid? targetAdminId, Guid? merchantId,
+    private Audit(Guid id, string action, string actorType, Guid actorId, Guid? targetAdminId, Guid? merchantId,
         Guid? targetRoleId, string correlationId, DateTime occurredAt) : base(id)
     {
         Action = action;
-        ActorType = "admin";
+        ActorType = actorType;
         ActorId = actorId;
         TargetAdminId = targetAdminId;
         MerchantId = merchantId;
@@ -77,10 +78,38 @@ public sealed class Audit : Entity<Guid>
     public static Audit For(string action, Guid actorId, string correlationId, DateTime occurredAt,
         Guid? targetAdminId = null, Guid? merchantId = null, Guid? targetRoleId = null)
     {
+        return New("admin", action, actorId, correlationId, occurredAt, targetAdminId, merchantId, targetRoleId);
+    }
+
+    /// <summary>Builds an audit row attributed to an approved system migration rather than the target Admin.</summary>
+    public static Audit ForSystem(
+        string action,
+        Guid actorId,
+        Guid targetAdminId,
+        string correlationId,
+        DateTime occurredAt)
+    {
+        if (targetAdminId == Guid.Empty)
+            throw new ArgumentException("TargetAdminId is required.", nameof(targetAdminId));
+        return New("system", action, actorId, correlationId, occurredAt, targetAdminId, null, null);
+    }
+
+    private static Audit New(
+        string actorType,
+        string action,
+        Guid actorId,
+        string correlationId,
+        DateTime occurredAt,
+        Guid? targetAdminId,
+        Guid? merchantId,
+        Guid? targetRoleId)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
         if (actorId == Guid.Empty)
             throw new ArgumentException("ActorId is required.", nameof(actorId));
-        return new Audit(Guid.NewGuid(), action, actorId, targetAdminId, merchantId, targetRoleId, correlationId, occurredAt);
+        return new Audit(
+            Guid.NewGuid(), action, actorType, actorId, targetAdminId, merchantId, targetRoleId,
+            correlationId, occurredAt);
     }
 }

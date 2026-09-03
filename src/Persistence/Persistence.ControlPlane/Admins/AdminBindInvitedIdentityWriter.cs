@@ -1,3 +1,4 @@
+using Admins.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
 namespace Persistence.ControlPlane.Admins;
@@ -26,11 +27,14 @@ internal sealed class AdminBindInvitedIdentityWriter(ControlPlaneDbContext db) :
 {
     public async Task<BindInvitedOutcome> BindAsync(string provider, string subject, string email, CancellationToken cancellationToken)
     {
+        if (string.Equals(provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities cannot use the historical invite-bind writer.", nameof(provider));
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
 
-        var account = await db.Users.FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+        var account = await db.Users.FirstOrDefaultAsync(
+            u => u.TenantId == null && u.Email == email, cancellationToken);
         if (account is null)
             return BindInvitedOutcome.NoInviteFound;
         if (account.Subject is not null)

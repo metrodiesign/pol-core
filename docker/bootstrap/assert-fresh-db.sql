@@ -44,9 +44,11 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260817170326_MerchantUserPaymentMethodAccessExpand'),
     (N'20260817172338_MerchantPaymentCapabilityControlPlane'),
     (N'20260819145219_WorkforceTenantBinding'),
-    (N'20260823132337_Tier0WorkforceEmailIdentity');
+    (N'20260823132337_Tier0WorkforceEmailIdentity'),
+    (N'20260830172117_Tier0EmployeeProfile'),
+    (N'20260902133906_Tier0MicrosoftTenantAwareIdentity');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 21
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 23
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -55,7 +57,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 21
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 21 expected migrations through Tier0WorkforceEmailIdentity; ';
+    SET @fail += N'migration history must contain exactly 23 expected migrations through Tier0MicrosoftTenantAwareIdentity; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -67,6 +69,50 @@ IF OBJECT_ID(N'admin.WorkforceTenantBindings', N'U') IS NULL
     SET @fail += N'admin.WorkforceTenantBindings singleton missing; ';
 IF EXISTS (SELECT 1 FROM admin.WorkforceTenantBindings)
     SET @fail += N'admin.WorkforceTenantBindings must be empty before runtime tenant pin initialization; ';
+
+IF OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U') IS NULL
+   OR OBJECT_ID(N'admin.WorkforceTenantIdentitySnapshot', N'U') IS NULL
+    SET @fail += N'tenant-aware identity migration state tables missing; ';
+ELSE IF (SELECT COUNT(*) FROM admin.WorkforceTenantIdentityMigrations) <> 1
+   OR NOT EXISTS
+      (SELECT 1 FROM admin.WorkforceTenantIdentityMigrations
+       WHERE Id = 1 AND CompletedAt IS NULL AND SnapshotCount = 0 AND MappedCount = 0 AND NoOpCount = 0)
+   OR EXISTS (SELECT 1 FROM admin.WorkforceTenantIdentitySnapshot)
+    SET @fail += N'tenant-aware identity migration state must start incomplete and empty; ';
+
+IF COL_LENGTH(N'admin.Users', N'WorkforceEmailKey') IS NOT NULL
+   OR EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'admin.Users')
+              AND name IN (N'IX_Users_WorkforceEmailKey', N'IX_Users_Email', N'IX_Users_Provider_Subject'))
+    SET @fail += N'email ownership columns or indexes remain on admin.Users; ';
+IF NOT EXISTS
+   (SELECT 1 FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
+    WHERE c.object_id = OBJECT_ID(N'admin.Users') AND c.name = N'TenantId'
+      AND t.name = N'uniqueidentifier' AND c.is_nullable = 1)
+   OR NOT EXISTS
+   (SELECT 1 FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
+    WHERE c.object_id = OBJECT_ID(N'admin.Users') AND c.name = N'Email'
+      AND t.name = N'nvarchar' AND c.max_length = 640 AND c.is_nullable = 1)
+    SET @fail += N'admin.Users tenant/email column shape invalid; ';
+IF NOT EXISTS
+   (SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'admin.Users') AND name = N'IX_Users_Provider_TenantId_Subject'
+      AND is_unique = 1 AND filter_definition IS NOT NULL)
+   OR (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+       FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+       JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+       WHERE i.object_id = OBJECT_ID(N'admin.Users') AND i.name = N'IX_Users_Provider_TenantId_Subject'
+         AND ic.key_ordinal > 0) <> N'Provider,TenantId,Subject'
+    SET @fail += N'admin.Users tenant-aware identity index invalid; ';
+IF NOT EXISTS (SELECT 1 FROM sys.key_constraints
+               WHERE parent_object_id = OBJECT_ID(N'admin.WorkforceTenantBindings')
+                 AND name = N'AK_WorkforceTenantBindings_TenantId' AND type = N'UQ')
+   OR NOT EXISTS (SELECT 1 FROM sys.foreign_keys
+                  WHERE parent_object_id = OBJECT_ID(N'admin.Users')
+                    AND name = N'FK_Users_WorkforceTenantBindings_TenantId')
+   OR NOT EXISTS (SELECT 1 FROM sys.check_constraints
+                  WHERE parent_object_id = OBJECT_ID(N'admin.Users')
+                    AND name = N'CK_Users_TenantId_MicrosoftProvider')
+    SET @fail += N'admin.Users tenant binding constraints invalid; ';
 
 IF OBJECT_ID(N'shop.CheckoutSessions', N'U') IS NOT NULL
    OR OBJECT_ID(N'shop.OrderItemPolicies', N'U') IS NOT NULL
@@ -131,6 +177,14 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_permissions p
    OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                   WHERE p.grantee_principal_id = USER_ID(N'pol_app')
                     AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'INSERT' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations')
+                    AND p.permission_name = N'SELECT' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantIdentitySnapshot')
+                    AND p.permission_name = N'SELECT' AND p.state = N'G')
     SET @fail += N'pol_app required grant matrix incomplete; ';
 IF EXISTS (SELECT 1 FROM sys.database_permissions p
            WHERE p.grantee_principal_id = USER_ID(N'pol_app')

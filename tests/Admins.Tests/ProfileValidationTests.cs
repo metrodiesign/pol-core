@@ -14,6 +14,7 @@ public sealed class ProfileValidationTests
 {
     private static readonly DateTime Now = new(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Guid Actor = Guid.NewGuid();
+    private static readonly Guid ObjectId = Guid.Parse("22222222-2222-4222-8222-222222222222");
 
     // ===== Domain: User profile FKs =====
 
@@ -38,11 +39,11 @@ public sealed class ProfileValidationTests
     {
         var handler = new CreateScopedHandler(
             new FakePlatformUserRepository(), new FakePlatformUserAuditWriter(),
-            new FakeProfileLookup(), new FakeUnitOfWork(), new FixedClock());
+            new FakeProfileLookup(), new FakeWorkforceTenantBindingStore(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await handler.Handle(new CreateScopedCommand(
-                "a@x", Actor, "corr", PositionId: Guid.NewGuid()), default));
+                ObjectId, "a@x", "approval-1", Actor, "corr", PositionId: Guid.NewGuid()), default));
     }
 
     [Fact]
@@ -52,9 +53,11 @@ public sealed class ProfileValidationTests
         var posId = masters.Add(ProfileField.Position, "ceo", "CEO");
         var admins = new FakePlatformUserRepository();
         var handler = new CreateScopedHandler(
-            admins, new FakePlatformUserAuditWriter(), masters, new FakeUnitOfWork(), new FixedClock());
+            admins, new FakePlatformUserAuditWriter(), masters,
+            new FakeWorkforceTenantBindingStore(), new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new CreateScopedCommand("a@x", Actor, "corr", PositionId: posId), default);
+        await handler.Handle(new CreateScopedCommand(
+            ObjectId, "a@x", "approval-1", Actor, "corr", PositionId: posId), default);
 
         Assert.Equal(posId, Assert.Single(admins.Accounts).PositionId);
     }
@@ -66,10 +69,11 @@ public sealed class ProfileValidationTests
         var posId = masters.Add(ProfileField.Position, "ceo", "CEO", isActive: false);
         var handler = new CreateScopedHandler(
             new FakePlatformUserRepository(), new FakePlatformUserAuditWriter(),
-            masters, new FakeUnitOfWork(), new FixedClock());
+            masters, new FakeWorkforceTenantBindingStore(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await handler.Handle(new CreateScopedCommand("a@x", Actor, "corr", PositionId: posId), default));
+            await handler.Handle(new CreateScopedCommand(
+                ObjectId, "a@x", "approval-1", Actor, "corr", PositionId: posId), default));
     }
 
     // ===== UpdateAdminProfile =====

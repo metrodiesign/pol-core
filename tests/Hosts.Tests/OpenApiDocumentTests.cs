@@ -135,6 +135,34 @@ public sealed class AudienceOpenApiDocumentTests
     }
 
     [Fact]
+    public async Task Admin_prebound_invite_and_read_contracts_publish_required_tuple_evidence_and_nullable_email()
+    {
+        using var factory = new OpenApiDocumentFactory();
+        using var client = factory.CreateClient();
+        var document = await DocumentAsync(client, "admin");
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        var request = schemas.GetProperty("CreateAdminRequest");
+        var requestRequired = request.GetProperty("required").EnumerateArray()
+            .Select(value => value.GetString()).ToHashSet(StringComparer.Ordinal);
+        var requestProperties = request.GetProperty("properties");
+
+        Assert.Contains("objectId", requestRequired);
+        Assert.Contains("identityApprovalReference", requestRequired);
+        Assert.DoesNotContain("email", requestRequired);
+        Assert.Equal("string", requestProperties.GetProperty("objectId").GetProperty("type").GetString());
+        Assert.Equal("uuid", requestProperties.GetProperty("objectId").GetProperty("format").GetString());
+        AssertNullableString(requestProperties.GetProperty("email"));
+
+        foreach (var schemaName in new[]
+                 {
+                     "CreateScopedResult", "AdminMeResponse", "AdminListItemResponse", "AdminDetailResponse",
+                 })
+        {
+            AssertNullableString(schemas.GetProperty(schemaName).GetProperty("properties").GetProperty("email"));
+        }
+    }
+
+    [Fact]
     public async Task PayOrder_documents_publish_runtime_authorization_responses()
     {
         using var factory = new OpenApiDocumentFactory();
@@ -206,6 +234,26 @@ public sealed class AudienceOpenApiDocumentTests
         document.GetProperty("paths").GetProperty(path).GetProperty(method)
             .GetProperty("responses").GetProperty(status).GetProperty("content")
             .EnumerateObject().First().Value.GetProperty("schema");
+
+    private static void AssertNullableString(JsonElement schema)
+    {
+        if (schema.TryGetProperty("nullable", out var nullable))
+        {
+            Assert.True(nullable.GetBoolean());
+            Assert.Equal("string", schema.GetProperty("type").GetString());
+            return;
+        }
+
+        if (schema.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.Array)
+        {
+            var types = type.EnumerateArray().Select(value => value.GetString()).ToHashSet(StringComparer.Ordinal);
+            Assert.Contains("string", types);
+            Assert.Contains("null", types);
+            return;
+        }
+
+        Assert.Fail("Expected a nullable string OpenAPI schema.");
+    }
 
     private static void AssertAudienceDescription(
         JsonElement document, string path, string method)

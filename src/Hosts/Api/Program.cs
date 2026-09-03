@@ -2668,23 +2668,21 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminMerchantDirectory merchants,
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-// Super invites a Scoped admin by verified email; the subject binds on the invitee's first login (REQ-3.4). This is
+// Super creates a pre-bound Scoped Microsoft admin from an approved Entra object ID. This is
 // the admins-area ROOT (POST /api/v1/admins): mapped on `api` with AdminCsrfFilter applied per-endpoint — a group's
 // empty-string root pattern would render the trailing-slash "/api/v1/admins/" (REQ-1.4). Same CSRF + auth as the group.
 api.MapPost("/admins", async (
     CreateAdminRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    if (string.IsNullOrWhiteSpace(body.Email))
-        throw new ArgumentException("Email is required.");
     var result = await mediator.Send(new CreateScopedCommand(
-        body.Email, scope.Current.AdminId, http.TraceIdentifier,
+        body.ObjectId, body.Email, body.IdentityApprovalReference, scope.Current.AdminId, http.TraceIdentifier,
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
 }).RequireCsrf().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("ผู้ดูแลระบบ")
     .WithName("CreateScopedAdmin")
-    .WithSummary("เชิญ Scoped admin")
-    .WithDescription("เฉพาะ Super เชิญ Scoped admin ด้วยอีเมลที่ยืนยันแล้ว subject จะผูกตอน login ครั้งแรก ไม่มีอีเมล -> 400")
+    .WithSummary("สร้าง Scoped Microsoft admin แบบ pre-bound")
+    .WithDescription("เฉพาะ Super ใช้ ObjectId จาก Entra export ที่ตรวจสอบแล้วและ approval reference; อีเมลเป็นข้อมูลติดต่อที่ไม่บังคับ")
     .Produces<CreateScopedResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -3805,7 +3803,8 @@ internal static class ProvisioningGuards
 // Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
 // the host sets them from the resolved IAdminScope + the authenticated request.
 internal sealed record CreateAdminRequest(
-    string Email, Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
+    Guid ObjectId, string IdentityApprovalReference, string? Email = null,
+    Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
 internal sealed record AssignMerchantRequest(Guid MerchantId);
 internal sealed record ChangeAdminTierRequest(string Tier);
 // Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
@@ -3889,7 +3888,7 @@ internal sealed record WebhookResponse(string Outcome);
 // Admin read responses — named records (not anonymous objects) so the OpenAPI doc carries a response schema
 // Scalar can render. Wire shape matches the previous anonymous objects (camelCase via the web JSON defaults).
 internal sealed record AdminMeResponse(
-    Guid AdminId, string Email, string Tier, AdminAccessibleResponse AccessibleMerchants,
+    Guid AdminId, string? Email, string Tier, AdminAccessibleResponse AccessibleMerchants,
     IReadOnlySet<string> Permissions);
 internal sealed record AdminAccessibleResponse(
     bool IsUnrestricted,
@@ -3899,11 +3898,11 @@ internal sealed record AdminAccessibleResponse(
 internal sealed record AdminAccessibleMerchantResponse(Guid Id, string? Code);
 // admin-account-management REQ-1.2/1.6: one admin directory row; tier/status are lowercase wire strings.
 internal sealed record AdminListItemResponse(
-    Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound, long Version);
+    Guid AdminId, string? Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound, long Version);
 // admin-account-management REQ-2.1: full detail. The accessible-merchants field is named AccessibleMerchants to match
 // GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
 internal sealed record AdminDetailResponse(
-    Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
+    Guid AdminId, string? Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
     AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes,
     MasterRefResponse? Position, MasterRefResponse? Office, MasterRefResponse? Level, MasterRefResponse? Division,
     long Version);

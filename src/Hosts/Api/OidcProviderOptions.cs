@@ -20,6 +20,10 @@ internal sealed class OidcProviderOptions
     /// <summary>Microsoft-only: OPTIONAL extra <c>tid</c> allowlist layered on top of the tenant-pinned Authority;
     /// empty = no tid gate (tenant isolation already comes from issuer == discovery metadata issuer).</summary>
     public string[] AllowedTenants { get; init; } = [];
+    /// <summary>Admin Microsoft-only (tier0-graph-employee-profile REQ-12): when true the login requests
+    /// <c>User.Read</c>, reads <c>employeeId</c> from Microsoft Graph and resolves the HR profile; default false keeps
+    /// the pre-existing Tier 0 flow byte-for-byte (no Graph, no HR read, no profile mutation). Read once at boot.</summary>
+    public bool RequireEmployeeProfile { get; init; }
 }
 
 /// <summary>

@@ -18,5 +18,8 @@ public sealed class DivisionConfiguration : IEntityTypeConfiguration<Division>
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
         builder.HasIndex(x => x.Code).IsUnique();
+        // tier0-graph-employee-profile REQ-6.1/6.2: operator-maintained legacy key, filtered-unique.
+        builder.Property(x => x.LegacyKey).HasMaxLength(100);
+        builder.HasIndex(x => x.LegacyKey).IsUnique().HasFilter("[LegacyKey] IS NOT NULL");
     }
 }

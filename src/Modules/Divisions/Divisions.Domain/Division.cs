@@ -20,6 +20,10 @@ public sealed class Division : AggregateRoot<Guid>
     public DivisionStatus Status { get; private set; }
     public long Version { get; private set; }
 
+    /// <summary>Legacy source key (<c>cfg.VibEmp.DepartmentID</c>) an operator maps via SQL (tier0-graph-employee-profile
+    /// REQ-6); NULL = unmapped. No mutator in code by design — filtered unique in <c>cfg.Divisions</c>.</summary>
+    public string? LegacyKey { get; private set; }
+
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Division() { }
 

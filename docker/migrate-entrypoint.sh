@@ -70,20 +70,20 @@ fi
 # Bounded-retry reachability probe against one server:port. sqlcmd doesn't distinguish network vs TLS
 # failure by exit code alone — classify exhaustion from its error text so operator-only logs carry the
 # real signal (external /health/ready stays generic either way). Called once per DB tier below.
-wait_for_db() { # $1=server $2=port
-    wfd_server="$1"; wfd_port="$2"
-    echo "[migrate] waiting for DB tier at ${wfd_server}:${wfd_port} (up to ${DB_CONNECT_RETRIES} attempts, ${DB_CONNECT_RETRY_DELAY_SECONDS}s apart)..."
+wait_for_db() { # $1=server $2=port $3=non-sensitive tier label
+    wfd_server="$1"; wfd_port="$2"; wfd_label="$3"
+    echo "[migrate] waiting for ${wfd_label} DB tier (up to ${DB_CONNECT_RETRIES} attempts, ${DB_CONNECT_RETRY_DELAY_SECONDS}s apart)..."
     wfd_i=1
     while true; do
         if PROBE_OUT="$(sqlcmd -S "${wfd_server},${wfd_port}" -U sa -P "$MSSQL_SA_PASSWORD" -N -Q "SELECT 1" 2>&1)"; then
-            echo "[migrate] DB tier reachable after ${wfd_i} attempt(s)."
+            echo "[migrate] ${wfd_label} DB tier reachable after ${wfd_i} attempt(s)."
             break
         fi
         if [ "$wfd_i" -ge "$DB_CONNECT_RETRIES" ]; then
             if printf '%s' "$PROBE_OUT" | grep -qi "certificate\|SSL Provider\|TLS"; then
-                echo "[migrate] DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: TLS validation failure" >&2
+                echo "[migrate] ${wfd_label} DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: TLS validation failure" >&2
             else
-                echo "[migrate] DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: network unreachable" >&2
+                echo "[migrate] ${wfd_label} DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: network unreachable" >&2
             fi
             exit 1
         fi
@@ -92,7 +92,7 @@ wait_for_db() { # $1=server $2=port
     done
 }
 
-wait_for_db "$DB_SERVER" "$DB_PORT"
+wait_for_db "$DB_SERVER" "$DB_PORT" "core"
 
 echo "[migrate] bootstrapping DB principal (idempotent)..."
 sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
@@ -107,13 +107,13 @@ sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
 # (compose gates that with depends_on: service_completed_successfully) and before any test host boots
 # against either server, which is what keeps parallel hosts from racing on CREATE DATABASE.
 echo "[migrate] bootstrapping simulated upstream database hippodb (idempotent)..."
-wait_for_db "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT"
+wait_for_db "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT" "motor-source"
 sqlcmd -S "${HIPPO_DB_SERVER},${HIPPO_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
   -v HIPPO_APP_PASSWORD="$HIPPO_PW" \
   -i docker/bootstrap/02-hippo-sim.sql
 
 echo "[migrate] bootstrapping simulated upstream database mammothdb (idempotent)..."
-wait_for_db "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT"
+wait_for_db "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT" "non-motor-source"
 sqlcmd -S "${MAMMOTH_DB_SERVER},${MAMMOTH_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
   -v MAMMOTH_APP_PASSWORD="$MAMMOTH_PW" \
   -i docker/bootstrap/03-mammoth-sim.sql

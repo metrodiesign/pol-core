@@ -34,28 +34,39 @@ internal sealed class UserRepository : IUserRepository
     public void AddAssignment(MerchantAccess assignment) => _db.MerchantAccess.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => _db.MerchantAccess.Remove(assignment);
 
-    // ponytail: global lock keeps rare admin identity/email mutations deterministic and prevents sensitive
-    // unique-key values reaching EF logs; split into hashed per-identity locks only if onboarding throughput matters.
+    // Global lock keeps rare Admin identity mutations deterministic without placing identity values in lock names.
     public Task AcquireIdentityMutationLockAsync(CancellationToken cancellationToken) =>
         _locks.AcquireAsync("admin-user-identity-mutation", cancellationToken);
 
-    public async Task<IReadOnlyList<User>> ListTier0CandidatesAsync(
-        string canonicalEmail, CancellationToken cancellationToken) =>
-        await _db.Users
-            .Where(account =>
-                account.Provider == User.MicrosoftProvider && account.Subject == canonicalEmail
-                || account.WorkforceEmailKey == canonicalEmail)
-            .Take(2)
-            .ToListAsync(cancellationToken);
+    public Task<User?> GetByMicrosoftIdentityAsync(
+        Guid tenantId, Guid objectId, CancellationToken cancellationToken)
+    {
+        var subject = objectId.ToString("D");
+        return _db.Users.SingleOrDefaultAsync(
+            account => account.Provider == User.MicrosoftProvider
+                && account.TenantId == tenantId
+                && account.Subject == subject,
+            cancellationToken);
+    }
 
-    public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
-        _db.Users.FirstOrDefaultAsync(x => x.Provider == identity.Provider && x.Subject == identity.Subject, cancellationToken);
+    public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken)
+    {
+        if (string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities require tenant-aware lookup.", nameof(identity));
+        return _db.Users.FirstOrDefaultAsync(
+            x => x.TenantId == null && x.Provider == identity.Provider && x.Subject == identity.Subject,
+            cancellationToken);
+    }
 
     public Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
-        _db.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
+        _db.Users.FirstOrDefaultAsync(
+            x => x.TenantId == null && x.Email == email, cancellationToken);
 
     public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+    public Task<User?> GetByEmployeeIdAsync(string employeeId, Guid exceptAdminId, CancellationToken cancellationToken) =>
+        _db.Users.FirstOrDefaultAsync(x => x.EmployeeId == employeeId && x.Id != exceptAdminId, cancellationToken);
 
     public Task VerifyActiveSuperAsync(
         Guid callerId, long expectedAuthorizationVersion, CancellationToken cancellationToken) =>

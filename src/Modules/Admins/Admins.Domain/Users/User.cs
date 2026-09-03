@@ -5,10 +5,9 @@ namespace Admins.Domain.Users;
 /// <summary>
 /// A platform operator in the Admin Console. Control-plane — NOT under the merchant RLS predicate (REQ-3.2).
 /// <see cref="Tier"/> decides reach: a <see cref="Tier.Super"/> has unrestricted cross-merchant control;
-/// a <see cref="Tier.Scoped"/> admin reaches only its assigned merchants. <see cref="Subject"/> (Google
-/// <c>sub</c>) is unique once bound, but is NULL for an invited Scoped account until its first login binds it
-/// (REQ-3.1/3.5) — the unique <see cref="Email"/> is the invite key in the meantime. Admins are bootstrapped
-/// (allowlist self-provision) or created by a Super, never <c>PendingApproval</c> (REQ-3.3).
+/// a <see cref="Tier.Scoped"/> admin reaches only its assigned merchants. Microsoft authentication identity is
+/// the immutable tenant-aware tuple <c>(Provider, TenantId, Subject)</c>; <see cref="Email"/> is optional contact
+/// data and never an ownership key. Admins are bootstrapped or created by a Super, never <c>PendingApproval</c>.
 /// </summary>
 public sealed class User : AggregateRoot<Guid>
 {
@@ -17,20 +16,18 @@ public sealed class User : AggregateRoot<Guid>
     public const string GoogleProvider = "google";
     public const string MicrosoftProvider = "microsoft";
 
-    /// <summary>The identity provider slug ("google"/"microsoft") the <see cref="Subject"/> came from — identity is
-    /// the PAIR <c>(Provider, Subject)</c>, never the subject alone (microsoft-oidc-ciam-alignment REQ-4.1).
-    /// Defaults to "google" for rows created before the discriminator existed.</summary>
+    /// <summary>The canonical identity-provider slug. Microsoft uses the exact lowercase value
+    /// <see cref="MicrosoftProvider"/>.</summary>
     public string Provider { get; private set; } = GoogleProvider;
 
-    /// <summary>Provider subject: Google <c>sub</c> or canonical workforce email for Microsoft Tier 0. NULL until
-    /// an invited Scoped account's first login binds it; unique per provider once set.</summary>
+    /// <summary>The immutable workforce tenant for Microsoft identity; null for historical non-Microsoft identity.</summary>
+    public Guid? TenantId { get; private set; }
+
+    /// <summary>Provider subject: canonical Entra object ID for Microsoft or the historical provider subject.</summary>
     public string? Subject { get; private set; }
 
-    /// <summary>Verified email. Unique — the invite key before a <see cref="Subject"/> is bound.</summary>
-    public string Email { get; private set; } = default!;
-
-    /// <summary>Canonical corporate mailbox used for Tier 0 ownership lookup; NULL for other domains.</summary>
-    public string? WorkforceEmailKey { get; private set; }
+    /// <summary>Optional contact data. It is not unique and is never consulted for authentication ownership.</summary>
+    public string? Email { get; private set; }
 
     public Tier Tier { get; private set; }
 
@@ -62,16 +59,27 @@ public sealed class User : AggregateRoot<Guid>
     /// <summary>ฝ่าย/ภาค — FK to <see cref="Division"/>.</summary>
     public Guid? DivisionId { get; private set; }
 
+    /// <summary>Normalised Graph <c>employeeId</c> (tier0-graph-employee-profile REQ-2). A profile attribute, NOT
+    /// an identity key (REQ-2.5); bound once by <see cref="ApplyEmployeeProfile"/> and never rewritten
+    /// (REQ-2.9/2.15) — that method is the only writer (static gate in Tier0WorkforceArchitectureTests).</summary>
+    public string? EmployeeId { get; private set; }
+
+    /// <summary>Thai given name refreshed from the HR source on every Tier 0 login (REQ-3.6/3.13).</summary>
+    public string? FirstName { get; private set; }
+
+    /// <summary>Thai family name refreshed from the HR source on every Tier 0 login (REQ-3.7/3.13).</summary>
+    public string? LastName { get; private set; }
+
     private User() { }
 
     private User(
-        Guid id, string provider, string? subject, string email, Tier tier, DateTime createdAt,
+        Guid id, string provider, Guid? tenantId, string? subject, string? email, Tier tier, DateTime createdAt,
         Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId) : base(id)
     {
         Provider = provider;
+        TenantId = tenantId;
         Subject = subject;
-        Email = email;
-        WorkforceEmailKey = WorkforceEmail.TryCanonicalize(email, out var key) ? key : null;
+        Email = AdminContactEmail.TryNormalize(email, out var normalizedEmail) ? normalizedEmail : null;
         Tier = tier;
         Status = UserStatus.Active;
         CreatedAt = createdAt;
@@ -89,8 +97,12 @@ public sealed class User : AggregateRoot<Guid>
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new User(Guid.NewGuid(), provider.Trim(), subject.Trim(), email.Trim(), Tier.Super, createdAt,
-            positionId: null, officeId: null, levelId: null, divisionId: null);
+        if (string.Equals(provider.Trim(), MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities require a tenant-aware factory.", nameof(provider));
+        if (!AdminContactEmail.TryNormalize(email, out var normalizedEmail) || normalizedEmail is null)
+            throw new ArgumentException("A valid contact email is required.", nameof(email));
+        return new User(Guid.NewGuid(), provider.Trim(), tenantId: null, subject.Trim(), normalizedEmail,
+            Tier.Super, createdAt, positionId: null, officeId: null, levelId: null, divisionId: null);
     }
 
     /// <summary>A Scoped admin invited by a Super (REQ-3.4): keyed by verified email, with an unbound
@@ -101,18 +113,48 @@ public sealed class User : AggregateRoot<Guid>
         Guid? positionId = null, Guid? officeId = null, Guid? levelId = null, Guid? divisionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new User(Guid.NewGuid(), provider: GoogleProvider, subject: null, email.Trim(), Tier.Scoped, createdAt,
-            positionId, officeId, levelId, divisionId);
+        if (!AdminContactEmail.TryNormalize(email, out var normalizedEmail) || normalizedEmail is null)
+            throw new ArgumentException("A valid contact email is required.", nameof(email));
+        return new User(Guid.NewGuid(), provider: GoogleProvider, tenantId: null, subject: null, normalizedEmail,
+            Tier.Scoped, createdAt, positionId, officeId, levelId, divisionId);
     }
 
-    /// <summary>Creates a least-privileged account from one canonical Tier 0 email value.</summary>
-    public static User JitProvisionMicrosoft(string canonicalEmail, DateTime createdAt)
-    {
-        if (!WorkforceEmail.TryCanonicalize(canonicalEmail, out var canonical))
-            throw new ArgumentException("A valid corporate email is required.", nameof(canonicalEmail));
+    /// <summary>Creates a pre-bound least-privilege Microsoft account from an approved immutable tuple.</summary>
+    public static User CreateScopedMicrosoft(
+        Guid tenantId,
+        Guid objectId,
+        string? email,
+        DateTime createdAt,
+        Guid? positionId = null,
+        Guid? officeId = null,
+        Guid? levelId = null,
+        Guid? divisionId = null) =>
+        NewMicrosoft(tenantId, objectId, email, createdAt, positionId, officeId, levelId, divisionId);
 
-        return new User(Guid.NewGuid(), MicrosoftProvider, canonical, canonical, Tier.Scoped, createdAt,
+    /// <summary>Creates a roleless, merchant-access-free JIT account from the validated immutable tuple.</summary>
+    public static User JitProvisionMicrosoft(Guid tenantId, Guid objectId, string? email, DateTime createdAt) =>
+        NewMicrosoft(
+            tenantId, objectId, email, createdAt,
             positionId: null, officeId: null, levelId: null, divisionId: null);
+
+    private static User NewMicrosoft(
+        Guid tenantId,
+        Guid objectId,
+        string? email,
+        DateTime createdAt,
+        Guid? positionId,
+        Guid? officeId,
+        Guid? levelId,
+        Guid? divisionId)
+    {
+        if (tenantId == Guid.Empty)
+            throw new ArgumentException("Workforce tenant ID cannot be empty.", nameof(tenantId));
+        if (objectId == Guid.Empty)
+            throw new ArgumentException("Microsoft object ID cannot be empty.", nameof(objectId));
+
+        return new User(
+            Guid.NewGuid(), MicrosoftProvider, tenantId, objectId.ToString("D"), email, Tier.Scoped, createdAt,
+            positionId, officeId, levelId, divisionId);
     }
 
     /// <summary>Binds the provider identity to an invited account on its first login (REQ-3.5). Idempotent
@@ -121,8 +163,10 @@ public sealed class User : AggregateRoot<Guid>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
-        if (Subject is not null)
-            throw new InvalidOperationException("This admin account already has a bound subject.");
+        if (string.Equals(provider.Trim(), MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities cannot use the historical bind path.", nameof(provider));
+        if (Subject is not null || TenantId is not null)
+            throw new InvalidOperationException("This admin account already has an immutable identity.");
         Provider = provider.Trim();
         Subject = subject.Trim();
         BumpResourceVersion();
@@ -190,5 +234,31 @@ public sealed class User : AggregateRoot<Guid>
         LevelId = levelId;
         DivisionId = divisionId;
         BumpResourceVersion();
+    }
+
+    /// <summary>Applies the resolved Tier 0 employee profile (REQ-2.6/2.7, 3.13, 4.16, 5.11). Binds
+    /// <see cref="EmployeeId"/> on first call; a DIFFERENT bound id throws (defence-in-depth — the handler checks
+    /// first and answers IdentityConflict, REQ-2.8/2.9). Position/Level are untouched (REQ-10.7). Returns true when
+    /// any of the five fields changed (<see cref="Version"/> bumped, REQ-2.18/7.11); false when identical
+    /// (no bump, REQ-3.14). <see cref="AuthorizationVersion"/> is never touched (REQ-7.12).</summary>
+    public bool ApplyEmployeeProfile(string employeeId, string firstName, string lastName, Guid officeId, Guid divisionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(employeeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
+        if (EmployeeId is not null && !string.Equals(EmployeeId, employeeId, StringComparison.Ordinal))
+            throw new InvalidOperationException("This admin account is already bound to a different employee.");
+
+        if (EmployeeId == employeeId && FirstName == firstName && LastName == lastName
+            && OfficeId == officeId && DivisionId == divisionId)
+            return false;
+
+        EmployeeId = employeeId;
+        FirstName = firstName;
+        LastName = lastName;
+        OfficeId = officeId;
+        DivisionId = divisionId;
+        BumpResourceVersion();
+        return true;
     }
 }

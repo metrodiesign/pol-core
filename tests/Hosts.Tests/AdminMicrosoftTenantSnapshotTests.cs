@@ -18,6 +18,9 @@ internal sealed class TestWorkforceTenantBindingStore : IWorkforceTenantBindingS
             throw Failure;
         return Task.CompletedTask;
     }
+
+    public Task<Guid> GetRequiredTenantIdAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(EnsuredTenantId ?? throw new InvalidOperationException("Tenant binding is unavailable."));
 }
 
 public sealed class AdminMicrosoftTenantSnapshotTests

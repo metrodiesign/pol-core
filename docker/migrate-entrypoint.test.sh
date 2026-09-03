@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # migrate-entrypoint.test.sh — script-level tests for docker/migrate-entrypoint.sh's bounded
 # DB-reachability retry loop (now run per DB tier: main + hippo + mammoth), network-vs-TLS failure
-# classification, and the same DB_PORT/TLS connection-string wiring as entrypoint.sh (POL_DESIGN_SQL)
-# with sqlcmd's `-N`/no-`-C` flags.
+# classification, DB_PORT/TLS sqlcmd wiring, redacted target output and the schema-before-workforce-tool order.
+# The tool now builds its privileged connection in-process from the existing container inputs.
 # รัน: bash docker/migrate-entrypoint.test.sh   (exit 0 = ผ่านครบ)
 #
 # Approach: stub `sqlcmd` and `dotnet` first on PATH. The sqlcmd stub simulates a configurable
 # number of reachability-probe failures (network or TLS flavored, via env) before succeeding,
-# and always succeeds for the bootstrap (-i ...) invocation. The dotnet stub intercepts
-# both EF update and workforce migration tool, logs their order, and prints $POL_DESIGN_SQL so
-# the connection string is observable without a live SQL Server.
+# and always succeeds for the bootstrap (-i ...) invocation. The dotnet stub intercepts the workforce
+# migration tool and logs invocation without printing any composed connection string.
 set -u
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/migrate-entrypoint.sh"
@@ -56,7 +55,6 @@ chmod +x "$STUB_BIN/sqlcmd"
 cat >"$STUB_BIN/dotnet" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$DOTNET_LOG"
-echo "$POL_DESIGN_SQL"
 case "$*" in
     *"WorkforceIdentityMigrator"*) exit "${WORKFORCE_TOOL_EXIT:-0}" ;;
 esac
@@ -172,6 +170,9 @@ out_ok="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1
 rc_ok=$?
 check_eq "reachable: exit 0" "$rc_ok" "0"
 check_contains "reachable: proceeds to migrations" "$out_ok" "[migrate] done."
+check_not_contains "privacy: core target absent from output" "$out_ok" "dbhost.internal"
+check_not_contains "privacy: motor source target absent from output" "$out_ok" "hippohost.internal"
+check_not_contains "privacy: non-motor source target absent from output" "$out_ok" "mammothhost.internal"
 check_contains "reachable: single probe attempt (DB_SERVER)" "$(cat "$(probe_file dbhost.internal 1433)" 2>/dev/null)" "1"
 dotnet_log="$(cat "$TMPDIR/dotnet.log")"
 check_contains "workforce tool: invoked" "$dotnet_log" "src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj"

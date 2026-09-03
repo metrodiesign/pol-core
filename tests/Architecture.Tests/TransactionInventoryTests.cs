@@ -107,8 +107,9 @@ public sealed class TransactionInventoryTests
         // is now the ONLY transaction this flow opens.
         ["src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs"] = 1,
         ["src/Persistence/Persistence.ControlPlane/Notifications/WebhookDeliveryDispatcher.cs"] = 1, // row 46
-        // Tier 0 offline cutover tool: privileged serializable transaction, never referenced by API runtime.
-        ["src/Tools/WorkforceIdentityMigrator/Program.cs"] = 1,
+        // Tier 0 offline cutover tool: separate privileged serializable first-run and completed-verifier paths;
+        // neither is referenced by API runtime.
+        ["src/Tools/WorkforceIdentityMigrator/Program.cs"] = 2,
     };
 
     private static readonly Regex ExecuteInTransactionAsyncCallSite = new(@"\.ExecuteInTransactionAsync\(", RegexOptions.Compiled);

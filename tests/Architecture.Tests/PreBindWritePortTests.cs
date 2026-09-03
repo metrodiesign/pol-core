@@ -21,6 +21,22 @@ public sealed class PreBindWritePortTests
         new(new DbContextOptionsBuilder<ControlPlaneDbContext>().UseSqlite(connection).Options,
             FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
 
+    [Theory]
+    [InlineData("microsoft")]
+    [InlineData("Microsoft")]
+    public async Task Historical_prebind_writers_reject_microsoft_before_database_access(string provider)
+    {
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        using var db = NewControlPlaneContext(connection); // Deliberately no schema: any query would fail this test.
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new AdminSelfProvisionWriter(db).ProvisionAsync(
+            new ProviderIdentity(provider, "mutable-subject"), "private@example.com", DateTime.UtcNow,
+            CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => new AdminBindInvitedIdentityWriter(db).BindAsync(
+            provider, "mutable-subject", "private@example.com", CancellationToken.None));
+    }
+
     [Fact]
     public async Task SelfProvision_creates_a_new_super_admin_for_an_unknown_subject()
     {

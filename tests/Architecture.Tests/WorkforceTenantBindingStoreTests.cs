@@ -1,6 +1,10 @@
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.Extensions.Logging.Abstractions;
 using Persistence.ControlPlane;
 using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.Governance;
@@ -17,6 +21,27 @@ public sealed class WorkforceTenantBindingStoreTests : IDisposable
         _connection.Open();
         using var setup = NewContext();
         setup.Database.EnsureCreated();
+    }
+
+    [Fact]
+    public void Runtime_model_has_nullable_contact_and_tenant_tuple_without_workforce_email_key()
+    {
+        using var db = NewContext();
+        var entity = db.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(User))!;
+
+        Assert.True(entity.FindProperty(nameof(User.Email))!.IsNullable);
+        Assert.True(entity.FindProperty(nameof(User.TenantId))!.IsNullable);
+        Assert.Null(entity.FindProperty("WorkforceEmailKey"));
+        var identityIndex = Assert.Single(entity.GetIndexes(), index =>
+            index.Properties.Select(property => property.Name)
+                .SequenceEqual([nameof(User.Provider), nameof(User.TenantId), nameof(User.Subject)]));
+        Assert.True(identityIndex.IsUnique);
+        Assert.Equal("[Subject] IS NOT NULL", identityIndex.GetFilter());
+        Assert.Contains(entity.GetForeignKeys(), foreignKey =>
+            foreignKey.Properties.Single().Name == nameof(User.TenantId)
+            && foreignKey.PrincipalKey.Properties.Single().Name == nameof(WorkforceTenantBinding.TenantId));
+        Assert.Contains(entity.GetCheckConstraints(), constraint =>
+            constraint.Name == "CK_Users_TenantId_MicrosoftProvider");
     }
 
     [Fact]
@@ -48,9 +73,8 @@ public sealed class WorkforceTenantBindingStoreTests : IDisposable
         using (var update = NewContext())
         {
             var binding = await update.WorkforceTenantBindings.SingleAsync();
-            update.Entry(binding).Property(x => x.TenantId).CurrentValue = Guid.NewGuid();
-
-            await Assert.ThrowsAsync<WriteGuardException>(() => update.SaveChangesAsync());
+            Assert.Throws<InvalidOperationException>(() =>
+                update.Entry(binding).Property(x => x.TenantId).CurrentValue = Guid.NewGuid());
         }
 
         using (var delete = NewContext())
@@ -60,6 +84,62 @@ public sealed class WorkforceTenantBindingStoreTests : IDisposable
 
             await Assert.ThrowsAsync<WriteGuardException>(() => delete.SaveChangesAsync());
         }
+    }
+
+    [Fact]
+    public async Task Ensure_accepts_final_rows_and_GetRequired_returns_the_singleton()
+    {
+        var tenantId = Guid.NewGuid();
+        using var db = NewContext();
+        var store = Store(db);
+        await store.EnsureAsync(tenantId, CancellationToken.None);
+        db.Users.Add(User.JitProvisionMicrosoft(tenantId, Guid.NewGuid(), null, DateTime.UtcNow));
+        await db.SaveChangesAsync();
+
+        await store.EnsureAsync(tenantId, CancellationToken.None);
+
+        Assert.Equal(tenantId, await store.GetRequiredTenantIdAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Microsoft_repository_lookup_uses_only_the_exact_tuple_and_generic_lookup_cannot_see_it()
+    {
+        var tenantId = Guid.NewGuid();
+        var exactObjectId = Guid.NewGuid();
+        using var db = NewContext();
+        await Store(db).EnsureAsync(tenantId, CancellationToken.None);
+        var exact = User.JitProvisionMicrosoft(tenantId, exactObjectId, "shared@example.com", DateTime.UtcNow);
+        var sameEmail = User.JitProvisionMicrosoft(tenantId, Guid.NewGuid(), "shared@example.com", DateTime.UtcNow);
+        db.Users.AddRange(exact, sameEmail);
+        await db.SaveChangesAsync();
+        var repository = new UserRepository(
+            db,
+            NullLogger<UserRepository>.Instance,
+            NoOpSecurityTelemetry.Instance,
+            new GovernanceSqlLockManager(db));
+
+        Assert.Equal(exact.Id, (await repository.GetByMicrosoftIdentityAsync(
+            tenantId, exactObjectId, CancellationToken.None))?.Id);
+        Assert.Null(await repository.GetByMicrosoftIdentityAsync(
+            tenantId, Guid.NewGuid(), CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.GetByIdentityAsync(
+            new SharedKernel.ProviderIdentity(User.MicrosoftProvider, exactObjectId.ToString("D")),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Ensure_rejects_migration_only_unbound_rows_without_value_echo()
+    {
+        using var db = NewContext();
+        db.Users.Add(User.CreateScoped("private@example.com", DateTime.UtcNow));
+        await db.SaveChangesAsync();
+        var tenantId = Guid.NewGuid();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Store(db).EnsureAsync(tenantId, CancellationToken.None));
+
+        Assert.DoesNotContain("private@example.com", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(tenantId.ToString("D"), error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

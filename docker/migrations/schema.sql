@@ -4721,3 +4721,391 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] ADD [EmployeeId] nvarchar(16) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] ADD [FirstName] nvarchar(500) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] ADD [LastName] nvarchar(500) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    ALTER TABLE [cfg].[Offices] ADD [LegacyKey] nvarchar(100) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    ALTER TABLE [cfg].[Divisions] ADD [LegacyKey] nvarchar(100) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_Users_EmployeeId] ON [admin].[Users] ([EmployeeId]) WHERE [EmployeeId] IS NOT NULL');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_Offices_LegacyKey] ON [cfg].[Offices] ([LegacyKey]) WHERE [LegacyKey] IS NOT NULL');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_Divisions_LegacyKey] ON [cfg].[Divisions] ([LegacyKey]) WHERE [LegacyKey] IS NOT NULL');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    IF OBJECT_ID(N'cfg.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.VibEmp TO pol_app');
+    IF OBJECT_ID(N'cfg.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.branch TO pol_app');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260830172117_Tier0EmployeeProfile', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    IF OBJECT_ID(N'admin.WorkforceIdentityMigrations', N'U') IS NULL
+       OR OBJECT_ID(N'admin.WorkforceIdentitySubjectRollback', N'U') IS NULL
+       OR COL_LENGTH(N'admin.Users', N'WorkforceEmailKey') IS NULL
+        THROW 51000, 'Historical workforce identity state is missing.', 1;
+
+    IF (SELECT COUNT(*) FROM admin.WorkforceIdentityMigrations) <> 1
+       OR NOT EXISTS (SELECT 1 FROM admin.WorkforceIdentityMigrations WHERE Id = 1)
+        THROW 51000, 'Historical workforce identity state is invalid.', 1;
+
+    DECLARE @completedAt datetime2(7), @snapshot int, @converted int, @noOp int;
+    DECLARE @trimChars nvarchar(32) =
+        NCHAR(9) + NCHAR(10) + NCHAR(11) + NCHAR(12) + NCHAR(13) + NCHAR(32) + NCHAR(133)
+        + NCHAR(160) + NCHAR(5760) + NCHAR(8192) + NCHAR(8193) + NCHAR(8194) + NCHAR(8195)
+        + NCHAR(8196) + NCHAR(8197) + NCHAR(8198) + NCHAR(8199) + NCHAR(8200) + NCHAR(8201)
+        + NCHAR(8202) + NCHAR(8232) + NCHAR(8233) + NCHAR(8239) + NCHAR(8287) + NCHAR(12288);
+    SELECT @completedAt = CompletedAt, @snapshot = SnapshotCount,
+           @converted = ConvertedCount, @noOp = NoOpCount
+    FROM admin.WorkforceIdentityMigrations WHERE Id = 1;
+
+    IF @snapshot < 0 OR @converted < 0 OR @noOp < 0
+       OR @snapshot <> (SELECT COUNT(*) FROM admin.WorkforceIdentitySubjectRollback)
+        THROW 51000, 'Historical workforce identity counts are invalid.', 1;
+
+    IF @completedAt IS NULL
+    BEGIN
+        IF @converted <> 0 OR @noOp <> 0
+           OR EXISTS (SELECT 1 FROM admin.Users WHERE WorkforceEmailKey IS NOT NULL)
+           OR EXISTS
+           (
+               SELECT 1
+               FROM admin.WorkforceIdentitySubjectRollback
+               WHERE CanonicalSubject IS NOT NULL OR ConversionKind IS NOT NULL
+           )
+            THROW 51000, 'Pending workforce identity state is invalid.', 1;
+    END
+    ELSE
+    BEGIN
+        IF @converted + @noOp <> @snapshot
+           OR @converted <> (SELECT COUNT(*) FROM admin.WorkforceIdentitySubjectRollback
+                             WHERE ConversionKind = N'converted')
+           OR @noOp <> (SELECT COUNT(*) FROM admin.WorkforceIdentitySubjectRollback
+                        WHERE ConversionKind = N'no-op')
+           OR EXISTS
+           (
+               SELECT 1
+               FROM admin.WorkforceIdentitySubjectRollback
+               WHERE LegacySubject IS NULL OR CanonicalSubject IS NULL
+                  OR ConversionKind COLLATE Latin1_General_100_BIN2 NOT IN (N'converted', N'no-op')
+           )
+            THROW 51000, 'Completed workforce identity state is invalid.', 1;
+
+        IF EXISTS
+        (
+            SELECT 1
+            FROM admin.WorkforceIdentitySubjectRollback AS rollbackRows
+            LEFT JOIN admin.Users AS users ON users.Id = rollbackRows.AdminUserId
+            WHERE users.Id IS NULL
+               OR users.Subject IS NULL
+               OR users.WorkforceEmailKey IS NULL
+               OR users.Subject COLLATE Latin1_General_100_BIN2
+                  <> rollbackRows.CanonicalSubject COLLATE Latin1_General_100_BIN2
+               OR users.WorkforceEmailKey COLLATE Latin1_General_100_BIN2
+                  <> rollbackRows.CanonicalSubject COLLATE Latin1_General_100_BIN2
+        )
+            THROW 51000, 'Completed workforce identity snapshot drifted.', 1;
+
+        IF EXISTS
+        (
+            SELECT 1
+            FROM admin.Users AS users
+            CROSS APPLY (SELECT TRIM(@trimChars FROM users.Email) AS TrimmedEmail) AS trimmed
+            CROSS APPLY
+            (
+                SELECT CASE
+                    WHEN LEN(trimmed.TrimmedEmail) BETWEEN 15 AND 254
+                     AND trimmed.TrimmedEmail COLLATE Latin1_General_100_BIN2
+                         NOT LIKE N'%[^ -~]%' COLLATE Latin1_General_100_BIN2
+                     AND RIGHT(LOWER(trimmed.TrimmedEmail), 14) COLLATE Latin1_General_100_BIN2
+                         = N'@viriyah.co.th'
+                     AND LEN(trimmed.TrimmedEmail)
+                         - LEN(REPLACE(trimmed.TrimmedEmail, N'@', N'')) = 1
+                     AND CHARINDEX(N' ', trimmed.TrimmedEmail) = 0
+                    THEN LOWER(trimmed.TrimmedEmail)
+                    ELSE NULL
+                END AS ExpectedKey
+            ) AS expected
+            WHERE (users.WorkforceEmailKey IS NULL AND expected.ExpectedKey IS NOT NULL)
+               OR (users.WorkforceEmailKey IS NOT NULL AND expected.ExpectedKey IS NULL)
+               OR users.WorkforceEmailKey COLLATE Latin1_General_100_BIN2
+                  <> expected.ExpectedKey COLLATE Latin1_General_100_BIN2
+        )
+            THROW 51000, 'Historical workforce email key drifted.', 1;
+
+        IF EXISTS
+        (
+            SELECT 1
+            FROM admin.Users
+            WHERE Provider COLLATE Latin1_General_100_BIN2 = N'microsoft'
+              AND Subject IS NOT NULL
+              AND (WorkforceEmailKey IS NULL
+                   OR Subject COLLATE Latin1_General_100_BIN2
+                      <> WorkforceEmailKey COLLATE Latin1_General_100_BIN2)
+        )
+            THROW 51000, 'Historical Microsoft identity drifted.', 1;
+    END;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    ALTER TABLE [admin].[WorkforceTenantBindings] ADD CONSTRAINT [AK_WorkforceTenantBindings_TenantId] UNIQUE ([TenantId]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] ADD [TenantId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [admin].[Users] ADD CONSTRAINT [CK_Users_TenantId_MicrosoftProvider] CHECK ([TenantId] IS NULL OR [Provider] COLLATE Latin1_General_100_BIN2 = N''microsoft'')');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    DROP INDEX [IX_Users_Provider_Subject] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    DROP INDEX [IX_Users_Email] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    DROP INDEX [IX_Users_WorkforceEmailKey] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    DECLARE @var5 nvarchar(max);
+    SELECT @var5 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'Email');
+    IF @var5 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var5 + ';');
+    ALTER TABLE [admin].[Users] ALTER COLUMN [Email] nvarchar(320) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    DECLARE @var6 nvarchar(max);
+    SELECT @var6 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'WorkforceEmailKey');
+    IF @var6 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var6 + ';');
+    ALTER TABLE [admin].[Users] DROP COLUMN [WorkforceEmailKey];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_Users_Provider_TenantId_Subject] ON [admin].[Users] ([Provider], [TenantId], [Subject]) WHERE [Subject] IS NOT NULL');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    CREATE INDEX [IX_Users_TenantId] ON [admin].[Users] ([TenantId]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] ADD CONSTRAINT [FK_Users_WorkforceTenantBindings_TenantId] FOREIGN KEY ([TenantId]) REFERENCES [admin].[WorkforceTenantBindings] ([TenantId]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    CREATE TABLE admin.WorkforceTenantIdentityMigrations
+    (
+        Id int NOT NULL,
+        CompletedAt datetime2(7) NULL,
+        SnapshotCount int NOT NULL CONSTRAINT DF_WorkforceTenantIdentityMigrations_SnapshotCount DEFAULT 0,
+        MappedCount int NOT NULL CONSTRAINT DF_WorkforceTenantIdentityMigrations_MappedCount DEFAULT 0,
+        NoOpCount int NOT NULL CONSTRAINT DF_WorkforceTenantIdentityMigrations_NoOpCount DEFAULT 0,
+        CONSTRAINT PK_WorkforceTenantIdentityMigrations PRIMARY KEY (Id),
+        CONSTRAINT CK_WorkforceTenantIdentityMigrations_Singleton
+            CHECK (Id = 1 AND SnapshotCount >= 0 AND MappedCount >= 0 AND NoOpCount >= 0)
+    );
+
+    CREATE TABLE admin.WorkforceTenantIdentitySnapshot
+    (
+        AdminUserId uniqueidentifier NOT NULL,
+        CONSTRAINT PK_WorkforceTenantIdentitySnapshot PRIMARY KEY (AdminUserId),
+        CONSTRAINT FK_WorkforceTenantIdentitySnapshot_Users_AdminUserId
+            FOREIGN KEY (AdminUserId) REFERENCES admin.Users (Id) ON DELETE NO ACTION
+    );
+
+    INSERT admin.WorkforceTenantIdentityMigrations
+        (Id, CompletedAt, SnapshotCount, MappedCount, NoOpCount)
+    VALUES (1, NULL, 0, 0, 0);
+
+    GRANT SELECT ON admin.WorkforceTenantIdentityMigrations TO pol_app;
+    GRANT SELECT ON admin.WorkforceTenantIdentitySnapshot TO pol_app;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902133906_Tier0MicrosoftTenantAwareIdentity'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260902133906_Tier0MicrosoftTenantAwareIdentity', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
