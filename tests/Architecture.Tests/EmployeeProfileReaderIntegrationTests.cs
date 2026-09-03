@@ -31,7 +31,7 @@ public sealed class EmployeeProfileReaderIntegrationTests
     {
         await using var database = await ScratchDatabase.CreateAsync(createHrTables: true);
         await database.ExecuteAsync("""
-            INSERT cfg.VibEmp (EmpCode, FirstNameTh, LastNameTh, und_brcode, DepartmentID) VALUES
+            INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh, und_brcode, DepartmentID) VALUES
                 (N'ZTEST-OK',      N' สมชาย ',  N' ใจดี ', 'Z01', N'ZD1'),
                 (N'ZTEST-DUP',     N'a', N'b', 'Z01', N'ZD1'),
                 (N'ZTEST-DUP',     N'c', N'd', 'Z01', N'ZD1'),
@@ -43,7 +43,7 @@ public sealed class EmployeeProfileReaderIntegrationTests
                 (N'ZTEST-NODEPT',  N'a', N'b', 'Z01', N''),
                 (N'ZTEST-NODIV',   N'a', N'b', 'Z01', N'ZD9'),
                 (N'ZTEST-INACT',   N'a', N'b', 'Z03', N'ZD3');
-            INSERT cfg.branch (br_code, active_row) VALUES ('Z01', 1), ('Z02', 0), ('Z03', 1);
+            INSERT dbo.branch (br_code, active_row) VALUES ('Z01', 1), ('Z02', 0), ('Z03', 1);
             UPDATE cfg.Offices SET LegacyKey = N'Z01' WHERE Id = @hq;
             UPDATE cfg.Offices SET LegacyKey = N'Z03', Status = 2 WHERE Id = @north;
             UPDATE cfg.Divisions SET LegacyKey = N'ZD1' WHERE Id = @finance;
@@ -70,7 +70,7 @@ public sealed class EmployeeProfileReaderIntegrationTests
         Assert.Equal(EmployeeProfileStatus.Invalid, (await reader.LookupAsync("ZTEST-LONG", CancellationToken.None)).Status);
         Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NOBR", CancellationToken.None)).Status);
         Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-BADBR", CancellationToken.None)).Status);
-        // REQ-4.18: cfg.branch.active_row = 0 is still a valid branch; the office mapping is what is missing here.
+        // REQ-4.18: dbo.branch.active_row = 0 is still a valid branch; the office mapping is what is missing here.
         Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NOOFF", CancellationToken.None)).Status);
         Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NODEPT", CancellationToken.None)).Status);
         Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NODIV", CancellationToken.None)).Status);
@@ -81,7 +81,7 @@ public sealed class EmployeeProfileReaderIntegrationTests
 
         // REQ-3.11 / 4.15: pol_app holds SELECT only on the mirror tables.
         await using var verify = await database.OpenAsync();
-        foreach (var table in new[] { "cfg.VibEmp", "cfg.branch" })
+        foreach (var table in new[] { "dbo.VibEmp", "dbo.branch" })
         {
             Assert.Equal(1, await PermissionAsync(verify, table, "SELECT"));
             Assert.Equal(0, await PermissionAsync(verify, table, "INSERT"));
@@ -152,9 +152,9 @@ public sealed class EmployeeProfileReaderIntegrationTests
 
         /// <summary>REQ-11.7 minimal DDL: only the REQ-3.12 columns plus br_code (+ active_row to prove REQ-4.18).</summary>
         public const string HrTablesDdl = """
-            CREATE TABLE cfg.VibEmp (EmpCode nvarchar(50) NULL, FirstNameTh nvarchar(1000) NULL,
+            CREATE TABLE dbo.VibEmp (EmpCode nvarchar(50) NULL, FirstNameTh nvarchar(1000) NULL,
                 LastNameTh nvarchar(1000) NULL, und_brcode char(3) NULL, DepartmentID nvarchar(50) NULL);
-            CREATE TABLE cfg.branch (br_code char(3) NULL, active_row bit NULL);
+            CREATE TABLE dbo.branch (br_code char(3) NULL, active_row bit NULL);
             """;
 
         private ScratchDatabase(string name) => Name = name;

@@ -25,7 +25,7 @@ public interface IEmployeeProfileReader
     Task<EmployeeProfileLookup> LookupAsync(string normalizedEmployeeId, CancellationToken cancellationToken);
 }
 
-/// <summary>One <c>cfg.VibEmp</c> row projected to exactly the columns REQ-3.12 allows (EmpCode is the lookup key).</summary>
+/// <summary>One <c>dbo.VibEmp</c> row projected to exactly the columns REQ-3.12 allows (EmpCode is the lookup key).</summary>
 public sealed record HrEmployeeRow(string? FirstNameTh, string? LastNameTh, string? UndBrCode, string? DepartmentId);
 
 /// <summary>One <c>cfg.Offices</c>/<c>cfg.Divisions</c> row matched by <c>LegacyKey</c>.</summary>

@@ -76,7 +76,7 @@ Production boot ต้อง fail เมื่อ Microsoft provider ไม่�
 GET /v1.0/me?$select=employeeId
 ```
 
-access token ไม่ถูก persist จากนั้นระบบ normalize `employeeId`, อ่าน HR mirror (`cfg.VibEmp`, `cfg.branch`) และ map
+access token ไม่ถูก persist จากนั้นระบบ normalize `employeeId`, อ่าน HR mirror (`dbo.VibEmp`, `dbo.branch`) และ map
 `cfg.Offices.LegacyKey`/`cfg.Divisions.LegacyKey` แล้ว commit User identity/profile/success audits ตาม transaction
 contract
 
@@ -104,11 +104,11 @@ repository
 
 ```sql
 SELECT DISTINCT b.br_code
-FROM cfg.branch AS b
+FROM dbo.branch AS b
 WHERE NOT EXISTS (SELECT 1 FROM cfg.Offices AS o WHERE o.LegacyKey = b.br_code);
 
 SELECT DISTINCT e.DepartmentID
-FROM cfg.VibEmp AS e
+FROM dbo.VibEmp AS e
 WHERE e.DepartmentID IS NOT NULL AND LTRIM(RTRIM(e.DepartmentID)) <> N''
   AND NOT EXISTS (SELECT 1 FROM cfg.Divisions AS d WHERE d.LegacyKey = e.DepartmentID);
 ```
@@ -131,13 +131,13 @@ COMMIT;
 - filtered unique index บังคับหนึ่ง `LegacyKey` ต่อ mapping row
 - mapping ใหม่มีผลกับ login ถัดไปโดยไม่ restart
 - Office/Division ที่ Inactive ใช้ได้เฉพาะเมื่อเป็นค่าเดิมของ Admin; การเปลี่ยนไป inactive target ถูกปฏิเสธ
-- flow ไม่ใช้ `cfg.branch.active_row`, `cfg.VibEmp.status_code`, `Status` หรือ `TerminatedDate`
+- flow ไม่ใช้ `dbo.branch.active_row`, `dbo.VibEmp.status_code`, `Status` หรือ `TerminatedDate`
 
 ถ้า HR mirror ถูก load หลัง migration ต้อง grant read ด้วย operator process:
 
 ```sql
-GRANT SELECT ON cfg.VibEmp TO pol_app;
-GRANT SELECT ON cfg.branch TO pol_app;
+GRANT SELECT ON dbo.VibEmp TO pol_app;
+GRANT SELECT ON dbo.branch TO pol_app;
 ```
 
 ## 6. Pre-bound Microsoft invite

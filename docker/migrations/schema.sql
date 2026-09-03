@@ -4807,8 +4807,8 @@ IF NOT EXISTS (
     WHERE [MigrationId] = N'20260830172117_Tier0EmployeeProfile'
 )
 BEGIN
-    IF OBJECT_ID(N'cfg.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.VibEmp TO pol_app');
-    IF OBJECT_ID(N'cfg.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.branch TO pol_app');
+    IF OBJECT_ID(N'dbo.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON dbo.VibEmp TO pol_app');
+    IF OBJECT_ID(N'dbo.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON dbo.branch TO pol_app');
 END;
 
 GO

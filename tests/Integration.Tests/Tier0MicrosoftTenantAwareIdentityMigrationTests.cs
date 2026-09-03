@@ -74,10 +74,10 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
                 (@authAuditId, N'login-success', @legacyId, NULL, NULL, N'synthetic-auth-before-up', SYSUTCDATETIME());
             UPDATE cfg.Offices SET LegacyKey = N'SYN-OFFICE' WHERE Id = @officeId;
             UPDATE cfg.Divisions SET LegacyKey = N'SYN-DIVISION' WHERE Id = @divisionId;
-            CREATE TABLE cfg.VibEmp (EmpCode nvarchar(50) NULL, Marker nvarchar(32) NULL);
-            CREATE TABLE cfg.branch (br_code char(3) NULL, Marker nvarchar(32) NULL);
-            INSERT cfg.VibEmp (EmpCode, Marker) VALUES (N'SYNTH001', N'preserve-vibemp');
-            INSERT cfg.branch (br_code, Marker) VALUES ('Z01', N'preserve-branch');
+            CREATE TABLE dbo.VibEmp (EmpCode nvarchar(50) NULL, Marker nvarchar(32) NULL);
+            CREATE TABLE dbo.branch (br_code char(3) NULL, Marker nvarchar(32) NULL);
+            INSERT dbo.VibEmp (EmpCode, Marker) VALUES (N'SYNTH001', N'preserve-vibemp');
+            INSERT dbo.branch (br_code, Marker) VALUES ('Z01', N'preserve-branch');
             """,
             ("@legacyId", legacyId), ("@positionId", PositionId), ("@officeId", OfficeId),
             ("@levelId", LevelId), ("@divisionId", DivisionId), ("@merchantId", Guid.NewGuid()),
@@ -110,9 +110,9 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         Assert.Equal("login-success", Convert.ToString(await ScalarAsync(connection,
             "SELECT EventType FROM admin.AuthAudits WHERE Id = @id;", ("@id", authAuditId))));
         Assert.Equal("preserve-vibemp", Convert.ToString(await ScalarAsync(connection,
-            "SELECT Marker FROM cfg.VibEmp WHERE EmpCode = N'SYNTH001';")));
+            "SELECT Marker FROM dbo.VibEmp WHERE EmpCode = N'SYNTH001';")));
         Assert.Equal("preserve-branch", Convert.ToString(await ScalarAsync(connection,
-            "SELECT Marker FROM cfg.branch WHERE br_code = 'Z01';")));
+            "SELECT Marker FROM dbo.branch WHERE br_code = 'Z01';")));
         Assert.Equal("SYN-OFFICE", Convert.ToString(await ScalarAsync(connection,
             "SELECT LegacyKey FROM cfg.Offices WHERE Id = @id;", ("@id", OfficeId))));
         Assert.Equal("SYN-DIVISION", Convert.ToString(await ScalarAsync(connection,

@@ -74,13 +74,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 unique: true,
                 filter: "[LegacyKey] IS NOT NULL");
 
-            // tier0-graph-employee-profile REQ-8.11/8.12: the HR mirror tables (cfg.VibEmp / cfg.branch) are
+            // tier0-graph-employee-profile REQ-8.11/8.12: the HR mirror tables (dbo.VibEmp / dbo.branch) are
             // operator-loaded, never created or altered by any migration (REQ-8.7); grant pol_app read access only
             // when they exist so a database without them still migrates. Down() leaves the grant in place.
             migrationBuilder.Sql(
                 """
-                IF OBJECT_ID(N'cfg.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.VibEmp TO pol_app');
-                IF OBJECT_ID(N'cfg.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.branch TO pol_app');
+                IF OBJECT_ID(N'dbo.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON dbo.VibEmp TO pol_app');
+                IF OBJECT_ID(N'dbo.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON dbo.branch TO pol_app');
                 """);
         }
 

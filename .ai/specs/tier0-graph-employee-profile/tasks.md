@@ -32,7 +32,7 @@ Gate ต่อ task (ยกเว้นที่ระบุ): `dotnet build pol
 
 - [x] 2. HR lookup port + reader — `IEmployeeProfileReader`/`EmployeeProfile`/`EmployeeProfileLookup` ใน
      `Admins.Application`, `EmployeeProfileReader` ใน `Persistence.ControlPlane` (`SqlQueryRaw` + `SqlParameter`
-     ต่อ `cfg.VibEmp`/`cfg.branch`, LINQ ต่อ `Offices`/`Divisions` by `LegacyKey`, `SqlException` →
+     ต่อ `dbo.VibEmp`/`dbo.branch`, LINQ ต่อ `Offices`/`Divisions` by `LegacyKey`, `SqlException` →
      `SourceUnavailable`, log เฉพาะ error number + correlation id), DI registration, `BypassPrimitiveTests`
      allowlist, integration fixture (สร้างตารางขั้นต่ำเมื่อไม่มี + GRANT `pol_app`, row ของตัวเองเท่านั้น
      prefix `ZTEST-`, คืน `LegacyKey` เป็น NULL ตอนจบ). Done = ทุก status ใน mapping table ของ design ถูกขับด้วย
@@ -133,7 +133,7 @@ Gate ต่อ task (ยกเว้นที่ระบุ): `dotnet build pol
 ## Environment constraints
 
 - `dotnet build/test` ต้องเป็นคำสั่งเดี่ยวให้ `excludedCommands` จับ; build ใน sandbox ไม่เขียน dll (เช็ค mtime)
-- integration ใช้ `pol-db` :11433 `VCentralPay`; `cfg.VibEmp`/`cfg.branch` บน dev มี PII จริง — ห้าม dump, assert เฉพาะ row ตัวเอง
+- integration ใช้ `pol-db` :11433 `VCentralPay`; `dbo.VibEmp`/`dbo.branch` บน dev มี PII จริง — ห้าม dump, assert เฉพาะ row ตัวเอง
 - หลัง `ef migrations add` ต้อง `scripts/check-migration-script.sh --write` (schema script 1 batch ต่อ command)
 - ห้าม commit/push จนกว่าผู้ใช้สั่ง
 
