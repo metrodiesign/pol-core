@@ -80,7 +80,41 @@ public sealed class AdminHandlerTests
         Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "ghost")), default)).Outcome);
     }
 
+    [Theory]
+    [InlineData("microsoft")]
+    [InlineData("Microsoft")]
+    public async Task Generic_resolver_rejects_microsoft_before_repository_lookup(string provider)
+    {
+        var admins = new FakePlatformUserRepository();
+        var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await handler.Handle(new ResolveQuery(new ProviderIdentity(provider, "mutable-subject")), default));
+
+        Assert.Equal(0, admins.GenericIdentityLookupCalls);
+        Assert.Equal(0, admins.MicrosoftIdentityLookupCalls);
+    }
+
     // ---- SelfProvisionSuperAdmin ----
+
+    [Theory]
+    [InlineData("microsoft")]
+    [InlineData("Microsoft")]
+    public async Task Historical_super_bootstrap_rejects_microsoft_before_identity_or_email_lookup(string provider)
+    {
+        var admins = new FakePlatformUserRepository();
+        var handler = new SelfProvisionSuperHandler(
+            admins, new FakeAdminRoleRepository(), new FakePlatformUserAuditWriter(),
+            new FakeUnitOfWork(), new FixedClock());
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await handler.Handle(
+            new SelfProvisionSuperCommand(
+                new ProviderIdentity(provider, "mutable-subject"), "ops@org.com", "corr"), default));
+
+        Assert.Equal(0, admins.IdentityMutationLockCalls);
+        Assert.Equal(0, admins.GenericIdentityLookupCalls);
+        Assert.Equal(0, admins.EmailLookupCalls);
+    }
 
     [Fact]
     public async Task SelfProvision_creates_a_super_and_audits()
@@ -185,6 +219,22 @@ public sealed class AdminHandlerTests
 
     // ---- BindInvitedAdmin ----
 
+    [Theory]
+    [InlineData("microsoft")]
+    [InlineData("Microsoft")]
+    public async Task Historical_invite_bind_rejects_microsoft_before_email_lookup(string provider)
+    {
+        var admins = new FakePlatformUserRepository();
+        var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await handler.Handle(
+            new BindInvitedCommand(
+                new ProviderIdentity(provider, "mutable-subject"), "scoped@org.com", "corr"), default));
+
+        Assert.Equal(0, admins.IdentityMutationLockCalls);
+        Assert.Equal(0, admins.EmailLookupCalls);
+    }
+
     [Fact]
     public async Task BindInvited_binds_an_unbound_invite_by_email()
     {
@@ -232,38 +282,50 @@ public sealed class AdminHandlerTests
     // ---- CreateScopedAdmin ----
 
     [Fact]
-    public async Task CreateScoped_creates_an_invite_and_audits()
+    public async Task CreateScoped_creates_a_pre_bound_microsoft_admin_and_audits_approval_reference()
     {
         var admins = new FakePlatformUserRepository();
         var audit = new FakePlatformUserAuditWriter();
         var actingSuper = Guid.NewGuid();
-        var handler = new CreateScopedHandler(admins, audit, new FakeProfileLookup(), new FakeUnitOfWork(), new FixedClock());
+        var objectId = Guid.NewGuid();
+        var tenant = new FakeWorkforceTenantBindingStore();
+        var handler = new CreateScopedHandler(
+            admins, audit, new FakeProfileLookup(), tenant, new FakeUnitOfWork(), new FixedClock());
 
-        var result = await handler.Handle(new CreateScopedCommand("scoped@org.com", actingSuper, "corr"), default);
+        var result = await handler.Handle(new CreateScopedCommand(
+            objectId, "scoped@org.com", "approval-1", actingSuper, "http-corr"), default);
 
         var account = Assert.Single(admins.Accounts);
         Assert.Equal(Tier.Scoped, account.Tier);
-        Assert.Null(account.Subject);
+        Assert.Equal(User.MicrosoftProvider, account.Provider);
+        Assert.Equal(tenant.TenantId, account.TenantId);
+        Assert.Equal(objectId.ToString("D"), account.Subject);
         Assert.Equal(account.Id, result.AdminId);
         var row = Assert.Single(audit.Appended);
         Assert.Equal(AuditAction.CreateScoped, row.Action);
         Assert.Equal(actingSuper, row.ActorId);
         Assert.Equal(account.Id, row.TargetAdminId);
+        Assert.Equal("approval-1", row.CorrelationId);
         Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     [Fact]
-    public async Task CreateScoped_rejects_a_duplicate_email_found_after_identity_lock()
+    public async Task CreateScoped_rejects_an_exact_tuple_inserted_after_identity_lock_but_allows_duplicate_email()
     {
+        var objectId = Guid.NewGuid();
+        var tenant = new FakeWorkforceTenantBindingStore();
         var admins = new FakePlatformUserRepository
         {
-            AfterIdentityMutationLockAcquired = repository =>
-                repository.Add(User.CreateScoped("scoped@org.com", Now))
+            AfterIdentityMutationLockAcquired = repository => repository.Add(
+                User.CreateScopedMicrosoft(tenant.TenantId, objectId, "scoped@org.com", Now)),
         };
-        var handler = new CreateScopedHandler(admins, new FakePlatformUserAuditWriter(), new FakeProfileLookup(), new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateScopedHandler(
+            admins, new FakePlatformUserAuditWriter(), new FakeProfileLookup(), tenant,
+            new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ConflictException>(async () =>
-            await handler.Handle(new CreateScopedCommand("scoped@org.com", Guid.NewGuid(), "corr"), default));
+            await handler.Handle(new CreateScopedCommand(
+                objectId, "other@org.com", "approval-1", Guid.NewGuid(), "corr"), default));
 
         Assert.Single(admins.Accounts);
         Assert.Equal(1, admins.IdentityMutationLockCalls);

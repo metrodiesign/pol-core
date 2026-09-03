@@ -158,6 +158,9 @@ dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
   --startup-project src/Hosts/Api
 
+# Fresh empty Admin inventory: no manifest is required and the tool completes with zero counts.
+# Existing Admin inventory: set the six protected WORKFORCE_* first-run inputs and use the strict manifest
+# procedure in docs/runbooks/admin-workforce-jit-rollout.md; do not print their values.
 dotnet run --project src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj
 
 dotnet ef migrations list --context PolDbContext \
@@ -165,10 +168,10 @@ dotnet ef migrations list --context PolDbContext \
   --startup-project src/Hosts/Api
 ```
 
-ปัจจุบันต้องมี 21 migrations และตัวสุดท้ายต้องเป็น:
+ปัจจุบันต้องมี 23 migrations และตัวสุดท้ายต้องเป็น:
 
 ```text
-20260823132337_Tier0WorkforceEmailIdentity
+20260902133906_Tier0MicrosoftTenantAwareIdentity
 ```
 
 ตรวจ static migration guard โดยไม่ต้องมี `sqlcmd` บน host:
@@ -183,10 +186,11 @@ env -u POL_SA_PASSWORD bash docker/bootstrap/assert-fresh-db.test.sh
 bash docker/bootstrap/assert-fresh-db.test.sh
 ```
 
-ผลลัพธ์สุดท้ายต้องเป็น `assert-fresh-db.test: OK`. EF migration ใหม่สร้าง pending workforce identity state;
-ต้องรัน `WorkforceIdentityMigrator` ให้ exit `0` ก่อน start API. API จะ fail startup เมื่อ state pending หรือ
-subject/key invariant ไม่ผ่าน. Production ใช้ `docker/migrate-entrypoint.sh` ซึ่งรัน EF และ tool ตามลำดับ;
-ห้ามพึ่ง Development auto-migrate สำหรับ cutover นี้. ขั้นตอน production อยู่ใน
+ผลลัพธ์สุดท้ายต้องเป็น `assert-fresh-db.test: OK`. EF migration ใหม่สร้าง pending tenant-aware identity state;
+ต้องรัน `WorkforceIdentityMigrator` ให้ exit `0` ก่อน start API. Existing rows ต้องใช้ authoritative
+`AdminId + tenantId + objectId` manifest; ห้ามใช้ Email สร้าง mapping. API จะ fail startup เมื่อ old/new state pending,
+configured tenant ไม่ตรง singleton หรือ User ไม่อยู่ final state Production ใช้ `docker/migrate-entrypoint.sh` ซึ่งคง
+ลำดับ schema ก่อน tool; ห้ามพึ่ง Development auto-migrate สำหรับ cutover นี้ ขั้นตอน production อยู่ใน
 [Self-host Deployment Runbook](deploy-self-host.md).
 
 ## 7. ตั้งค่า Microsoft Entra OIDC
@@ -362,10 +366,12 @@ Microsoft invitation start ยังไม่รองรับเพราะ E
 
 1. เปิด `https://localhost:5001/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
 2. ใช้ employee account จาก workforce tenant ที่ pin ไว้.
-3. Identity ใหม่ต้องผ่าน exact tenant และ canonical `viriyah.co.th` email gate; `email` มาก่อน
-   `preferred_username`, ไม่บังคับ `roles` และไม่ใช้ `oid`. ระบบสร้าง `Active + Scoped` แบบไม่มี role.
+3. Identity ต้องมี validated `tid` และ `oid` อย่างละหนึ่งค่าและ `tid` ตรง tenant-pinned Authority Runtime lookup
+   ใช้ exact `(microsoft, tid, oid)`; ไม่บังคับ `roles` และไม่ใช้ Email, UPN, `preferred_username` หรือ `EmployeeId`
+   เป็น identity. Email absent ต้อง login/JIT ได้ และ JIT เป็น `Active + Scoped` แบบไม่มี role.
 4. Login สำเร็จต้อง redirect ไป `https://localhost:3001/dashboard` พร้อม admin session cookie.
-5. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
+5. Microsoft invite ต้อง pre-bound ด้วย verified `objectId` และ approval reference ก่อน first login; Email optional.
+6. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
 
 ## 11. Troubleshooting OIDC
 

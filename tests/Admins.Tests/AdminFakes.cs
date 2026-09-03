@@ -15,6 +15,10 @@ internal sealed class FakePlatformUserRepository : IUserRepository
     public readonly List<User> Accounts = [];
     public readonly List<MerchantAccess> Assignments = [];
     public int IdentityMutationLockCalls { get; private set; }
+    public int MicrosoftIdentityLookupCalls { get; private set; }
+    public int GenericIdentityLookupCalls { get; private set; }
+    public int EmailLookupCalls { get; private set; }
+    public int EmployeeIdLookupCalls { get; private set; }
     public Action<FakePlatformUserRepository>? AfterIdentityMutationLockAcquired { get; init; }
 
     public void Add(User account) => Accounts.Add(account);
@@ -27,21 +31,37 @@ internal sealed class FakePlatformUserRepository : IUserRepository
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<User>> ListTier0CandidatesAsync(string canonicalEmail, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<User>>(Accounts
-            .Where(account =>
-                string.Equals(account.Provider, User.MicrosoftProvider, StringComparison.Ordinal)
-                    && string.Equals(account.Subject, canonicalEmail, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(account.WorkforceEmailKey, canonicalEmail, StringComparison.OrdinalIgnoreCase))
-            .Take(2)
-            .ToList());
+    public Task<User?> GetByMicrosoftIdentityAsync(Guid tenantId, Guid objectId, CancellationToken ct)
+    {
+        MicrosoftIdentityLookupCalls++;
+        var subject = objectId.ToString("D");
+        return Task.FromResult(Accounts.SingleOrDefault(account =>
+            account.Provider == User.MicrosoftProvider
+            && account.TenantId == tenantId
+            && account.Subject == subject));
+    }
 
-    public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
-        Task.FromResult(Accounts.FirstOrDefault(a => a.Provider == identity.Provider && a.Subject == identity.Subject));
-    public Task<User?> GetByEmailAsync(string email, CancellationToken ct) =>
-        Task.FromResult(Accounts.FirstOrDefault(a => a.Email == email));
+    public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken ct)
+    {
+        GenericIdentityLookupCalls++;
+        if (string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities require tenant-aware lookup.", nameof(identity));
+        return Task.FromResult(Accounts.FirstOrDefault(a =>
+            a.TenantId is null && a.Provider == identity.Provider && a.Subject == identity.Subject));
+    }
+    public Task<User?> GetByEmailAsync(string email, CancellationToken ct)
+    {
+        EmailLookupCalls++;
+        return Task.FromResult(Accounts.FirstOrDefault(a => a.TenantId is null && a.Email == email));
+    }
     public Task<User?> GetByIdAsync(Guid id, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Id == id));
+    public Task<User?> GetByEmployeeIdAsync(string employeeId, Guid exceptAdminId, CancellationToken ct)
+    {
+        EmployeeIdLookupCalls++;
+        return Task.FromResult(Accounts.FirstOrDefault(a =>
+            string.Equals(a.EmployeeId, employeeId, StringComparison.OrdinalIgnoreCase) && a.Id != exceptAdminId));
+    }
     public Task VerifyActiveSuperAsync(Guid callerId, long expectedAuthorizationVersion, CancellationToken ct)
     {
         var caller = Accounts.FirstOrDefault(a => a.Id == callerId);
@@ -70,6 +90,25 @@ internal sealed class FakePlatformUserRepository : IUserRepository
             .ToList();
         var items = all.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList();
         return Task.FromResult(new PagedResult<UserListItem>(items, query.Page, query.Limit, all.Count));
+    }
+}
+
+internal sealed class FakeWorkforceTenantBindingStore(Guid? tenantId = null) : IWorkforceTenantBindingStore
+{
+    public Guid TenantId { get; private set; } = tenantId ?? Guid.Parse("11111111-1111-4111-8111-111111111111");
+    public int GetRequiredCalls { get; private set; }
+    public Exception? Failure { get; set; }
+
+    public Task EnsureAsync(Guid configuredTenantId, CancellationToken cancellationToken)
+    {
+        TenantId = configuredTenantId;
+        return Task.CompletedTask;
+    }
+
+    public Task<Guid> GetRequiredTenantIdAsync(CancellationToken cancellationToken)
+    {
+        GetRequiredCalls++;
+        return Failure is null ? Task.FromResult(TenantId) : Task.FromException<Guid>(Failure);
     }
 }
 
@@ -214,9 +253,20 @@ internal sealed class FakeAdminMerchantDirectory : IAdminMerchantDirectory
 
 internal sealed class FakeUnitOfWork : IUnitOfWork
 {
-    public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(0);
-    public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct) =>
-        await operation(ct);
+    public int ExecuteInTransactionCalls { get; private set; }
+    public int SaveChangesCalls { get; private set; }
+
+    public Task<int> SaveChangesAsync(CancellationToken ct)
+    {
+        SaveChangesCalls++;
+        return Task.FromResult(0);
+    }
+
+    public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct)
+    {
+        ExecuteInTransactionCalls++;
+        return await operation(ct);
+    }
 }
 
 internal sealed class FixedClock : IClock

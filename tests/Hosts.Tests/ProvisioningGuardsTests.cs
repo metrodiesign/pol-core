@@ -253,6 +253,26 @@ public sealed class ProvisioningGuardsTests
             ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
     }
 
+    // tier0-graph-employee-profile REQ-12.8: the employee-profile switch on with an unconfigured Microsoft provider
+    // fails Production boot with the existing workforce diagnostic (the switch cannot enable an absent provider).
+    [Theory]
+    [InlineData("AdminAuth:Providers:Microsoft:ClientId")]
+    [InlineData("AdminAuth:Providers:Microsoft:ClientSecret")]
+    public void Production_workforce_provider_guard_rejects_employee_profile_switch_without_a_provider(string missingKey)
+    {
+        var config = Workforce(
+            ("AdminAuth:Providers:Microsoft:RequireEmployeeProfile", "true"),
+            (missingKey, ""));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+        Assert.Contains("AdminAuth:Providers:Microsoft", error.Message, StringComparison.Ordinal);
+
+        // The same switch with a complete provider boots.
+        ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(
+            Workforce(("AdminAuth:Providers:Microsoft:RequireEmployeeProfile", "true")));
+    }
+
     [Fact]
     public void Production_workforce_provider_guard_rejects_enabled_google()
     {

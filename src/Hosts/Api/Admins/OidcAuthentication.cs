@@ -1,3 +1,4 @@
+using Admins.Domain.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 
@@ -50,6 +51,11 @@ internal static class OidcAuthentication
 
         services.AddScoped<ICallbackResolver, CallbackResolver>();
         services.AddScoped<LoginService>();
+        // tier0-graph-employee-profile REQ-1.12: the Graph client is bounded to 10 s; a test host replaces its
+        // primary handler (REQ-11.6). Registered unconditionally so the reader resolves even while the switch is off.
+        services.AddHttpClient(MicrosoftGraphEmployeeIdReader.ClientName,
+            client => client.Timeout = MicrosoftGraphEmployeeIdReader.Timeout);
+        services.AddScoped<MicrosoftGraphEmployeeIdReader>();
 
         var providers = new AdminOidcProviders();
         services.AddSingleton(providers);
@@ -76,18 +82,16 @@ internal static class OidcAuthentication
 
             var scheme = SchemePrefix + name;
             providers[name.ToLowerInvariant()] = scheme;
-            builder.AddOpenIdConnect(scheme, options => Configure(options, name, oidc, environment, microsoftTenant));
+            builder.AddOpenIdConnect(scheme, options => Configure(options, oidc, environment, microsoftTenant));
         }
 
         return services;
     }
 
     private static void Configure(
-        OpenIdConnectOptions options, string name, OidcProviderOptions oidc, IHostEnvironment environment,
+        OpenIdConnectOptions options, OidcProviderOptions oidc, IHostEnvironment environment,
         AdminMicrosoftTenantSnapshot microsoftTenant)
     {
-        var providerSlug = name.ToLowerInvariant();
-
         options.Authority = oidc.Authority;
         options.ClientId = oidc.ClientId;
         options.ClientSecret = oidc.ClientSecret;
@@ -96,7 +100,7 @@ internal static class OidcAuthentication
 
         options.ResponseType = "code";          // Authorization Code (REQ-1.1)
         options.UsePkce = true;                  // S256 code_challenge (REQ-1.1)
-        options.SaveTokens = false;              // we never call the provider's APIs (REQ-1.5)
+        options.SaveTokens = false;              // Graph may use the callback access token transiently; never persist it (REQ-9.17)
         options.GetClaimsFromUserInfoEndpoint = false;
         options.MapInboundClaims = false;        // keep raw claim names
         options.RequireHttpsMetadata = !environment.IsDevelopment();
@@ -104,7 +108,9 @@ internal static class OidcAuthentication
         options.Scope.Clear();                   // default is {openid, profile}; keep the request minimal
         options.Scope.Add("openid");
         options.Scope.Add("email");
-        options.Scope.Add("profile");            // required for tenant and preferred username claims
+        options.Scope.Add("profile");            // required for Entra oid; email remains best-effort contact data
+        if (oidc.RequireEmployeeProfile)
+            options.Scope.Add("User.Read");      // Graph /me employeeId only (tier0-graph-employee-profile REQ-1.1/1.2)
 
         options.TokenValidationParameters.ValidateIssuer = true;
         // The library default skew (5 min) is generous for short-lived id_tokens; servers run NTP — 2 min covers real drift.
@@ -117,17 +123,45 @@ internal static class OidcAuthentication
         {
             // The workforce gate runs after signature/issuer/audience/nonce/lifetime validation. It stores one typed
             // result in request state so the ticket hook never reparses mutable claims.
-            OnTokenValidated = context =>
+            OnTokenValidated = async context =>
             {
                 if (!MicrosoftWorkforceClaimsValidator.TryValidate(
                         context.Principal, microsoftTenant.TenantId, out var claims))
                 {
                     MicrosoftOidcFailureClassifier.MarkPolicyFailure(context.HttpContext);
                     context.Fail(new MicrosoftWorkforcePolicyException());
+                    return;
                 }
-                else
-                    context.HttpContext.Items[MicrosoftWorkforceClaimsValidator.ContextItemKey] = claims;
-                return Task.CompletedTask;
+
+                // tier0-graph-employee-profile REQ-1.7-1.11, 1.23: with the switch on, Graph is read HERE — after
+                // every token and workforce gate, before any DB access — with the code-exchange access token that
+                // exists only on this event (SaveTokens stays false; nothing is persisted). Failure -> deny.
+                if (oidc.RequireEmployeeProfile)
+                {
+                    try
+                    {
+                        var accessToken = context.TokenEndpointResponse?.AccessToken;
+                        if (string.IsNullOrEmpty(accessToken))
+                            throw new EmployeeProfileException(EmployeeProfileException.Unavailable); // REQ-1.4
+                        var reader = context.HttpContext.RequestServices.GetRequiredService<MicrosoftGraphEmployeeIdReader>();
+                        var raw = await reader.ReadAsync(
+                            accessToken, context.HttpContext.TraceIdentifier, context.HttpContext.RequestAborted);
+                        claims = EmployeeIdPolicy.TryNormalize(raw, out var employeeId) switch
+                        {
+                            EmployeeIdCheck.Ok => claims with { EmployeeId = employeeId },
+                            EmployeeIdCheck.Missing =>
+                                throw new EmployeeProfileException(EmployeeProfileException.Missing),  // REQ-2.2
+                            _ => throw new EmployeeProfileException(EmployeeProfileException.Invalid), // REQ-2.3/2.4
+                        };
+                    }
+                    catch (EmployeeProfileException failure)
+                    {
+                        context.Fail(failure);
+                        return;
+                    }
+                }
+
+                context.HttpContext.Items[MicrosoftWorkforceClaimsValidator.ContextItemKey] = claims;
             },
 
             // Canonical post-principal hook: resolve the admin, establish the server session + cookies,
@@ -144,10 +178,9 @@ internal static class OidcAuthentication
                     return;
                 }
 
-                await login.EstablishSessionAsync(
+                await login.EstablishMicrosoftSessionAsync(
                     context.HttpContext,
-                    providerSlug,
-                    claims.Identity.Subject,
+                    claims,
                     GetReturnTo(context.Properties),
                     context.HttpContext.RequestAborted);
                 context.HandleResponse();

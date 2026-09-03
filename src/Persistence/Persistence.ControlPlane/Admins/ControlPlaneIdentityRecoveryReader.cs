@@ -7,8 +7,7 @@ using Persistence.ControlPlane.Governance;
 
 namespace Persistence.ControlPlane.Admins;
 
-/// <summary>Re-resolves a raced Microsoft identity using a context created after the failed transaction.
-/// The read path returns the same typed outcome as the normal application resolver.</summary>
+/// <summary>Re-resolves a raced Microsoft tuple from a context created after the failed transaction.</summary>
 internal sealed class ControlPlaneIdentityRecoveryReader : IAdminIdentityRecoveryReader
 {
     private readonly IDbContextFactory<ControlPlaneDbContext> _contexts;
@@ -26,7 +25,7 @@ internal sealed class ControlPlaneIdentityRecoveryReader : IAdminIdentityRecover
     }
 
     public async Task<ResolveResult> ResolveAfterConflictAsync(
-        string canonicalEmail, CancellationToken cancellationToken)
+        Guid tenantId, Guid objectId, CancellationToken cancellationToken)
     {
         await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
         var admins = new UserRepository(
@@ -35,11 +34,9 @@ internal sealed class ControlPlaneIdentityRecoveryReader : IAdminIdentityRecover
             _telemetry,
             new GovernanceSqlLockManager(db));
         var roles = new RoleRepository(db);
-        var candidates = await admins.ListTier0CandidatesAsync(canonicalEmail, cancellationToken);
-        if (candidates.Count != 1
-            || !Tier0CandidatePolicy.IsExactResolvedOwner(candidates[0], canonicalEmail))
+        var account = await admins.GetByMicrosoftIdentityAsync(tenantId, objectId, cancellationToken);
+        if (account is null)
             return ResolveResult.IdentityConflict;
-        var account = candidates[0];
         if (account.Status == UserStatus.Suspended)
             return ResolveResult.Suspended;
 
@@ -50,7 +47,7 @@ internal sealed class ControlPlaneIdentityRecoveryReader : IAdminIdentityRecover
         return ResolveResult.Of(new Resolution(account.Id, account.Email, account.Tier, accessible)
         {
             Permissions = permissions,
-            AuthorizationVersion = account.AuthorizationVersion
+            AuthorizationVersion = account.AuthorizationVersion,
         });
     }
 }

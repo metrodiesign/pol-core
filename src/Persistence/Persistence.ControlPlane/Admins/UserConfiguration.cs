@@ -20,6 +20,7 @@ public sealed class WorkforceTenantBindingConfiguration : IEntityTypeConfigurati
         builder.ToTable("WorkforceTenantBindings", SchemaNames.Admin, table =>
             table.HasCheckConstraint("CK_WorkforceTenantBindings_Singleton", "[Id] = 1"));
         builder.HasKey(x => x.Id);
+        builder.HasAlternateKey(x => x.TenantId).HasName("AK_WorkforceTenantBindings_TenantId");
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.Property(x => x.TenantId).IsRequired();
         AppendOnlyDescriptor.Mark(builder.Metadata);
@@ -30,12 +31,15 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("Users", SchemaNames.Admin);
+        // Runtime tests also build this model on SQLite, whose default equality is case-sensitive. Production's
+        // migration-owned constraint uses an explicit SQL Server BIN2 collation under the same constraint name.
+        builder.ToTable("Users", SchemaNames.Admin, table => table.HasCheckConstraint(
+            "CK_Users_TenantId_MicrosoftProvider", "[TenantId] IS NULL OR [Provider] = 'microsoft'"));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
+        builder.Property(x => x.TenantId);
         builder.Property(x => x.Subject).HasMaxLength(256);
-        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
-        builder.Property(x => x.WorkforceEmailKey).HasMaxLength(WorkforceEmail.MaxLength);
+        builder.Property(x => x.Email).HasMaxLength(AdminContactEmail.MaxLength);
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
@@ -49,9 +53,17 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.OfficeId);
         builder.Property(x => x.LevelId);
         builder.Property(x => x.DivisionId);
-        builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique().HasFilter("[Subject] IS NOT NULL");
-        builder.HasIndex(x => x.Email).IsUnique();
-        builder.HasIndex(x => x.WorkforceEmailKey).IsUnique().HasFilter("[WorkforceEmailKey] IS NOT NULL");
+        builder.HasIndex(x => new { x.Provider, x.TenantId, x.Subject })
+            .IsUnique()
+            .HasFilter("[Subject] IS NOT NULL");
+        builder.HasIndex(x => x.TenantId);
+        // tier0-graph-employee-profile REQ-2.11/3.8/8.1-8.4: profile columns, EmployeeId filtered-unique.
+        builder.Property(x => x.EmployeeId).HasMaxLength(EmployeeIdPolicy.MaxLength);
+        builder.Property(x => x.FirstName).HasMaxLength(500);
+        builder.Property(x => x.LastName).HasMaxLength(500);
+        builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("[EmployeeId] IS NOT NULL");
+        builder.HasOne<WorkforceTenantBinding>().WithMany().HasForeignKey(x => x.TenantId)
+            .HasPrincipalKey(x => x.TenantId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
     }
 }
 

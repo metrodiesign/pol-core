@@ -3,9 +3,9 @@ using Microsoft.Data.SqlClient;
 namespace Integration.Tests;
 
 /// <summary>
-/// Proves the admin.Users constraint floor against live SQL Server 2025 with the RlsTeardownAndOnePrincipal
-/// migration applied. The filtered unique index on Subject rejects a duplicate bound subject but exempts
-/// NULL (invited) subjects (REQ-3.1). Updated for rls-to-query-filter task 8: pol_admin is retired — pol_app
+/// Proves the admin.Users constraint floor against live SQL Server 2025 at migration HEAD. The filtered unique
+/// index on (Provider, TenantId, Subject) rejects a duplicate bound Google subject but exempts NULL subjects;
+/// Email is nullable/non-unique contact data. Updated for rls-to-query-filter task 8: pol_admin is retired — pol_app
 /// is the sole runtime principal and holds full CRUD on admin.Users/MerchantAccess/UserAudits now (it IS the
 /// control-plane's own connection in production), so the old "pol_app has no grant on admin tables" isolation
 /// tests are gone — there is only one principal left. Tagged Integration so the default unit run skips them;
@@ -57,14 +57,17 @@ public sealed class AdminIsolationIntegrationTests
     }
 
     [Fact]
-    public async Task Duplicate_email_is_rejected()
+    public async Task Duplicate_email_contacts_are_allowed_for_distinct_identity_rows()
     {
-        // Email is the invite key — unique across all platform users (REQ-3.1).
         var email = UniqueEmail();
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        await IntegrationDb.InsertPlatformUserAsync(admin, Guid.NewGuid(), subject: null, email, Scoped, Active);
+        await IntegrationDb.InsertPlatformUserAsync(admin, firstId, subject: null, email, Scoped, Active);
+        await IntegrationDb.InsertPlatformUserAsync(admin, secondId, subject: null, email, Scoped, Active);
 
-        await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.InsertPlatformUserAsync(admin, Guid.NewGuid(), subject: null, email, Scoped, Active));
+        Assert.Equal(2, AsInt(await IntegrationDb.ScalarAsync(admin,
+            "SELECT COUNT(*) FROM admin.Users WHERE Id IN (@first, @second) AND Email = @email;",
+            ("@first", firstId), ("@second", secondId), ("@email", email))));
     }
 }

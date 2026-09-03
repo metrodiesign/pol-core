@@ -229,9 +229,20 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Email")
-                        .IsRequired()
                         .HasMaxLength(320)
                         .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("EmployeeId")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("FirstName")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("LastName")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<Guid?>("LevelId")
                         .HasColumnType("uniqueidentifier");
@@ -256,6 +267,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<int>("Tier")
                         .HasColumnType("int");
 
@@ -268,16 +282,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasDefaultValue(1L);
 
-                    b.Property<string>("WorkforceEmailKey")
-                        .HasMaxLength(254)
-                        .HasColumnType("nvarchar(254)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("DivisionId");
 
-                    b.HasIndex("Email")
-                        .IsUnique();
+                    b.HasIndex("EmployeeId")
+                        .IsUnique()
+                        .HasFilter("[EmployeeId] IS NOT NULL");
 
                     b.HasIndex("LevelId");
 
@@ -285,15 +296,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PositionId");
 
-                    b.HasIndex("WorkforceEmailKey")
-                        .IsUnique()
-                        .HasFilter("[WorkforceEmailKey] IS NOT NULL");
+                    b.HasIndex("TenantId");
 
-                    b.HasIndex("Provider", "Subject")
+                    b.HasIndex("Provider", "TenantId", "Subject")
                         .IsUnique()
                         .HasFilter("[Subject] IS NOT NULL");
 
-                    b.ToTable("Users", "admin");
+                    b.ToTable("Users", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_Users_TenantId_MicrosoftProvider", "[TenantId] IS NULL OR [Provider] COLLATE Latin1_General_100_BIN2 = N'microsoft'");
+                        });
                 });
 
             modelBuilder.Entity("Admins.Domain.Users.WorkforceTenantBinding", b =>
@@ -305,6 +317,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId")
+                        .HasName("AK_WorkforceTenantBindings_TenantId");
 
                     b.ToTable("WorkforceTenantBindings", "admin", t =>
                         {
@@ -796,6 +811,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<string>("LegacyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -814,6 +833,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Code")
                         .IsUnique();
+
+                    b.HasIndex("LegacyKey")
+                        .IsUnique()
+                        .HasFilter("[LegacyKey] IS NOT NULL");
 
                     b.ToTable("Divisions", "cfg");
                 });
@@ -2576,6 +2599,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<string>("LegacyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -2594,6 +2621,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Code")
                         .IsUnique();
+
+                    b.HasIndex("LegacyKey")
+                        .IsUnique()
+                        .HasFilter("[LegacyKey] IS NOT NULL");
 
                     b.ToTable("Offices", "cfg");
                 });
@@ -3854,6 +3885,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("PositionId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Admins.Domain.Users.WorkforceTenantBinding", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .HasPrincipalKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction);
                 });
 
             modelBuilder.Entity("Carts.Domain.Items.Item", b =>

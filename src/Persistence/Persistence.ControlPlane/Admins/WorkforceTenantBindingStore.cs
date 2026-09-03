@@ -17,12 +17,18 @@ internal sealed class WorkforceTenantBindingStore(
     public Task EnsureAsync(Guid configuredTenantId, CancellationToken cancellationToken)
     {
         if (configuredTenantId == Guid.Empty)
-            throw new InvalidOperationException("Admin Microsoft workforce tenant configuration is invalid.");
+            throw InvalidConfiguration();
 
         return unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             await locks.AcquireAsync(IdentityLockResource, ct).ConfigureAwait(false);
-            await EnsureIdentityMigrationAsync(ct).ConfigureAwait(false);
+            TenantIdentityMigrationStateRow? tenantState = null;
+            if (db.Database.IsSqlServer())
+            {
+                await EnsureHistoricalIdentityMigrationAsync(ct).ConfigureAwait(false);
+                tenantState = await LoadTenantIdentityMigrationAsync(ct).ConfigureAwait(false);
+            }
+
             await locks.AcquireAsync(LockResource, ct).ConfigureAwait(false);
             var existing = await db.WorkforceTenantBindings.SingleOrDefaultAsync(ct).ConfigureAwait(false);
             if (existing is null)
@@ -36,16 +42,23 @@ internal sealed class WorkforceTenantBindingStore(
                     "Admin Microsoft Authority does not match the persisted workforce tenant binding.");
             }
 
+            await EnsureFinalUsersAsync(configuredTenantId, tenantState, ct).ConfigureAwait(false);
             return 0;
         }, cancellationToken);
     }
 
-    private async Task EnsureIdentityMigrationAsync(CancellationToken cancellationToken)
+    public async Task<Guid> GetRequiredTenantIdAsync(CancellationToken cancellationToken)
     {
-        if (!db.Database.IsSqlServer())
-            return;
+        var bindings = await db.WorkforceTenantBindings.AsNoTracking().Take(2)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        return bindings is [{ TenantId: var tenantId }] && tenantId != Guid.Empty
+            ? tenantId
+            : throw new InvalidOperationException("Admin Microsoft workforce tenant binding is unavailable.");
+    }
 
-        var states = await db.Database.SqlQueryRaw<WorkforceIdentityMigrationStateRow>(
+    private async Task EnsureHistoricalIdentityMigrationAsync(CancellationToken cancellationToken)
+    {
+        var states = await db.Database.SqlQueryRaw<HistoricalIdentityMigrationStateRow>(
             """
             SELECT Id, CompletedAt, SnapshotCount, ConvertedCount, NoOpCount
             FROM admin.WorkforceIdentityMigrations;
@@ -55,33 +68,89 @@ internal sealed class WorkforceTenantBindingStore(
             || state.ConvertedCount < 0
             || state.NoOpCount < 0
             || state.ConvertedCount + state.NoOpCount != state.SnapshotCount)
-            throw new InvalidOperationException("Admin Microsoft workforce identity migration is incomplete.");
-
-        var users = await db.Users.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-        var expectedKeys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var user in users)
         {
-            var expected = WorkforceEmail.TryCanonicalize(user.Email, out var canonical) ? canonical : null;
-            if (expected is not null && !expectedKeys.Add(expected))
-                throw new InvalidOperationException("Admin Microsoft workforce email ownership is invalid.");
-            if (!string.Equals(user.WorkforceEmailKey, expected, StringComparison.Ordinal))
-                throw new InvalidOperationException("Admin Microsoft workforce email key is invalid.");
-
-            if (user.Subject is not null
-                && string.Equals(user.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase)
-                && (!string.Equals(user.Provider, User.MicrosoftProvider, StringComparison.Ordinal)
-                    || expected is null
-                    || !string.Equals(user.Subject, expected, StringComparison.Ordinal)))
-                throw new InvalidOperationException("Admin Microsoft workforce identity is invalid.");
+            throw new InvalidOperationException("Admin Microsoft historical identity migration is incomplete.");
         }
     }
+
+    private async Task<TenantIdentityMigrationStateRow> LoadTenantIdentityMigrationAsync(
+        CancellationToken cancellationToken)
+    {
+        var states = await db.Database.SqlQueryRaw<TenantIdentityMigrationStateRow>(
+            """
+            SELECT Id, CompletedAt, SnapshotCount, MappedCount, NoOpCount
+            FROM admin.WorkforceTenantIdentityMigrations;
+            """).ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (states is not [{ Id: 1, CompletedAt: not null } state]
+            || state.SnapshotCount < 0
+            || state.MappedCount < 0
+            || state.NoOpCount < 0
+            || state.MappedCount + state.NoOpCount != state.SnapshotCount)
+        {
+            throw new InvalidOperationException("Admin Microsoft tenant identity migration is incomplete.");
+        }
+
+        return state;
+    }
+
+    private async Task EnsureFinalUsersAsync(
+        Guid tenantId,
+        TenantIdentityMigrationStateRow? state,
+        CancellationToken cancellationToken)
+    {
+        var users = await db.Users.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+        var byId = users.ToDictionary(user => user.Id);
+        foreach (var user in users)
+        {
+            if (!MicrosoftWorkforceIdentityPolicy.TryClassifyFinal(
+                    user.Provider, user.TenantId, user.Subject, tenantId, out _))
+            {
+                throw new InvalidOperationException("Admin Microsoft persisted identity state is invalid.");
+            }
+        }
+
+        if (state is null)
+            return;
+
+        var snapshot = await db.Database.SqlQueryRaw<TenantIdentitySnapshotRow>(
+            """
+            SELECT AdminUserId
+            FROM admin.WorkforceTenantIdentitySnapshot;
+            """).ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (snapshot.Count != state.SnapshotCount
+            || snapshot.Any(row =>
+                !byId.TryGetValue(row.AdminUserId, out var user)
+                || !MicrosoftWorkforceIdentityPolicy.TryClassifyFinal(
+                    user.Provider, user.TenantId, user.Subject, tenantId, out var identityState)
+                || identityState != MicrosoftWorkforceIdentityState.BoundMicrosoft))
+        {
+            throw new InvalidOperationException("Admin Microsoft tenant identity snapshot is invalid.");
+        }
+    }
+
+    private static InvalidOperationException InvalidConfiguration() =>
+        new("Admin Microsoft workforce tenant configuration is invalid.");
 }
 
-internal sealed class WorkforceIdentityMigrationStateRow
+internal sealed class HistoricalIdentityMigrationStateRow
 {
     public int Id { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int SnapshotCount { get; set; }
     public int ConvertedCount { get; set; }
     public int NoOpCount { get; set; }
+}
+
+internal sealed class TenantIdentityMigrationStateRow
+{
+    public int Id { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public int SnapshotCount { get; set; }
+    public int MappedCount { get; set; }
+    public int NoOpCount { get; set; }
+}
+
+internal sealed class TenantIdentitySnapshotRow
+{
+    public Guid AdminUserId { get; set; }
 }

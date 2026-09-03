@@ -11,8 +11,9 @@
 - SQL Server must be 2025 build `17.0.4045.5` or newer; database compatibility level 170.
 - Fresh baseline accepts empty target only. Existing tables, objects or migration history fail before DDL.
 - Production reset requires human approval, exact target, verified backup URI/checksum and rollback evidence.
-- Stop old API instances before applying a schema that changes identity uniqueness from `Subject` to
-  `(Provider, Subject)`; do not run old and new identity code against the upgraded DB together.
+- Stop old API instances before applying the tenant-aware Admin identity schema that drops `WorkforceEmailKey`
+  and changes Microsoft ownership to `(Provider, TenantId, Subject)`; never run old and new identity binaries
+  against that database together.
 - Never deploy production Friday evening or before long holiday except approved emergency hotfix.
 - Never run migration `Down` in production. Production rollback restores verified backup.
 
@@ -78,12 +79,14 @@ Use isolated staging DB. Never point rehearsal at production.
 3. Record explicit reset approval.
 4. Stop application traffic and background dispatchers.
 5. DBA resets only approved staging `VCentralPay` target using organization procedure.
-6. Run all 21 migrations in timestamp order through `20260823132337_Tier0WorkforceEmailIdentity`.
-7. Run `WorkforceIdentityMigrator`; require exit `0` before API startup.
-8. Run `docker/bootstrap/assert-fresh-db.sql`.
+6. Run all 23 migrations in timestamp order through `20260902133906_Tier0MicrosoftTenantAwareIdentity`.
+7. Run `WorkforceIdentityMigrator`; an existing Admin inventory requires the verified first-run manifest and exact
+   approval inputs from `admin-workforce-jit-rollout.md`. Require exit `0` before API startup.
+8. Run `docker/bootstrap/assert-fresh-db.sql` and the aggregate tenant-aware completion query.
 9. Start API and run smoke path below.
 10. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.
-11. Attach logs, catalog assertion, smoke result and rollback timing to `STAGING_EVIDENCE_URI`.
+11. Delete every ephemeral manifest copy and attach only aggregate logs, catalog assertion, smoke result and rollback
+    timing to `STAGING_EVIDENCE_URI`.
 
 Required staging smoke:
 
@@ -113,14 +116,18 @@ Complete these checks before changing production:
 1. Admin SPA approval, rejection and registration-history routes send internal `merchantUserId` GUID.
 2. Admin SPA does not send Entra `oid`, Google `sub` or raw `Subject` as `{merchantUserId}`.
 3. Existing Google identities remain Google identities; migration backfills `Provider=google`.
-4. Tier 0 uses canonical `viriyah.co.th` email as Microsoft subject; it does not read `oid` or `roles`.
-5. Active unbound Admin with matching canonical email binds in place; bound-other, Suspended or ambiguous owner fails closed.
-6. New Tier 0 identity creates `Active + Scoped` Admin without role or MerchantAccess.
-7. Promote corporate Super through Admin management API before production; Microsoft bootstrap allowlist does not exist.
-8. Tier 1 has a full test identity that can register, wait for approval, receive approval and login again.
+4. Tier 0 requires exactly one validated `tid` and `oid`; runtime identity is exact
+   `(microsoft, TenantId, canonical oid)` and does not read `roles` for authorization.
+5. Email is optional, non-unique contact data. Tier 0 never resolves, binds, recovers or admits with Email, UPN,
+   `preferred_username`, `WorkforceEmailKey` or `EmployeeId`.
+6. Existing Admins are mapped offline from an authoritative Entra export; no first-login Email bridge exists.
+7. New Tier 0 identity creates `Active + Scoped` Admin without role or MerchantAccess. Super-created Microsoft invites
+   are pre-bound with verified `objectId` and approval reference before first login.
+8. Promote corporate Super through Admin management API before production; Microsoft bootstrap allowlist does not exist.
+9. Tier 1 has a full test identity that can register, wait for approval, receive approval and login again.
 
-Corporate email can be renamed or reused. Lifecycle owner must suspend former owner and revoke sessions before reuse;
-authorization never transfers automatically. Follow `admin-workforce-jit-rollout.md` for cutover and recovery rules.
+Email rename or reuse never transfers authorization because Email is not an identity key. Follow
+`admin-workforce-jit-rollout.md` for manifest, maintenance-window, forward-recovery and multi-tenant blocker rules.
 
 ### 5.2 Runtime configuration
 
@@ -205,23 +212,26 @@ Both orphan counts must be `0`. The migration stops before completing if either 
 count to size the migration window; the migration backfills `TargetUserId` and `ActorAdminId`, changes identity indexes
 to `(Provider, Subject)`, then adds a foreign key.
 
-Tier 0 canonical-email cutover has an additional fail-closed preflight in `WorkforceIdentityMigrator`: invalid email,
-duplicate canonical owner, unknown subject or snapshot drift returns non-zero without partial conversion. Use
-`admin-workforce-jit-rollout.md` as the detailed backup, maintenance-window and rollback procedure.
+Tier 0 tenant-aware cutover has an additional fail-closed preflight in `WorkforceIdentityMigrator`: manifest digest,
+exact target, approval inputs, complete `AdminId` coverage, singleton tenant and exact tuple uniqueness must all pass.
+Any drift returns non-zero without partial mapping. The manifest contains only `AdminId`, `tenantId` and `objectId`;
+Email is never an input. Use `admin-workforce-jit-rollout.md` as the detailed export, manifest, maintenance-window,
+ephemeral-cleanup and recovery procedure.
 
 Rollout order:
 
-1. Prove the same migration and OIDC flow on a restored staging copy.
-2. Verify frontend contract and both public callback URIs.
-3. Close incoming traffic and stop every old API/background dispatcher.
+1. Prove the same migration, offline mapping and OIDC flow on a restored staging copy.
+2. Verify frontend contract, tenant-pinned Authority and both public callback URIs.
+3. Close incoming Admin traffic and stop every old API/background dispatcher.
 4. Create and verify the production backup and checksum.
-5. Apply all migrations once with the one-shot `migrate` service.
-6. Start only the new API version and verify health.
-7. Open traffic gradually and run the authentication smoke below.
+5. Apply schema and first-run mapping through the one-shot `migrate` service with the read-only ephemeral manifest;
+   require aggregate completion and then delete the manifest.
+6. Start only the new API version and verify startup tenant/state guards plus health.
+7. Smoke an approved existing pre-mapped Admin, then open traffic gradually. JIT/invite mutation smoke remains staging-only.
 
-Do not use a rolling mixed-version deployment for this migration. After two providers share the same subject, migration
-`Down` intentionally blocks because the old subject-only unique index cannot be restored. Production rollback restores
-the verified backup and previous compatible application tag.
+Do not use a rolling mixed-version deployment. Once schema drops the old key, or mapping/JIT/invite writes a non-null
+`TenantId`, the old binary and guarded `Down()` are not safe recovery paths. Use forward recovery; a production rollback
+that the release owner approves restores the exact verified backup with its compatible application tag.
 
 ### 5.5 Staging authentication smoke
 
@@ -235,12 +245,15 @@ Tier 1 must prove the complete lifecycle, not only the Entra consent page:
 6. Login again and verify dashboard redirect, session cookie and authenticated
    `/api/v1/merchants/users/me` response.
 
-Tier 0 must prove:
+Tier 0 staging must prove:
 
 1. Start at `/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
-2. Login with workforce-tenant employee account.
-3. Verify tenant/issuer rejection using an account outside the pinned tenant.
-4. Verify dashboard redirect, admin session and permission-scoped `/api/v1/admins/me` response.
+2. Login with an email-less synthetic identity whose exact `tid`/`oid` is in the pinned workforce tenant.
+3. Verify malformed/duplicate claims and tenant/issuer mismatch are rejected before Graph, DB resolution or session write.
+4. Verify exact existing resolution, roleless JIT and a pre-bound invite; two tuples may share one optional Email.
+5. Verify dashboard redirect, admin session and permission-scoped `/api/v1/admins/me` response.
+
+Capture only status, fixed browser reason, correlation ID and timestamp. Do not capture claims or Graph response body.
 
 Capture status, `Location`, correlation ID, Entra error code and timestamp only. Redact query tickets, authorization code,
 state, nonce, cookies, ID token, OTP and client secret.
@@ -259,10 +272,11 @@ Deploy approved immutable release:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, applies `docker/migrations/schema.sql` (committed idempotent EF script; only the
-migrations missing from `__EFMigrationsHistory` run), runs
-`WorkforceIdentityMigrator`, then exits only after identity verification succeeds. API never auto-migrates outside
-Development.
+Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, applies
+`docker/migrations/schema.sql` (committed idempotent EF script; only migrations missing from
+`__EFMigrationsHistory` run), then runs `WorkforceIdentityMigrator`. An existing inventory's first invocation must use
+the protected manifest command in `admin-workforce-jit-rollout.md`; ordinary `up` may then run the completed no-manifest
+verification before API startup. API never auto-migrates outside Development.
 
 Verify:
 

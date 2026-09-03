@@ -45,6 +45,18 @@ file static class TestOidc
     public const string GoogleIssuer = "https://accounts.google.com";
 
     public static string CreateIdToken(string issuer, string audience, string nonce,
+        params (string Type, string Value)[] claims) =>
+        CreateIdToken(
+            issuer, audience, nonce, SigningKey,
+            DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(5), claims);
+
+    public static string CreateIdToken(
+        string issuer,
+        string audience,
+        string nonce,
+        SecurityKey signingKey,
+        DateTime notBefore,
+        DateTime expires,
         params (string Type, string Value)[] claims)
     {
         var handler = new JwtSecurityTokenHandler();
@@ -52,10 +64,10 @@ file static class TestOidc
             issuer: issuer,
             audience: audience,
             subject: new ClaimsIdentity(claims.Select(c => new Claim(c.Type, c.Value)).Append(new Claim("nonce", nonce))),
-            notBefore: DateTime.UtcNow.AddMinutes(-1),
-            expires: DateTime.UtcNow.AddMinutes(5),
-            issuedAt: DateTime.UtcNow,
-            signingCredentials: new SigningCredentials(SigningKey, SecurityAlgorithms.RsaSha256));
+            notBefore: notBefore,
+            expires: expires,
+            issuedAt: notBefore,
+            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256));
         return handler.WriteToken(token);
     }
 }
@@ -64,12 +76,15 @@ file static class TestOidc
 file sealed class FakeBackchannel : HttpMessageHandler
 {
     public string? IdToken { get; set; }
+    public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-        Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        Task.FromResult(new HttpResponseMessage(Status)
         {
             Content = new StringContent(
-                $$"""{"id_token":"{{IdToken}}","access_token":"e2e-access-token","token_type":"Bearer","expires_in":3600}""",
+                Status == HttpStatusCode.OK
+                    ? $$"""{"id_token":"{{IdToken}}","access_token":"e2e-access-token","token_type":"Bearer","expires_in":3600}"""
+                    : """{"error":"invalid_grant"}""",
                 Encoding.UTF8, "application/json"),
         });
 }
@@ -79,12 +94,26 @@ file sealed record AdminResolved(string Provider, string Subject);
 file sealed class RecordingAdminResolver : ApiHost::Api.Admins.ICallbackResolver
 {
     public AdminResolved? Resolved;
+    public Guid? TenantId;
+    public Guid? ObjectId;
+    public string? Email;
     public ResolveResult Result { get; set; } = ResolveResult.NotFound;
 
     public Task<ResolveResult> ResolveAtCallbackAsync(
-        SharedKernel.ProviderIdentity identity, string correlationId, CancellationToken ct)
+        SharedKernel.ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken ct)
     {
         Resolved = new AdminResolved(identity.Provider, identity.Subject);
+        return Task.FromResult(Result);
+    }
+
+    public Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+        Guid tenantId, Guid objectId, string? email, string? employeeId,
+        string correlationId, CancellationToken ct)
+    {
+        Resolved = new AdminResolved("microsoft", objectId.ToString("D"));
+        TenantId = tenantId;
+        ObjectId = objectId;
+        Email = email;
         return Task.FromResult(Result);
     }
 }
@@ -329,25 +358,49 @@ public sealed class OidcCallbackE2ETests
     }
 
     [Fact]
-    public async Task Admin_microsoft_callback_maps_canonical_email_and_ignores_other_claims()
+    public async Task Admin_microsoft_callback_uses_validated_object_id_and_keeps_email_out_of_identity()
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("sub", "pairwise"), ("oid", "not-a-guid"),
+            challenge.Nonce, ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid.ToUpperInvariant()),
             ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()), ("roles", "unrelated"),
             ("email", "  OPS@VIRIYAH.CO.TH  "));
 
         var response = await CallbackAsync(client, challenge);
 
-        Assert.Equal(new AdminResolved("microsoft", "ops@viriyah.co.th"),
+        Assert.Equal(new AdminResolved("microsoft", TestOidc.WorkforceOid),
             factory.AdminResolver.Resolved);
+        Assert.Equal(Guid.Parse(TestOidc.WorkforceTenant), factory.AdminResolver.TenantId);
+        Assert.Equal(Guid.Parse(TestOidc.WorkforceOid), factory.AdminResolver.ObjectId);
+        Assert.Equal("OPS@VIRIYAH.CO.TH", factory.AdminResolver.Email);
         Assert.Equal("not-provisioned", Reason(response));
     }
 
     [Fact]
-    // Canonical workforce email resolves existing Scoped admin through real callback pipeline.
+    public async Task Admin_microsoft_callback_without_email_uses_the_tuple_and_never_falls_back_to_username()
+    {
+        using var factory = new OidcE2EFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(
+            TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+            ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid), ("tid", TestOidc.WorkforceTenant),
+            ("preferred_username", "mutable@outside.example"));
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal(new AdminResolved(User.MicrosoftProvider, TestOidc.WorkforceOid),
+            factory.AdminResolver.Resolved);
+        Assert.Equal(Guid.Parse(TestOidc.WorkforceTenant), factory.AdminResolver.TenantId);
+        Assert.Equal(Guid.Parse(TestOidc.WorkforceOid), factory.AdminResolver.ObjectId);
+        Assert.Null(factory.AdminResolver.Email);
+        Assert.Equal("not-provisioned", Reason(response));
+    }
+
+    [Fact]
+    // Exact workforce tuple resolves existing Scoped admin through real callback pipeline.
     public async Task Admin_microsoft_callback_resolves_existing_scoped_admin_and_creates_a_session()
     {
         var adminId = Guid.Parse("f5ebca84-4997-4a5d-b26b-6818f94f08f8");
@@ -364,14 +417,14 @@ public sealed class OidcCallbackE2ETests
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(
             TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
             ("sub", pairwiseSubject), ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()),
-            ("email", "employee@viriyah.co.th"));
+            ("oid", TestOidc.WorkforceOid), ("email", "employee@viriyah.co.th"));
 
         var response = await CallbackAsync(client, challenge);
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         Assert.Equal("https://localhost:3001/dashboard", response.Headers.Location?.ToString());
         Assert.Equal(new AdminResolved(
-            User.MicrosoftProvider, "employee@viriyah.co.th"),
+            User.MicrosoftProvider, TestOidc.WorkforceOid),
             factory.AdminResolver.Resolved);
         var session = Assert.Single(factory.AdminSessions.Added);
         Assert.Equal(adminId, session.AdminUserId);
@@ -407,7 +460,7 @@ public sealed class OidcCallbackE2ETests
         Assert.Null(factory.UserResolver.Resolved); // hard-fail BEFORE any resolution
     }
 
-    // ---- fixed workforce tenant/canonical-email gate through middleware ----
+    // ---- fixed workforce tenant-aware identity gate through middleware ----
 
     [Fact]
     public async Task Admin_microsoft_requires_tid_even_when_the_optional_allowlist_is_empty()
@@ -416,7 +469,8 @@ public sealed class OidcCallbackE2ETests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("sub", "pairwise"), ("email", "ops@viriyah.co.th"));
+            challenge.Nonce, ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid),
+            ("email", "ops@viriyah.co.th"));
 
         var response = await CallbackAsync(client, challenge);
 
@@ -433,7 +487,7 @@ public sealed class OidcCallbackE2ETests
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
             challenge.Nonce,
             ("tid", "bbbbbbbb-0000-0000-0000-000000000000"),
-            ("email", "ops@viriyah.co.th"));
+            ("oid", TestOidc.WorkforceOid), ("email", "ops@viriyah.co.th"));
 
         var response = await CallbackAsync(client, challenge);
 
@@ -444,7 +498,10 @@ public sealed class OidcCallbackE2ETests
     [Theory]
     [InlineData("tid", "not-a-uuid")]
     [InlineData("tid", "00000000-0000-0000-0000-000000000000")]
-    public async Task Admin_microsoft_rejects_invalid_or_empty_tenant_claim(
+    [InlineData("oid", null)]
+    [InlineData("oid", "not-a-uuid")]
+    [InlineData("oid", "00000000-0000-0000-0000-000000000000")]
+    public async Task Admin_microsoft_rejects_invalid_or_empty_tuple_claim(
         string claimType, string? invalidValue)
     {
         using var factory = new OidcE2EFactory();
@@ -453,6 +510,7 @@ public sealed class OidcCallbackE2ETests
         var claims = new Dictionary<string, string>
         {
             ["tid"] = TestOidc.WorkforceTenant,
+            ["oid"] = TestOidc.WorkforceOid,
             ["email"] = "ops@viriyah.co.th",
         };
         if (invalidValue is null)
@@ -469,7 +527,66 @@ public sealed class OidcCallbackE2ETests
         Assert.Null(factory.AdminResolver.Resolved);
     }
 
-    // ---- issuer validation (REQ-1.4/6.3) ----
+    // ---- framework token/protocol validation ----
+
+    [Theory]
+    [InlineData("audience")]
+    [InlineData("nonce")]
+    [InlineData("lifetime")]
+    [InlineData("signature")]
+    public async Task Admin_microsoft_rejects_unvalidated_tokens_before_resolution_or_session(string invalidPart)
+    {
+        using var factory = new OidcE2EFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        var claims = new[]
+        {
+            ("tid", TestOidc.WorkforceTenant),
+            ("oid", TestOidc.WorkforceOid),
+            ("email", "private@example.com"),
+        };
+
+        factory.Backchannel.IdToken = invalidPart switch
+        {
+            "audience" => TestOidc.CreateIdToken(
+                TestOidc.WorkforceIssuer, "wrong-audience", challenge.Nonce, claims),
+            "nonce" => TestOidc.CreateIdToken(
+                TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, "wrong-nonce", claims),
+            "lifetime" => TestOidc.CreateIdToken(
+                TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+                TestOidc.SigningKey, DateTime.UtcNow.AddMinutes(-10), DateTime.UtcNow.AddMinutes(-5), claims),
+            "signature" => CreateTokenWithUntrustedKey(challenge.Nonce, claims),
+            _ => throw new InvalidOperationException("Unknown validation case."),
+        };
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal("auth-failed", Reason(response));
+        Assert.Null(factory.AdminResolver.Resolved);
+        Assert.Empty(factory.AdminSessions.Added);
+        var denied = Assert.Single(factory.AdminAuthAudits.Appended);
+        Assert.Equal(AuthEventType.AuthDenied, denied.EventType);
+        Assert.Null(denied.Subject);
+    }
+
+    [Fact]
+    public async Task Admin_microsoft_invalid_issuer_uses_the_workforce_denial_reason()
+    {
+        using var factory = new OidcE2EFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(
+            "https://login.microsoftonline.com/bbbbbbbb-0000-4000-8000-000000000000/v2.0",
+            OidcE2EFactory.AdminMicrosoftClient,
+            challenge.Nonce,
+            ("tid", TestOidc.WorkforceTenant), ("oid", TestOidc.WorkforceOid));
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal("workforce-access-denied", Reason(response));
+        Assert.Null(factory.AdminResolver.Resolved);
+        Assert.Empty(factory.AdminSessions.Added);
+    }
 
     [Fact]
     public async Task A_token_from_a_different_tenant_than_the_pinned_authority_is_rejected()
@@ -507,29 +624,47 @@ public sealed class OidcCallbackE2ETests
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var challenge = await StartAsync(client, "/api/v1/merchants/auth/google/login", "/api/v1/merchants/auth/google/callback");
-        factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.GoogleIssuer, OidcE2EFactory.MerchantGoogleClient,
-            challenge.Nonce, ("sub", "any"), ("email", "x@example.com"), ("email_verified", "true"));
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(
+            TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+            ("tid", TestOidc.WorkforceTenant), ("oid", TestOidc.WorkforceOid));
 
         var response = await CallbackAsync(client, challenge, overrideState: "forged-state-value");
 
         Assert.Equal("auth-failed", Reason(response));
-        Assert.Null(factory.UserResolver.Resolved);
+        Assert.Null(factory.AdminResolver.Resolved);
+        Assert.Empty(factory.AdminSessions.Added);
     }
 
     [Fact]
-    public async Task A_workforce_token_without_corporate_email_maps_to_access_denied()
+    public async Task A_code_exchange_failure_maps_to_auth_failed_before_resolution()
+    {
+        using var factory = new OidcE2EFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        factory.Backchannel.Status = HttpStatusCode.BadRequest;
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal("auth-failed", Reason(response));
+        Assert.Null(factory.AdminResolver.Resolved);
+        Assert.Empty(factory.AdminSessions.Added);
+    }
+
+    [Fact]
+    public async Task A_workforce_token_with_non_corporate_email_still_resolves_by_object_id()
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("tid", TestOidc.WorkforceTenant), ("email", "x@example.com"));
+            challenge.Nonce, ("sub", "pairwise"), ("tid", TestOidc.WorkforceTenant),
+            ("oid", TestOidc.WorkforceOid), ("email", "x@example.com"));
 
         var response = await CallbackAsync(client, challenge);
 
-        Assert.Equal("workforce-access-denied", Reason(response));
-        Assert.Null(factory.AdminResolver.Resolved);
+        Assert.Equal("not-provisioned", Reason(response));
+        Assert.Equal(new AdminResolved("microsoft", TestOidc.WorkforceOid), factory.AdminResolver.Resolved);
     }
 
     [Theory]
@@ -544,7 +679,7 @@ public sealed class OidcCallbackE2ETests
         var claims = new List<(string Type, string Value)>
         {
             ("sub", "pairwise"), ("tid", TestOidc.WorkforceTenant),
-            ("email", "ops@viriyah.co.th"),
+            ("oid", TestOidc.WorkforceOid), ("email", "ops@viriyah.co.th"),
         };
         if (role is not null)
             claims.Add(("roles", role));
@@ -555,6 +690,21 @@ public sealed class OidcCallbackE2ETests
         var response = await CallbackAsync(client, challenge);
 
         Assert.Equal("not-provisioned", Reason(response));
-        Assert.Equal(new AdminResolved("microsoft", "ops@viriyah.co.th"), factory.AdminResolver.Resolved);
+        Assert.Equal(new AdminResolved("microsoft", TestOidc.WorkforceOid), factory.AdminResolver.Resolved);
+    }
+
+    private static string CreateTokenWithUntrustedKey(
+        string nonce, params (string Type, string Value)[] claims)
+    {
+        using var rsa = RSA.Create(2048);
+        var key = new RsaSecurityKey(rsa) { KeyId = "untrusted-e2e-key" };
+        return TestOidc.CreateIdToken(
+            TestOidc.WorkforceIssuer,
+            OidcE2EFactory.AdminMicrosoftClient,
+            nonce,
+            key,
+            DateTime.UtcNow.AddMinutes(-1),
+            DateTime.UtcNow.AddMinutes(5),
+            claims);
     }
 }

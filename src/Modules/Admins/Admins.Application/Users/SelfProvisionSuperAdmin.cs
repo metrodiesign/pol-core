@@ -41,6 +41,9 @@ public sealed class SelfProvisionSuperHandler : ICommandHandler<SelfProvisionSup
 
     public async ValueTask<Resolution> Handle(SelfProvisionSuperCommand command, CancellationToken cancellationToken)
     {
+        if (string.Equals(command.Identity.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities cannot use the historical bootstrap path.", nameof(command));
+
         return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             await _admins.AcquireIdentityMutationLockAsync(ct);

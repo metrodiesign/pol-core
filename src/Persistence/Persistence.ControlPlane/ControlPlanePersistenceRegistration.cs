@@ -61,6 +61,8 @@ public static class ControlPlanePersistenceRegistration
             sp.GetRequiredService<ISecurityTelemetry>(),
             sp.GetRequiredService<GovernanceSqlLockManager>()));
         services.AddScoped<IAdminIdentityRecoveryReader, ControlPlaneIdentityRecoveryReader>();
+        services.AddScoped<IEmployeeProfileReader>(sp => new EmployeeProfileReader(
+            sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ILogger<EmployeeProfileReader>>()));
         services.AddScoped<IAuditWriter>(sp => new AuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<ISessionStore>(sp => new SessionStore(
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));

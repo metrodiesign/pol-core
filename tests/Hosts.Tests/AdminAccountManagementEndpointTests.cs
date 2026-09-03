@@ -11,7 +11,7 @@ using Microsoft.Extensions.Hosting;
 namespace Hosts.Tests;
 
 /// <summary>
-/// The six admin-account-management endpoints all gate on <c>RequireAuthorization("admin")</c> (REQ-7.1): a
+/// The admin-management and pre-bound invite endpoints all gate on <c>RequireAuthorization("admin")</c> (REQ-7.1): a
 /// request with no session cookie is 401 before any permission/tier filter or handler runs. This boots the real
 /// host (no live DB needed — authorization short-circuits before the handler) and asserts 401 on each route and
 /// verb, including the unsafe POST/DELETE (auth precedes the CSRF endpoint filter).
@@ -24,6 +24,7 @@ public sealed class AdminAccountManagementEndpointTests
     public static TheoryData<string, string> UncookiedRoutes() => new()
     {
         { "GET", "/api/v1/admins" },
+        { "POST", "/api/v1/admins" },
         { "GET", $"/api/v1/admins/{Id}" },
         { "GET", $"/api/v1/admins/{Id}/effective-permissions" },
         { "GET", $"/api/v1/admins/{Id}/sessions" },

@@ -6,24 +6,18 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Admins.Application.Users;
 
-/// <summary>Resolves one canonical Tier 0 email through existing identity, binding, or roleless JIT.</summary>
-public sealed record ResolveMicrosoftAdminCommand(string CanonicalEmail, string CorrelationId)
-    : ICommand<ResolveResult>;
+/// <summary>Resolves one validated Microsoft workforce tuple. Email is optional contact data and is never queried.</summary>
+public sealed record ResolveMicrosoftAdminCommand(
+    Guid TenantId,
+    Guid ObjectId,
+    string? Email,
+    string? EmployeeId,
+    string CorrelationId) : ICommand<ResolveResult>;
 
-public static class Tier0CandidatePolicy
+/// <summary>Thrown inside the keyed Admin transaction so identity, profile and audit writes roll back together.</summary>
+public sealed class EmployeeProfileDeniedException(ResolveResult result) : Exception("Employee profile resolution was denied.")
 {
-    public static bool HasExactEmailOwnership(User account, string canonicalEmail) =>
-        WorkforceEmail.TryCanonicalize(account.Email, out var stored)
-        && string.Equals(stored, canonicalEmail, StringComparison.Ordinal)
-        && string.Equals(account.WorkforceEmailKey, canonicalEmail, StringComparison.Ordinal);
-
-    public static bool HasExactMicrosoftIdentity(User account, string canonicalEmail) =>
-        string.Equals(account.Provider, User.MicrosoftProvider, StringComparison.Ordinal)
-        && string.Equals(account.Subject, canonicalEmail, StringComparison.Ordinal);
-
-    public static bool IsExactResolvedOwner(User account, string canonicalEmail) =>
-        HasExactMicrosoftIdentity(account, canonicalEmail)
-        && HasExactEmailOwnership(account, canonicalEmail);
+    public ResolveResult Result { get; } = result;
 }
 
 public sealed class ResolveMicrosoftAdminHandler :
@@ -33,6 +27,7 @@ public sealed class ResolveMicrosoftAdminHandler :
     private readonly IRoleRepository _roles;
     private readonly IAuditWriter _audit;
     private readonly IAdminIdentityRecoveryReader _recovery;
+    private readonly IEmployeeProfileReader _profiles;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
@@ -41,6 +36,7 @@ public sealed class ResolveMicrosoftAdminHandler :
         IRoleRepository roles,
         IAuditWriter audit,
         IAdminIdentityRecoveryReader recovery,
+        IEmployeeProfileReader profiles,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -48,6 +44,7 @@ public sealed class ResolveMicrosoftAdminHandler :
         _roles = roles;
         _audit = audit;
         _recovery = recovery;
+        _profiles = profiles;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
@@ -55,62 +52,102 @@ public sealed class ResolveMicrosoftAdminHandler :
     public async ValueTask<ResolveResult> Handle(
         ResolveMicrosoftAdminCommand command, CancellationToken cancellationToken)
     {
-        if (!WorkforceEmail.TryCanonicalize(command.CanonicalEmail, out var canonicalEmail))
-            throw new ArgumentException("A valid corporate email is required.", nameof(command));
+        if (command.TenantId == Guid.Empty)
+            throw new ArgumentException("A non-empty workforce tenant ID is required.", nameof(command));
+        if (command.ObjectId == Guid.Empty)
+            throw new ArgumentException("A non-empty Microsoft object ID is required.", nameof(command));
         ArgumentException.ThrowIfNullOrWhiteSpace(command.CorrelationId);
+
+        var email = AdminContactEmail.TryNormalize(command.Email, out var normalizedEmail)
+            ? normalizedEmail
+            : null;
+        var normalized = command with { Email = email };
 
         try
         {
-            return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
-            {
-                await _admins.AcquireIdentityMutationLockAsync(ct);
-                var candidates = await _admins.ListTier0CandidatesAsync(canonicalEmail, ct);
-                if (candidates.Count > 1)
-                    return ResolveResult.IdentityConflict;
-
-                if (candidates.Count == 0)
-                    return await CreateAsync(canonicalEmail, command.CorrelationId, ct);
-
-                var account = candidates[0];
-                var emailOwner = Tier0CandidatePolicy.HasExactEmailOwnership(account, canonicalEmail);
-                var identityOwner = Tier0CandidatePolicy.HasExactMicrosoftIdentity(account, canonicalEmail);
-                if (!emailOwner)
-                    return ResolveResult.IdentityConflict;
-
-                if (account.Status == UserStatus.Suspended)
-                    return ResolveResult.Suspended;
-
-                if (identityOwner)
-                    return await ResolveAsync(account, ct);
-                if (account.Subject is not null)
-                    return ResolveResult.IdentityConflict;
-
-                account.BindSubject(User.MicrosoftProvider, canonicalEmail);
-                var now = _clock.UtcNow;
-                _audit.Append(Audit.For(
-                    AuditAction.MicrosoftEmailBind, account.Id, command.CorrelationId, now,
-                    targetAdminId: account.Id));
-                await _unitOfWork.SaveChangesAsync(ct);
-                return await ResolveAsync(account, ct);
-            }, cancellationToken);
+            return await RunAsync(normalized, cancellationToken);
+        }
+        catch (EmployeeProfileDeniedException denied)
+        {
+            return denied.Result;
+        }
+        catch (ConflictException) when (command.EmployeeId is null)
+        {
+            return await _recovery.ResolveAfterConflictAsync(
+                command.TenantId, command.ObjectId, cancellationToken);
         }
         catch (ConflictException)
         {
-            return await _recovery.ResolveAfterConflictAsync(canonicalEmail, cancellationToken);
+            try
+            {
+                return await RunAsync(normalized, cancellationToken);
+            }
+            catch (EmployeeProfileDeniedException denied)
+            {
+                return denied.Result;
+            }
+            catch (ConflictException)
+            {
+                return ResolveResult.EmployeeConflict(ResolveResult.EmployeeTakenReason);
+            }
         }
     }
 
-    private async Task<ResolveResult> CreateAsync(
-        string canonicalEmail, string correlationId, CancellationToken cancellationToken)
+    private Task<ResolveResult> RunAsync(
+        ResolveMicrosoftAdminCommand command, CancellationToken cancellationToken) =>
+        _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            await _admins.AcquireIdentityMutationLockAsync(ct);
+            var account = await _admins.GetByMicrosoftIdentityAsync(command.TenantId, command.ObjectId, ct);
+            var now = _clock.UtcNow;
+            if (account is null)
+            {
+                account = User.JitProvisionMicrosoft(command.TenantId, command.ObjectId, command.Email, now);
+                _admins.Add(account);
+                _audit.Append(Audit.For(
+                    AuditAction.JitProvision, account.Id, command.CorrelationId, now, targetAdminId: account.Id));
+            }
+            else if (account.Status == UserStatus.Suspended)
+            {
+                return ResolveResult.Suspended;
+            }
+
+            if (command.EmployeeId is not null)
+                await ApplyEmployeeProfileAsync(account, command.EmployeeId, command.CorrelationId, now, ct);
+
+            await _unitOfWork.SaveChangesAsync(ct);
+            return await ResolveAsync(account, ct);
+        }, cancellationToken);
+
+    private async Task ApplyEmployeeProfileAsync(
+        User account, string employeeId, string correlationId, DateTime now, CancellationToken cancellationToken)
     {
-        var now = _clock.UtcNow;
-        var account = User.JitProvisionMicrosoft(canonicalEmail, now);
-        _admins.Add(account);
-        _audit.Append(Audit.For(
-            AuditAction.JitProvision, account.Id, correlationId, now,
-            targetAdminId: account.Id));
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return await ResolveAsync(account, cancellationToken);
+        if (account.EmployeeId is not null && !string.Equals(account.EmployeeId, employeeId, StringComparison.Ordinal))
+            throw new EmployeeProfileDeniedException(ResolveResult.EmployeeConflict(ResolveResult.EmployeeMismatchReason));
+
+        if (await _admins.GetByEmployeeIdAsync(employeeId, account.Id, cancellationToken) is not null)
+            throw new EmployeeProfileDeniedException(ResolveResult.EmployeeConflict(ResolveResult.EmployeeTakenReason));
+
+        var lookup = await _profiles.LookupAsync(employeeId, cancellationToken);
+        if (lookup.Status != EmployeeProfileStatus.Found)
+            throw new EmployeeProfileDeniedException(lookup.Status switch
+            {
+                EmployeeProfileStatus.Missing => ResolveResult.EmployeeProfileMissing,
+                EmployeeProfileStatus.Invalid => ResolveResult.EmployeeProfileInvalid,
+                EmployeeProfileStatus.Unmapped => ResolveResult.EmployeeProfileUnmapped,
+                EmployeeProfileStatus.SourceUnavailable => ResolveResult.HrSourceUnavailable,
+                _ => throw new InvalidOperationException($"Unexpected employee profile status {lookup.Status}."),
+            });
+
+        var profile = lookup.Profile!;
+        if (!profile.OfficeActive && profile.OfficeId != account.OfficeId
+            || !profile.DivisionActive && profile.DivisionId != account.DivisionId)
+            throw new EmployeeProfileDeniedException(ResolveResult.EmployeeProfileUnmapped);
+
+        var firstBind = account.EmployeeId is null;
+        account.ApplyEmployeeProfile(employeeId, profile.FirstName, profile.LastName, profile.OfficeId, profile.DivisionId);
+        if (firstBind)
+            _audit.Append(Audit.For(AuditAction.EmployeeBind, account.Id, correlationId, now, targetAdminId: account.Id));
     }
 
     private async Task<ResolveResult> ResolveAsync(User account, CancellationToken cancellationToken)
@@ -120,7 +157,7 @@ public sealed class ResolveMicrosoftAdminHandler :
         return ResolveResult.Of(new Resolution(account.Id, account.Email, account.Tier, accessible)
         {
             Permissions = permissions,
-            AuthorizationVersion = account.AuthorizationVersion
+            AuthorizationVersion = account.AuthorizationVersion,
         });
     }
 }

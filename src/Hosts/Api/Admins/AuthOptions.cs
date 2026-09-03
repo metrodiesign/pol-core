@@ -14,6 +14,10 @@ internal sealed class AdminAuthOptions
     public string ErrorPath { get; init; } = "/login-error";
 
     public Dictionary<string, OidcProviderOptions> Providers { get; init; } = [];
+
+    /// <summary>Microsoft Graph origin for the employee-profile lookup (tier0-graph-employee-profile REQ-11.1);
+    /// tests point it at a fake handler's origin.</summary>
+    public string GraphBaseUrl { get; init; } = "https://graph.microsoft.com";
 }
 
 /// <summary>

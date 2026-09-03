@@ -7,13 +7,12 @@ using SharedKernel;
 namespace Admins.Application.Users;
 
 /// <summary>
-/// First-login binding for an invited Scoped admin (REQ-3.5). If an <see cref="User"/> with an unbound
-/// subject exists for the caller's verified email, bind the Google subject and resolve it. Returns
+/// Historical non-Microsoft first-login binding for an invited Scoped admin (REQ-3.5). If an <see cref="User"/>
+/// with an unbound subject exists for the caller's verified email, bind the Google subject and resolve it. Returns
 /// <see cref="ResolveOutcome.NotFound"/> when there is no matching invite (the host then falls through to
 /// the allowlist bootstrap), and <see cref="ResolveOutcome.Suspended"/> when the invite was suspended
 /// before first login (the subject is still bound so future logins resolve by subject, but access is denied —
-/// REQ-5.6). Checked BEFORE allowlist self-provision so an invited email never collides with the unique Email
-/// index.
+/// REQ-5.6). Microsoft identities are rejected before this email-based historical path.
 /// </summary>
 public sealed record BindInvitedCommand(ProviderIdentity Identity, string Email, string CorrelationId)
     : ICommand<ResolveResult>;
@@ -33,6 +32,9 @@ public sealed class BindInvitedHandler : ICommandHandler<BindInvitedCommand, Res
 
     public async ValueTask<ResolveResult> Handle(BindInvitedCommand command, CancellationToken cancellationToken)
     {
+        if (string.Equals(command.Identity.Provider, User.MicrosoftProvider, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Microsoft identities cannot use the historical invite-bind path.", nameof(command));
+
         return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             await _admins.AcquireIdentityMutationLockAsync(ct);

@@ -1,19 +1,19 @@
 using System.Security.Claims;
 using Admins.Domain.Users;
-using SharedKernel;
 
 namespace Api.Admins;
 
-/// <summary>Validated Microsoft workforce claims used only by the Admin callback.</summary>
+/// <summary>Validated tenant-aware Microsoft claims retained only for the current callback request.</summary>
 internal sealed record MicrosoftWorkforceClaims(
     Guid TenantId,
-    string CanonicalEmail)
+    Guid ObjectId,
+    string? Email,
+    string? EmployeeId = null)
 {
-    public ProviderIdentity Identity =>
-        new(User.MicrosoftProvider, CanonicalEmail);
+    public string Subject => ObjectId.ToString("D");
 }
 
-/// <summary>Pure policy gate for the fixed Admin workforce contract.</summary>
+/// <summary>Pure policy gate entered only after framework token and protocol validation succeeds.</summary>
 internal static class MicrosoftWorkforceClaimsValidator
 {
     internal const string ContextItemKey = "admin.microsoft.workforce-claims";
@@ -24,18 +24,20 @@ internal static class MicrosoftWorkforceClaimsValidator
         out MicrosoftWorkforceClaims claims)
     {
         claims = null!;
-        if (configuredTenant is not { } tenant || tenant == Guid.Empty || principal is null)
-            return false;
-
-        if (!TrySingleUuid(principal, "tid", out var tokenTenant)
+        if (configuredTenant is not { } tenant || tenant == Guid.Empty || principal is null
+            || !TrySingleUuid(principal, "tid", out var tokenTenant)
             || tokenTenant != tenant
-            || !TrySelectIdentifier(principal, out var identifier)
-            || !WorkforceEmail.TryCanonicalize(identifier, out var canonicalEmail))
+            || !TrySingleUuid(principal, "oid", out var objectId))
         {
             return false;
         }
 
-        claims = new MicrosoftWorkforceClaims(tokenTenant, canonicalEmail);
+        var emailClaims = principal.FindAll("email").ToArray();
+        var email = emailClaims.Length == 1
+            && AdminContactEmail.TryNormalize(emailClaims[0].Value, out var normalized)
+                ? normalized
+                : null;
+        claims = new MicrosoftWorkforceClaims(tokenTenant, objectId, email);
         return true;
     }
 
@@ -47,29 +49,6 @@ internal static class MicrosoftWorkforceClaimsValidator
             && Guid.TryParse(values[0].Value, out value)
             && value != Guid.Empty;
     }
-
-    private static bool TrySelectIdentifier(ClaimsPrincipal principal, out string identifier)
-    {
-        identifier = string.Empty;
-        var emails = principal.FindAll("email").ToArray();
-        if (emails.Length > 1)
-            return false;
-
-        if (emails.Length == 1)
-        {
-            // An email claim is authoritative for selection. Do not fall back when its policy fails.
-            identifier = emails[0].Value;
-            return true;
-        }
-
-        var preferredUsernames = principal.FindAll("preferred_username").ToArray();
-        if (preferredUsernames.Length != 1)
-            return false;
-
-        identifier = preferredUsernames[0].Value;
-        return true;
-    }
-
 }
 
 internal sealed class MicrosoftWorkforcePolicyException : Exception { }
@@ -82,7 +61,17 @@ internal static class MicrosoftOidcFailureClassifier
         httpContext.Items[PolicyFailureItemKey] = true;
 
     public static string BrowserReason(HttpContext httpContext, Exception? failure) =>
-        IsPolicyFailure(httpContext, failure) ? "workforce-access-denied" : "auth-failed";
+        Find<EmployeeProfileException>(failure)?.Reason
+        ?? (IsPolicyFailure(httpContext, failure) ? "workforce-access-denied" : "auth-failed");
+
+    private static T? Find<T>(Exception? exception)
+        where T : Exception
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is T match)
+                return match;
+        return null;
+    }
 
     private static bool IsPolicyFailure(HttpContext httpContext, Exception? failure) =>
         httpContext.Items.TryGetValue(PolicyFailureItemKey, out var marker) && marker is true

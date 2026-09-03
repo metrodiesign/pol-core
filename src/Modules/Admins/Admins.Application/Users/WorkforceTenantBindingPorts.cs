@@ -4,4 +4,5 @@ namespace Admins.Application.Users;
 public interface IWorkforceTenantBindingStore
 {
     Task EnsureAsync(Guid configuredTenantId, CancellationToken cancellationToken);
+    Task<Guid> GetRequiredTenantIdAsync(CancellationToken cancellationToken);
 }

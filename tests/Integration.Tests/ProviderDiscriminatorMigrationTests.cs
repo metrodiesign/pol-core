@@ -72,10 +72,19 @@ public sealed class ProviderDiscriminatorMigrationTests
                     """)));
                 Assert.NotNull(await IntegrationDb.ScalarAsync(verify,
                     "SELECT OBJECT_ID(N'FK_RegistrationAudits_Users_TargetUserId', N'F');"));
-                // REQ-4.6: composite unique indexes replaced the subject-only ones (admin one filtered).
+                // The historical provider discriminator remains, while migration HEAD extends Admin ownership
+                // to the tenant-aware triple. The final Admin index stays filtered on bound subjects.
+                Assert.Equal("Provider,TenantId,Subject", Convert.ToString(await IntegrationDb.ScalarAsync(verify, """
+                    SELECT STRING_AGG(c.name, ',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                    FROM sys.indexes i
+                    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+                    JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                    WHERE i.object_id = OBJECT_ID(N'admin.Users')
+                      AND i.name = N'IX_Users_Provider_TenantId_Subject' AND ic.key_ordinal > 0;
+                    """)));
                 Assert.Contains("[Subject] IS NOT NULL", Convert.ToString(await IntegrationDb.ScalarAsync(verify, """
                     SELECT filter_definition FROM sys.indexes
-                    WHERE object_id = OBJECT_ID(N'admin.Users') AND name = N'IX_Users_Provider_Subject';
+                    WHERE object_id = OBJECT_ID(N'admin.Users') AND name = N'IX_Users_Provider_TenantId_Subject';
                     """)));
             }
 
