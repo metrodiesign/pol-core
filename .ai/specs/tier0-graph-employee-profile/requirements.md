@@ -8,7 +8,7 @@
 ฟีเจอร์นี้ต่อยอด Tier 0 Microsoft workforce login (`tier-0-microsoft-canonical-email`) ให้ Admin
 Console รู้จักพนักงานเป็นตัวตนในองค์กร ไม่ใช่แค่ corporate email โดยหลัง OIDC callback ผ่าน
 workforce gate แล้ว ระบบเรียก Microsoft Graph `GET /v1.0/me?$select=employeeId` ด้วย access token
-ชั่วคราว นำ `employeeId` ไปค้น HR source แบบ read-only (`cfg.VibEmp`, `cfg.branch`) แล้ว map ชื่อไทย,
+ชั่วคราว นำ `employeeId` ไปค้น HR source แบบ read-only (`dbo.VibEmp`, `dbo.branch`) แล้ว map ชื่อไทย,
 สถานที่ปฏิบัติงาน และฝ่าย เข้า `admin.Users` เป็น canonical GUID FK ที่มีอยู่แล้ว (`OfficeId`,
 `DivisionId`) พร้อมคอลัมน์ใหม่ `EmployeeId`, `FirstName`, `LastName`
 
@@ -25,14 +25,14 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - Tier 0 Admin Microsoft OIDC callback เท่านั้น
 - Graph request เดียว: `GET /v1.0/me?$select=employeeId` ด้วย delegated permission `User.Read`
 - Admin domain, application, persistence และ EF migration สำหรับ `EmployeeId`, `FirstName`, `LastName`
-- read-only lookup บน `cfg.VibEmp` และ `cfg.branch`
+- read-only lookup บน `dbo.VibEmp` และ `dbo.branch`
 - canonical mapping จาก legacy key ไป `cfg.Offices.Id` และ `cfg.Divisions.Id`
 - unit, host E2E, SQL integration tests, `.env.example`, OIDC setup และ runbook
 
 ### Out
 
 - Tier 1 Merchant Microsoft/Google auth และ UI ใน `pol-admin`
-- import, แก้ไข หรือ sync ข้อมูลใน `cfg.VibEmp`/`cfg.branch` และ background HR synchronization
+- import, แก้ไข หรือ sync ข้อมูลใน `dbo.VibEmp`/`dbo.branch` และ background HR synchronization
 - Graph field อื่นนอกจาก `employeeId`
 - เปลี่ยน Tier, role, permission, MerchantAccess จากข้อมูล Microsoft หรือ HR
 - ใช้ `employeeId` แทน identity key ปัจจุบัน
@@ -46,16 +46,16 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 
 | ข้อเท็จจริง | ค่าที่พบ | ผลต่อ requirement |
 |---|---|---|
-| `cfg.VibEmp.EmpCode` | `nvarchar(100)` NOT NULL, 17,884 แถว distinct ครบ, ยาวสุด 7 ตัว, ไม่มี whitespace | REQ-3 ใช้ exact match หลัง trim ได้ |
-| `cfg.VibEmp.FirstNameTh`/`LastNameTh` | `nvarchar(1000)` nullable, ไม่พบค่าว่าง, ยาวสุด 21/19 ตัว | REQ-3.6 รองรับความยาวมากกว่า 500 ได้โดยไม่ตัด |
-| `cfg.VibEmp.und_brcode` | `varchar(3)` nullable — ว่าง 180 แถว, ตรง `cfg.branch.br_code` 12,167, ไม่ตรง 5,537 | REQ-4 fail closed จะปิดพนักงานราว 32% ของ source local |
-| `cfg.branch.br_code` | `char(3)` NOT NULL, 125 แถว distinct ครบ, 124 แถวเป็นเลข 3 หลัก | REQ-4 ต้องเทียบแบบ trim trailing space ของ `char` |
-| `cfg.branch.active_row` | ค่าเป็น `A` 120 แถว และ `C` 5 แถว (ไม่ใช่ Y/N) | ดู Open Question Q4 |
-| `cfg.VibEmp.DivisionID` | `nvarchar(100)` nullable — ว่าง 12,169 จาก 17,884 แถว (68%), 563 ค่า distinct | ไม่ใช้ (Q2 ตัดสินแล้ว, REQ-5.13) |
-| `cfg.VibEmp.DepartmentID` | 183 ค่า distinct | division source key ตาม REQ-5.1 |
-| `cfg.VibEmp.status_code` | `0` 10,927 / `1` 6,520 / `2` 130 / `3` 307 | ไม่ใช้ (Q5 ตัดสินแล้ว, REQ-3.17) |
+| `dbo.VibEmp.EmpCode` | `nvarchar(100)` NOT NULL, 17,884 แถว distinct ครบ, ยาวสุด 7 ตัว, ไม่มี whitespace | REQ-3 ใช้ exact match หลัง trim ได้ |
+| `dbo.VibEmp.FirstNameTh`/`LastNameTh` | `nvarchar(1000)` nullable, ไม่พบค่าว่าง, ยาวสุด 21/19 ตัว | REQ-3.6 รองรับความยาวมากกว่า 500 ได้โดยไม่ตัด |
+| `dbo.VibEmp.und_brcode` | `varchar(3)` nullable — ว่าง 180 แถว, ตรง `dbo.branch.br_code` 12,167, ไม่ตรง 5,537 | REQ-4 fail closed จะปิดพนักงานราว 32% ของ source local |
+| `dbo.branch.br_code` | `char(3)` NOT NULL, 125 แถว distinct ครบ, 124 แถวเป็นเลข 3 หลัก | REQ-4 ต้องเทียบแบบ trim trailing space ของ `char` |
+| `dbo.branch.active_row` | ค่าเป็น `A` 120 แถว และ `C` 5 แถว (ไม่ใช่ Y/N) | ดู Open Question Q4 |
+| `dbo.VibEmp.DivisionID` | `nvarchar(100)` nullable — ว่าง 12,169 จาก 17,884 แถว (68%), 563 ค่า distinct | ไม่ใช้ (Q2 ตัดสินแล้ว, REQ-5.13) |
+| `dbo.VibEmp.DepartmentID` | 183 ค่า distinct | division source key ตาม REQ-5.1 |
+| `dbo.VibEmp.status_code` | `0` 10,927 / `1` 6,520 / `2` 130 / `3` 307 | ไม่ใช้ (Q5 ตัดสินแล้ว, REQ-3.17) |
 | `cfg.Offices`/`cfg.Divisions` | seed baseline 8/10 แถว, `Code` ไม่ตรง `br_code`/`DivisionID` แม้แต่แถวเดียว | REQ-4/5 ต้องมี explicit mapping ไม่ใช่ match by code |
-| `cfg.VibEmp`/`cfg.branch` ใน repo | ไม่อยู่ใน EF model หรือ migration chain, โหลด one-shot บน local | ดู Open Question Q1 |
+| `dbo.VibEmp`/`dbo.branch` ใน repo | ไม่อยู่ใน EF model หรือ migration chain, โหลด one-shot บน local | ดู Open Question Q1 |
 
 ## REQ-1: Microsoft Graph employeeId acquisition
 
@@ -118,23 +118,23 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 
 **Acceptance Criteria (EARS):**
 
-- 3.1 WHEN `employeeId` ผ่าน validation THE SYSTEM SHALL ค้น `cfg.VibEmp` ด้วยเงื่อนไข `EmpCode = @employeeId` แบบ parameterized
+- 3.1 WHEN `employeeId` ผ่าน validation THE SYSTEM SHALL ค้น `dbo.VibEmp` ด้วยเงื่อนไข `EmpCode = @employeeId` แบบ parameterized
 - 3.2 THE SYSTEM SHALL เทียบ `EmpCode` กับ normalized `employeeId` (2.16) แบบ equality ตาม collation default ของ database หลัง trim ทั้งสองฝั่ง
 - 3.3 THE SYSTEM SHALL ไม่ทำ pattern match, prefix match หรือ padding บน `EmpCode`
-- 3.4 IF `cfg.VibEmp` คืน 0 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-missing`
-- 3.5 IF `cfg.VibEmp` คืนมากกว่า 1 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
+- 3.4 IF `dbo.VibEmp` คืน 0 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-missing`
+- 3.5 IF `dbo.VibEmp` คืนมากกว่า 1 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
 - 3.6 WHEN พบ VibEmp row เดียว THE SYSTEM SHALL กำหนด `FirstName = Trim(FirstNameTh)`
 - 3.7 WHEN พบ VibEmp row เดียว THE SYSTEM SHALL กำหนด `LastName = Trim(LastNameTh)`
 - 3.8 THE SYSTEM SHALL เก็บ `FirstName` และ `LastName` เป็น `nvarchar` ความยาวอย่างน้อย 500 โดยไม่ตัดหรือแปลงตัวอักษรไทย
 - 3.9 IF `FirstNameTh` เป็น NULL หรือว่างหลัง trim THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
 - 3.10 IF `LastNameTh` เป็น NULL หรือว่างหลัง trim THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
-- 3.11 THE SYSTEM SHALL อ่าน `cfg.VibEmp` แบบ read-only โดยไม่มี INSERT, UPDATE หรือ DELETE ต่อตารางนี้ใน code path ใด
-- 3.12 THE SYSTEM SHALL อ่านเฉพาะคอลัมน์ `EmpCode`, `FirstNameTh`, `LastNameTh`, `und_brcode` และ `DepartmentID` จาก `cfg.VibEmp`
+- 3.11 THE SYSTEM SHALL อ่าน `dbo.VibEmp` แบบ read-only โดยไม่มี INSERT, UPDATE หรือ DELETE ต่อตารางนี้ใน code path ใด
+- 3.12 THE SYSTEM SHALL อ่านเฉพาะคอลัมน์ `EmpCode`, `FirstNameTh`, `LastNameTh`, `und_brcode` และ `DepartmentID` จาก `dbo.VibEmp`
 - 3.13 WHEN Tier 0 login สำเร็จ THE SYSTEM SHALL refresh `FirstName` และ `LastName` เป็นค่าปัจจุบันจาก VibEmp ทุกครั้ง
 - 3.14 WHEN ค่า `EmployeeId`, `FirstName`, `LastName`, `OfficeId` และ `DivisionId` ที่ resolve ได้เท่ากับค่าเดิมทั้งหมด THE SYSTEM SHALL ไม่ bump `Version` ของ Admin
 - 3.15 IF `FirstNameTh` หลัง trim ยาวเกิน 500 ตัวอักษร THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
 - 3.16 IF `LastNameTh` หลัง trim ยาวเกิน 500 ตัวอักษร THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
-- 3.17 THE SYSTEM SHALL ไม่ใช้ `cfg.VibEmp.status_code`, `Status` หรือ `TerminatedDate` ในการตัดสิน Tier 0 eligibility
+- 3.17 THE SYSTEM SHALL ไม่ใช้ `dbo.VibEmp.status_code`, `Status` หรือ `TerminatedDate` ในการตัดสิน Tier 0 eligibility
 - 3.18 IF HR source query ล้มเหลว (ตารางไม่มี, permission denied หรือ SQL error) THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-unavailable`
 - 3.19 WHEN callback ถูกปฏิเสธตาม 3.18 THE SYSTEM SHALL เขียน denied-auth audit ด้วย reason ภายใน `hr-source-unavailable`
 
@@ -144,12 +144,12 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 
 **Acceptance Criteria (EARS):**
 
-- 4.1 WHEN พบ VibEmp row เดียว THE SYSTEM SHALL อ่าน legacy office source key จาก `cfg.VibEmp.und_brcode`
+- 4.1 WHEN พบ VibEmp row เดียว THE SYSTEM SHALL อ่าน legacy office source key จาก `dbo.VibEmp.und_brcode`
 - 4.2 IF `und_brcode` เป็น NULL หรือว่างหลัง trim THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-unmapped`
-- 4.3 WHEN legacy office source key มีค่า THE SYSTEM SHALL ค้น `cfg.branch` ด้วยเงื่อนไข `br_code = @key` แบบ parameterized
+- 4.3 WHEN legacy office source key มีค่า THE SYSTEM SHALL ค้น `dbo.branch` ด้วยเงื่อนไข `br_code = @key` แบบ parameterized
 - 4.4 THE SYSTEM SHALL เทียบ `br_code` กับ `und_brcode` แบบ exact หลัง trim trailing space ของ `char(3)`
-- 4.5 IF `cfg.branch` คืน 0 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-unmapped`
-- 4.6 IF `cfg.branch` คืนมากกว่า 1 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
+- 4.5 IF `dbo.branch` คืน 0 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-unmapped`
+- 4.6 IF `dbo.branch` คืนมากกว่า 1 แถว THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-invalid`
 - 4.7 WHEN พบ branch row เดียว THE SYSTEM SHALL resolve `br_code` ไป `cfg.Offices.Id` ผ่าน `cfg.Offices.LegacyKey` (REQ-6) ที่ operator ดูแล
 - 4.8 THE SYSTEM SHALL ไม่ resolve Office ด้วยการเทียบ `br_code` กับ `cfg.Offices.Code` หรือ `Name` โดยตรง
 - 4.9 IF canonical office mapping ไม่พบ THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-unmapped`
@@ -158,10 +158,10 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 4.12 THE SYSTEM SHALL ไม่เขียนค่า `br_code` หรือ string ใดลง `admin.Users.OfficeId`
 - 4.13 THE SYSTEM SHALL ไม่สร้าง Office ใหม่ระหว่าง Tier 0 login
 - 4.14 THE SYSTEM SHALL ไม่ fallback ไป Office อื่นเมื่อ mapping ไม่พบ
-- 4.15 THE SYSTEM SHALL อ่าน `cfg.branch` แบบ read-only โดยไม่มี INSERT, UPDATE หรือ DELETE ต่อตารางนี้ใน code path ใด
+- 4.15 THE SYSTEM SHALL อ่าน `dbo.branch` แบบ read-only โดยไม่มี INSERT, UPDATE หรือ DELETE ต่อตารางนี้ใน code path ใด
 - 4.16 WHEN Tier 0 login สำเร็จ THE SYSTEM SHALL refresh `OfficeId` เป็นค่าที่ resolve ได้ทุกครั้ง
 - 4.17 WHEN Office ที่ resolve ได้มี Status เป็น Inactive และ Id เท่ากับ `OfficeId` เดิมของ Admin THE SYSTEM SHALL คง `OfficeId` เดิมและ resolve ต่อ
-- 4.18 THE SYSTEM SHALL ไม่ใช้ `cfg.branch.active_row` ในการตัดสิน office mapping
+- 4.18 THE SYSTEM SHALL ไม่ใช้ `dbo.branch.active_row` ในการตัดสิน office mapping
 
 ## REQ-5: Division mapping จาก legacy division key
 
@@ -169,7 +169,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 
 **Acceptance Criteria (EARS):**
 
-- 5.1 WHEN พบ VibEmp row เดียว THE SYSTEM SHALL อ่าน legacy division source key จาก `cfg.VibEmp.DepartmentID`
+- 5.1 WHEN พบ VibEmp row เดียว THE SYSTEM SHALL อ่าน legacy division source key จาก `dbo.VibEmp.DepartmentID`
 - 5.2 IF legacy division source key เป็น NULL หรือว่างหลัง trim THEN THE SYSTEM SHALL ปฏิเสธ callback ด้วย browser reason `employee-profile-unmapped`
 - 5.3 WHEN legacy division source key มีค่า THE SYSTEM SHALL resolve key ไป `cfg.Divisions.Id` ผ่าน `cfg.Divisions.LegacyKey` (REQ-6) ที่ operator ดูแล
 - 5.4 THE SYSTEM SHALL ไม่ resolve Division ด้วยการเทียบ legacy key กับ `cfg.Divisions.Code` หรือ `Name` โดยตรง
@@ -181,7 +181,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 5.10 THE SYSTEM SHALL ไม่ fallback ไป Division อื่นเมื่อ mapping ไม่พบ
 - 5.11 WHEN Tier 0 login สำเร็จ THE SYSTEM SHALL refresh `DivisionId` เป็นค่าที่ resolve ได้ทุกครั้ง
 - 5.12 WHEN Division ที่ resolve ได้มี Status เป็น Inactive และ Id เท่ากับ `DivisionId` เดิมของ Admin THE SYSTEM SHALL คง `DivisionId` เดิมและ resolve ต่อ
-- 5.13 THE SYSTEM SHALL ไม่อ่าน `cfg.VibEmp.DivisionID` ในการ resolve Division
+- 5.13 THE SYSTEM SHALL ไม่อ่าน `dbo.VibEmp.DivisionID` ในการ resolve Division
 
 ## REQ-6: Canonical mapping data
 
@@ -192,7 +192,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 6.1 THE SYSTEM SHALL เก็บ canonical mapping เป็นคอลัมน์ `LegacyKey` `nvarchar(100)` NULL บน `cfg.Offices` และ `cfg.Divisions`
 - 6.2 THE SYSTEM SHALL บังคับให้ `LegacyKey` หนึ่งค่าชี้ master row ได้ไม่เกินหนึ่งแถวด้วย filtered unique index บนค่าที่ไม่เป็น NULL
 - 6.3 THE SYSTEM SHALL ให้ mapping อยู่บน master row เดียวกัน เพื่อให้ legacy key อ้างได้เฉพาะ Office หรือ Division ที่มีอยู่จริง
-- 6.4 THE SYSTEM SHALL ไม่ seed `LegacyKey` จากการอนุมานข้อมูล `cfg.VibEmp` หรือ `cfg.branch` ใน migration
+- 6.4 THE SYSTEM SHALL ไม่ seed `LegacyKey` จากการอนุมานข้อมูล `dbo.VibEmp` หรือ `dbo.branch` ใน migration
 - 6.5 THE SYSTEM SHALL ไม่สร้าง Office หรือ Division ใหม่จาก migration ของฟีเจอร์นี้
 - 6.6 WHEN `LegacyKey` ถูกเพิ่มหรือแก้ THE SYSTEM SHALL ให้ผลกับ login ครั้งถัดไปโดยไม่ต้อง restart
 - 6.7 THE SYSTEM SHALL เทียบ `LegacyKey` กับ legacy source key แบบ equality ตาม collation default ของ database หลัง trim ทั้งสองฝั่ง
@@ -217,7 +217,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 7.12 WHEN profile ของ Admin เดิมเปลี่ยนค่า THE SYSTEM SHALL ไม่ bump `AuthorizationVersion`
 - 7.13 WHEN profile ของ Admin เดิมเปลี่ยนค่า THE SYSTEM SHALL stamp `UpdatedAt` ใน transaction เดียวกัน
 - 7.14 THE SYSTEM SHALL ประเมิน outcome เดิมของ Tier 0 (email identity conflict, Suspended, not-provisioned) ก่อน HR lookup ตาม REQ-3, 4, 5
-- 7.15 IF outcome เดิมของ Tier 0 ไม่ใช่ resolvable THEN THE SYSTEM SHALL ไม่อ่าน `cfg.VibEmp`, `cfg.branch`, `cfg.Offices` หรือ `cfg.Divisions` สำหรับ callback นั้น
+- 7.15 IF outcome เดิมของ Tier 0 ไม่ใช่ resolvable THEN THE SYSTEM SHALL ไม่อ่าน `dbo.VibEmp`, `dbo.branch`, `cfg.Offices` หรือ `cfg.Divisions` สำหรับ callback นั้น
 - 7.16 THE SYSTEM SHALL ทำ HR lookup และ mapping resolution ภายใน transaction และ lock เดียวกับ Admin mutation
 - 7.17 WHEN HR lookup และ mapping สำเร็จ THE SYSTEM SHALL ประเมิน `EmployeeId` bind หรือ mismatch (REQ-2.6-2.10) ก่อน commit
 
@@ -233,12 +233,12 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 8.4 THE SYSTEM SHALL สร้าง unique index บน `admin.Users.EmployeeId` ที่มี filter `[EmployeeId] IS NOT NULL`
 - 8.5 THE SYSTEM SHALL คง `admin.Users.OfficeId` เป็น `uniqueidentifier` FK ไป `cfg.Offices.Id`
 - 8.6 THE SYSTEM SHALL คง `admin.Users.DivisionId` เป็น `uniqueidentifier` FK ไป `cfg.Divisions.Id`
-- 8.7 THE SYSTEM SHALL ไม่สร้าง, แก้ หรือลบ `cfg.VibEmp` และ `cfg.branch` ใน migration ใด
+- 8.7 THE SYSTEM SHALL ไม่สร้าง, แก้ หรือลบ `dbo.VibEmp` และ `dbo.branch` ใน migration ใด
 - 8.8 THE SYSTEM SHALL ไม่ backfill `EmployeeId`, `FirstName`, `LastName` ของ row เดิมใน migration
-- 8.9 WHEN migration `Down()` ทำงาน THE SYSTEM SHALL ลบเฉพาะคอลัมน์และ index ที่ฟีเจอร์นี้เพิ่ม (`admin.Users` 3 คอลัมน์, `LegacyKey` 2 คอลัมน์) โดยไม่แตะข้อมูลอื่นของ `cfg.VibEmp`, `cfg.branch`, `cfg.Offices`, `cfg.Divisions`
+- 8.9 WHEN migration `Down()` ทำงาน THE SYSTEM SHALL ลบเฉพาะคอลัมน์และ index ที่ฟีเจอร์นี้เพิ่ม (`admin.Users` 3 คอลัมน์, `LegacyKey` 2 คอลัมน์) โดยไม่แตะข้อมูลอื่นของ `dbo.VibEmp`, `dbo.branch`, `cfg.Offices`, `cfg.Divisions`
 - 8.10 THE SYSTEM SHALL ใช้ migration script ตามกฎ `check-migration-script.sh --write` ของ repo
-- 8.11 THE SYSTEM SHALL grant สิทธิ์ SELECT บน `cfg.VibEmp` และ `cfg.branch` ให้ principal `pol_app` แบบ explicit เมื่อตารางมีอยู่
-- 8.12 IF `cfg.VibEmp` หรือ `cfg.branch` ไม่มีอยู่ขณะ migration THEN THE SYSTEM SHALL ข้าม grant ของตารางนั้นโดยไม่ทำให้ migration ล้ม
+- 8.11 THE SYSTEM SHALL grant สิทธิ์ SELECT บน `dbo.VibEmp` และ `dbo.branch` ให้ principal `pol_app` แบบ explicit เมื่อตารางมีอยู่
+- 8.12 IF `dbo.VibEmp` หรือ `dbo.branch` ไม่มีอยู่ขณะ migration THEN THE SYSTEM SHALL ข้าม grant ของตารางนั้นโดยไม่ทำให้ migration ล้ม
 - 8.13 THE SYSTEM SHALL เพิ่มคอลัมน์ `cfg.Offices.LegacyKey` และ `cfg.Divisions.LegacyKey` พร้อม filtered unique index ใน migration เดียวกับ 8.1-8.4
 
 ## REQ-9: Privacy และ logging
@@ -290,7 +290,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 11.4 THE SYSTEM SHALL ระบุขั้นตอนเตรียม mapping data ของ office และ division ใน runbook
 - 11.5 THE SYSTEM SHALL ระบุ deployment order และ rollback plan ใน runbook
 - 11.6 WHERE test host ตั้ง `HttpClient` handler ทดแทนสำหรับ Graph THE SYSTEM SHALL ใช้ handler นั้นโดยไม่แตะ network จริง
-- 11.7 THE SYSTEM SHALL ให้ integration และ host E2E test fixture สร้าง `cfg.VibEmp` และ `cfg.branch` ด้วย DDL ขั้นต่ำ (เฉพาะคอลัมน์ตาม 3.12 และ `br_code`) พร้อมข้อมูลปลอมเมื่อตารางยังไม่มี
+- 11.7 THE SYSTEM SHALL ให้ integration และ host E2E test fixture สร้าง `dbo.VibEmp` และ `dbo.branch` ด้วย DDL ขั้นต่ำ (เฉพาะคอลัมน์ตาม 3.12 และ `br_code`) พร้อมข้อมูลปลอมเมื่อตารางยังไม่มี
 - 11.8 THE SYSTEM SHALL ระบุขั้นตอน operator ปลด `EmployeeId` จาก Admin เดิม (กรณีพนักงานเปลี่ยน email) เป็น SQL script ที่ user รันเองใน runbook
 
 ## REQ-12: Employee profile switch
@@ -302,7 +302,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 - 12.1 THE SYSTEM SHALL อ่าน switch จาก configuration key `AdminAuth:Providers:Microsoft:RequireEmployeeProfile` โดยมี default `false`
 - 12.2 WHILE switch ปิด THE SYSTEM SHALL ขอ OIDC scopes `openid email profile` เท่านั้น
 - 12.3 WHILE switch ปิด THE SYSTEM SHALL ไม่เรียก Microsoft Graph
-- 12.4 WHILE switch ปิด THE SYSTEM SHALL ไม่อ่าน `cfg.VibEmp` หรือ `cfg.branch`
+- 12.4 WHILE switch ปิด THE SYSTEM SHALL ไม่อ่าน `dbo.VibEmp` หรือ `dbo.branch`
 - 12.5 WHILE switch ปิด THE SYSTEM SHALL ไม่เปลี่ยน `EmployeeId`, `FirstName`, `LastName`, `OfficeId`, `DivisionId` ระหว่าง Tier 0 login
 - 12.6 WHILE switch เปิด THE SYSTEM SHALL บังคับ REQ-1 ถึง REQ-7 ทุกข้อ
 - 12.7 THE SYSTEM SHALL อ่านค่า switch ตอน boot และไม่เปลี่ยนระหว่าง process ทำงาน
@@ -314,7 +314,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 
 | ID | Assumption | Alternative | ผลถ้าเปลี่ยน |
 |---|---|---|---|
-| A1 | Graph `/me.employeeId` = `cfg.VibEmp.EmpCode` หลัง trim | Entra custom claim หรือ mapping key อื่น | REQ-1, REQ-3 |
+| A1 | Graph `/me.employeeId` = `dbo.VibEmp.EmpCode` หลัง trim | Entra custom claim หรือ mapping key อื่น | REQ-1, REQ-3 |
 | A2 | `EmployeeId` bind ครั้งแรกแล้ว immutable, ค่าอื่นภายหลัง = identity-conflict | approved employee-transfer workflow | REQ-2.6-2.15 |
 | A3 | `FirstName`, `LastName`, `OfficeId`, `DivisionId` refresh ทุก successful login | bind ครั้งแรก หรือ background sync | REQ-3.13, 4.16, 5.11 |
 | A4 | ทุก resolution failure fail closed ก่อนสร้าง session/JIT | login ต่อด้วย nullable profile | REQ-1, 3, 4, 5, 7 |
@@ -322,7 +322,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 | A6 | canonical mapping เก็บเป็นคอลัมน์ `LegacyKey` บน `cfg.Offices`/`cfg.Divisions` ที่ operator เติมเอง (ตัดสินแล้ว F3) | mapping table แยก | REQ-6, 8.9, 8.13 |
 | A7 | refresh ทุก login overwrite `OfficeId`/`DivisionId` ที่ Super เคยตั้งผ่าน `UpdateProfile` (ตัดสินแล้ว F4) | HR เป็น source เฉพาะเมื่อ field ยังว่าง | REQ-4.16, 5.11, 10.12 |
 | A8 | access token อ่านได้จาก `OnTokenValidated` (`TokenEndpointResponse`) เท่านั้น; เรียก Graph ภายใน event นั้นโดยตรง ไม่ stash token ที่ใด (ยืนยันกับ package 10.0.8 แล้ว) | stash ผ่าน `HttpContext.Items` | REQ-1.4, 1.23 |
-| A9 | production มี `cfg.VibEmp` และ `cfg.branch` schema เดียวกับ local ผ่าน replication ที่ ops ดูแล (Q1 ยังไม่มีคำตอบ) | ETL/linked server | REQ-8.11-8.12, 11.5 |
+| A9 | production มี `dbo.VibEmp` และ `dbo.branch` schema เดียวกับ local ผ่าน replication ที่ ops ดูแล (Q1 ยังไม่มีคำตอบ) | ETL/linked server | REQ-8.11-8.12, 11.5 |
 
 ### Open Questions
 
@@ -332,8 +332,8 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 |---|---|---|---|
 | Q1 | HR source บน production มาจากไหน | ยังไม่มีคำตอบ — ใช้ A9 | REQ-8.12 ข้าม grant เมื่อตารางไม่มี, REQ-12 ป้องกันล็อก |
 | Q2 | Division source key ใช้ `DivisionID` หรือ `DepartmentID` | `DepartmentID` (`DivisionID` ว่าง 68%, session 2026-08-29 ตัดสินไว้แล้ว) | REQ-3.12, 5.1, 5.13 |
-| Q3 | Office source key คง `und_brcode` → `cfg.branch` | คงตาม prompt, บันทึก 32% no-match เป็น known limitation | REQ-4.1, ตาราง facts |
-| Q4 | เช็ค `cfg.branch.active_row` | ไม่เช็ค — `cfg.Offices.Status` เป็น canonical | REQ-4.18 |
+| Q3 | Office source key คง `und_brcode` → `dbo.branch` | คงตาม prompt, บันทึก 32% no-match เป็น known limitation | REQ-4.1, ตาราง facts |
+| Q4 | เช็ค `dbo.branch.active_row` | ไม่เช็ค — `cfg.Offices.Status` เป็น canonical | REQ-4.18 |
 | Q5 | ปฏิเสธพนักงานพ้นสภาพที่ชั้นนี้ | ไม่ — Entra account disable เป็น gate | REQ-3.17 |
 | Q6 | browser reason ใหม่ 4 ค่า | คงทั้ง 4 | REQ-1, 2, 3, 4, 5 |
 | Q7 | Graph timeout | 10 วินาที | REQ-1.12 |
@@ -353,7 +353,7 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 | F9 | conflict | deploy แล้ว Tier 0 ล็อกทุกรายจน mapping พร้อม | a: switch default `false` | REQ-12, 1.1, 10.13 |
 | F10 | conflict | ชื่อยาวเกิน 500 ไม่มี behavior | a: fail `employee-profile-invalid` | 3.15, 3.16 |
 | F11 | gap | Graph 400/404/2xx อื่นไม่ครอบ | a: ทุก status ที่ไม่ใช่ 200 | 1.15 |
-| F12 | gap | test ไม่มี `cfg.VibEmp`/`cfg.branch`, grant เมื่อตารางไม่มี | a: fixture DDL ขั้นต่ำ + skip grant | 8.12, 11.7 |
+| F12 | gap | test ไม่มี `dbo.VibEmp`/`dbo.branch`, grant เมื่อตารางไม่มี | a: fixture DDL ขั้นต่ำ + skip grant | 8.12, 11.7 |
 | F13 | gap | employee เปลี่ยน email แล้ว `employeeId` ถูก bind ล็อกถาวร | a: runbook SQL script operator รันเอง | 11.8 |
 | F14 | gap | bind `EmployeeId` ไม่ bump Version, 9.8 ไม่ครอบ `UserAudits` | a: เพิ่มทั้งสาม | 2.18, 3.14, 9.8 |
 | A8 | assumption | access token อยู่เฉพาะ `OnTokenValidated` | บันทึกเป็น assumption | A8, 1.23 |
@@ -395,6 +395,6 @@ Identity key ของ Tier 0 ยังคงเป็น `(provider=microsoft, 
 
 ### Known limitations
 
-- ข้อมูล local: `und_brcode` ไม่ตรง `cfg.branch` 5,537 แถว + ว่าง 180 แถว (32%) พนักงานกลุ่มนี้ login ไม่ได้
+- ข้อมูล local: `und_brcode` ไม่ตรง `dbo.branch` 5,537 แถว + ว่าง 180 แถว (32%) พนักงานกลุ่มนี้ login ไม่ได้
   จนกว่า HR source แก้ข้อมูล (Q3 ตัดสินคงตาม prompt)
 - `LegacyKey` ต้องถูกเติมโดย operator ก่อนเปิด switch ไม่มี seed อัตโนมัติ (REQ-6.4)

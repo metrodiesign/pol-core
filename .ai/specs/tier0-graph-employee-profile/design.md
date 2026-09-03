@@ -26,19 +26,19 @@ Profile บนโค้ดปัจจุบัน: เพิ่ม Graph call �
 | Application | `ResolveOutcome` + `ResolveResult.DenialReason` | outcome ใหม่ 3 ค่า + reason ภายในสำหรับ audit | `src/Modules/Admins/Admins.Application/Users/ResolveAdmin.cs` (แก้) |
 | Application | `IUserRepository.GetByEmployeeIdAsync` | pre-check employeeId ถูก admin **รายอื่น** ถือ (ยกเว้น `Id` ตัวเอง) | `UserPorts.cs` (แก้) |
 | Application | `EmployeeProfileDeniedException` | typed exception ที่ handler throw ภายใน tx เพื่อบังคับ rollback + `ChangeTracker.Clear()` แล้ว catch นอก tx คืน `ResolveResult` | `EmployeeProfilePorts.cs` (ใหม่) |
-| Persistence | `EmployeeProfileReader` | read port บน `ControlPlaneDbContext` เดียวกับ tx: `SqlQueryRaw` + `SqlParameter` ต่อ `cfg.VibEmp`/`cfg.branch` (allowlisted), LINQ ต่อ `Offices`/`Divisions`; `SqlException` → `SourceUnavailable` | `src/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs` (ใหม่) |
+| Persistence | `EmployeeProfileReader` | read port บน `ControlPlaneDbContext` เดียวกับ tx: `SqlQueryRaw` + `SqlParameter` ต่อ `dbo.VibEmp`/`dbo.branch` (allowlisted), LINQ ต่อ `Offices`/`Divisions`; `SqlException` → `SourceUnavailable` | `src/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs` (ใหม่) |
 | Tests (แก้ตาม interface) | `RecordingAdminResolver` ใน `OidcCallbackE2ETests.cs`, fakes ใน `AdminLoginServiceTests.cs`, `AdminCallbackResolverInviteBindTests.cs`, fake `IUserRepository` ใน Admins.Tests | signature `ICallbackResolver.ResolveAtCallbackAsync(identity, employeeId, ...)` และ `IUserRepository.GetByEmployeeIdAsync` | `tests/Hosts.Tests/*`, `tests/Admins.Tests/*` (แก้) |
 | Persistence | EF config mirror ×2 | `UserConfiguration`, `OfficeConfiguration`, `DivisionConfiguration` ทั้ง migration-owner และ runtime | `Admins.Infrastructure/Persistence/Users/UserConfigurations.cs`, `Offices.Infrastructure/...`, `Divisions.Infrastructure/...`, `Persistence.ControlPlane/{Admins,Offices,Divisions}/*Configuration.cs` (แก้) |
 | Persistence | migration `Tier0EmployeeProfile` | 5 คอลัมน์ + 3 filtered unique index + conditional GRANT | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/<ts>_Tier0EmployeeProfile.cs` (ใหม่), `docker/migrations/schema.sql`, `docker/bootstrap/assert-fresh-db.sql` (แก้) |
 | Ops | `.env.example`, runbook | key ใหม่, consent, mapping, deploy order, rollback, release EmployeeId script | `.env.example`, `docs/runbooks/admin-microsoft-oidc.md` (แก้/ใหม่) |
 
-ขอบเขตที่ไม่แตะ: `MerchantAuth`, `UpdateProfile` endpoint, `PositionId`/`LevelId`, `cfg.VibEmp`/`cfg.branch` DDL
+ขอบเขตที่ไม่แตะ: `MerchantAuth`, `UpdateProfile` endpoint, `PositionId`/`LevelId`, `dbo.VibEmp`/`dbo.branch` DDL
 
 ### ทางเลือกที่ตัดทิ้ง
 
 | ทางเลือก | เหตุผลที่ตัด |
 |---|---|
-| map `cfg.VibEmp`/`cfg.branch` เป็น keyless entity ใน EF | `ModelDisjointnessTests` บังคับทุก entity ของ runtime context ต้องอยู่ใน `PolDbContext` ด้วย → ต้องเพิ่มใน migration-owner + `ExcludeFromMigrations` ซึ่งไม่มี precedent ใน repo; raw SQL port ที่ allowlist แล้วมี precedent (`WorkforceTenantBindingStore`) — ใช้เฉพาะ 2 ตารางนี้ ส่วน `Offices`/`Divisions` เป็น EF entity อยู่แล้วใช้ LINQ |
+| map `dbo.VibEmp`/`dbo.branch` เป็น keyless entity ใน EF | `ModelDisjointnessTests` บังคับทุก entity ของ runtime context ต้องอยู่ใน `PolDbContext` ด้วย → ต้องเพิ่มใน migration-owner + `ExcludeFromMigrations` ซึ่งไม่มี precedent ใน repo; raw SQL port ที่ allowlist แล้วมี precedent (`WorkforceTenantBindingStore`) — ใช้เฉพาะ 2 ตารางนี้ ส่วน `Offices`/`Divisions` เป็น EF entity อยู่แล้วใช้ LINQ |
 | `SqlQuery<T>($"...")` interpolated | regex ของ `BypassPrimitiveTests` จับเฉพาะ `.SqlQueryRaw`/`.FromSql*`/`.ExecuteSql*` — ใช้ `SqlQuery<T>` จะทำให้ allowlist entry ถูกตัดสินว่า stale (test แดง) หรือหลุด gate เงียบ; ใช้ `SqlQueryRaw` + `SqlParameter` ตาม precedent |
 | recovery reader read-only หลัง `ConflictException` (path เดิม) | ไม่ apply profile จึงขัด REQ-3.13/4.16/5.11; เมื่อ switch เปิดใช้ re-run transaction 1 ครั้งแทน (ดู Application) |
 | เรียก Graph ใน `OnTicketReceived` | `TicketReceivedContext` ไม่มี `TokenEndpointResponse`; ต้อง stash token ใน `HttpContext.Items` เพิ่ม surface โดยไม่ได้อะไร (A8) |
@@ -139,11 +139,11 @@ sequenceDiagram
 Raw SQL ท้าย `Up()` (ไม่ผ่าน EF model):
 
 ```sql
-IF OBJECT_ID(N'cfg.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.VibEmp TO pol_app');
-IF OBJECT_ID(N'cfg.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON cfg.branch TO pol_app');
+IF OBJECT_ID(N'dbo.VibEmp', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON dbo.VibEmp TO pol_app');
+IF OBJECT_ID(N'dbo.branch', N'U') IS NOT NULL EXEC(N'GRANT SELECT ON dbo.branch TO pol_app');
 ```
 
-`Down()` = `DropIndex` ×3 + `DropColumn` ×5 เท่านั้น ไม่มี statement ต่อ `cfg.VibEmp`/`cfg.branch`
+`Down()` = `DropIndex` ×3 + `DropColumn` ×5 เท่านั้น ไม่มี statement ต่อ `dbo.VibEmp`/`dbo.branch`
 (grant ที่เคยให้คงอยู่ ไม่เป็นอันตราย) หลัง `dotnet ef migrations add` ต้องรัน
 `scripts/check-migration-script.sh --write` และแก้ `docker/bootstrap/assert-fresh-db.sql` 3 จุด:
 เพิ่ม MigrationId ใน `@expectedMigrations` VALUES, เปลี่ยน `<> 21` เป็น `<> 22` (2 ที่), และข้อความ
@@ -179,7 +179,7 @@ public bool ApplyEmployeeProfile(string employeeId, string firstName, string las
 
 ```csharp
 // Offices.Domain/Office.cs และ Divisions.Domain/Division.cs
-/// legacy source key (cfg.branch.br_code / cfg.VibEmp.DepartmentID) ที่ operator เติมผ่าน SQL; ไม่มี mutator ใน code
+/// legacy source key (dbo.branch.br_code / dbo.VibEmp.DepartmentID) ที่ operator เติมผ่าน SQL; ไม่มี mutator ใน code
 public string? LegacyKey { get; private set; }
 ```
 
@@ -256,9 +256,9 @@ raw SQL 2 statement (ไฟล์เพิ่มใน `BypassPrimitiveTests.All
 ```sql
 -- 1) employee: คืน 0/1/2 แถว (TOP 2 เพื่อจับซ้ำ)
 SELECT TOP (2) FirstNameTh, LastNameTh, und_brcode, DepartmentID
-FROM cfg.VibEmp WHERE EmpCode = @employeeId;
+FROM dbo.VibEmp WHERE EmpCode = @employeeId;
 -- 2) branch: คืน 0/1/2 แถว
-SELECT TOP (2) br_code FROM cfg.branch WHERE br_code = @undBrCode;
+SELECT TOP (2) br_code FROM dbo.branch WHERE br_code = @undBrCode;
 ```
 
 ```csharp
@@ -375,7 +375,7 @@ Boot guard: ใน `ProvisioningGuards.RequireOidcProviders("AdminAuth")` เพ
 | handler | `EmployeeId` เดิมไม่ตรง | `IdentityConflict` + `employee-mismatch`; ไม่ overwrite | 2.8-2.9 |
 | handler | employeeId ถูก admin อื่นถือ | `IdentityConflict` + `employee-taken` | 2.10 |
 | handler | reader คืน Missing/Invalid/Unmapped | throw `EmployeeProfileDeniedException` → UoW rollback + `ChangeTracker.Clear()` (JIT/bind ที่ stage ไว้ถูกทิ้ง) → catch นอก tx คืน outcome | 3.4-3.5, 4.2-4.10, 5.2-5.6, 7.4-7.8 |
-| reader | `SqlException` จาก `cfg.VibEmp`/`cfg.branch` (ตารางไม่มี, ไม่มีสิทธิ์, timeout) | `SourceUnavailable` → handler throw `Denied(HrSourceUnavailable)` → browser `employee-profile-unavailable`, audit `hr-source-unavailable` | 3.18-3.19 |
+| reader | `SqlException` จาก `dbo.VibEmp`/`dbo.branch` (ตารางไม่มี, ไม่มีสิทธิ์, timeout) | `SourceUnavailable` → handler throw `Denied(HrSourceUnavailable)` → browser `employee-profile-unavailable`, audit `hr-source-unavailable` | 3.18-3.19 |
 | handler | Office/Division Inactive และต่างจากเดิม | `EmployeeProfileUnmapped` | 4.11, 5.7 |
 | handler | Office/Division Inactive แต่เท่าเดิม | คงค่า resolve ต่อ | 4.17, 5.12 |
 | `SaveChanges` | unique index `IX_Users_EmployeeId` ชน (`ConflictException` จาก UoW map SQL 2627/2601) | switch เปิด: re-run tx 1 ครั้ง → `Resolved` พร้อม profile หรือ `employee-taken`; switch ปิด: recovery เดิม | 2.12-2.13, 10.5 |
@@ -394,7 +394,7 @@ Boot guard: ใน `ProvisioningGuards.RequireOidcProviders("AdminAuth")` เพ
 | Host E2E (Hosts.Tests) | `AdminGraphEmployeeProfileE2ETests.cs` ต่อยอด `OidcCallbackE2ETests` scaffold + fake Graph handler | challenge มี/ไม่มี `User.Read` ตาม switch; 200 → resolver ได้ employeeId normalized; 401/403/429/5xx/404/timeout/malformed/missing/oversized → redirect reason ถูก, resolver ไม่ถูกเรียก, session store ว่าง, denied audit 1 รายการไม่มี PII; switch ปิด → ไม่มี Graph request | 1.1-1.23, 2.2-2.4, 9.7-9.8, 10.13, 11.6, 12.1-12.3, 12.7 |
 | Host (Hosts.Tests) | `AdminLoginServiceTests.cs` (เพิ่ม case) | outcome ใหม่ → reason + audit reason ภายใน | 2.17, 3.4-3.5 |
 | Host (Hosts.Tests) | `ConsoleConfigurationStartupTests.cs` (เพิ่ม case) | boot guard switch เปิด + ClientId ว่าง | 12.8 |
-| Integration (`Category=Integration`) | `EmployeeProfileReaderIntegrationTests.cs` — fixture (sa) สร้าง `cfg.VibEmp`/`cfg.branch` ขั้นต่ำเมื่อไม่มี **แล้ว `GRANT SELECT ... TO pol_app` ทันที**; บน dev DB ตารางมีอยู่แล้วพร้อม PII จริง จึงทุก case INSERT/DELETE เฉพาะ row ของตัวเอง (prefix `ZTEST-`, `br_code` `Z0`-`Z9`) และ assert เฉพาะ key ตัวเอง ห้ามนับแถวรวม; `LegacyKey` ตั้งบน seed office/division แล้วคืนค่า NULL ตอนจบ; reader รันด้วย `pol_app` | Found, Missing, duplicate EmpCode, blank name, name > 500, blank `und_brcode`, branch 0/2, LegacyKey 0, `DepartmentID` blank, trailing space ของ `br_code`, `DivisionID` ไม่ถูกอ่าน (แถวที่ `DivisionID` ต่างแต่ `DepartmentID` ตรงต้อง Found), HR table ไม่มีสิทธิ์ (REVOKE ชั่วคราวใน throwaway DB) → SourceUnavailable | 3.1-3.3, 3.6-3.12, 3.15-3.19, 4.1-4.8, 4.15, 4.18, 5.1-5.6, 5.13, 6.6-6.7, 7.10, 11.7 |
+| Integration (`Category=Integration`) | `EmployeeProfileReaderIntegrationTests.cs` — fixture (sa) สร้าง `dbo.VibEmp`/`dbo.branch` ขั้นต่ำเมื่อไม่มี **แล้ว `GRANT SELECT ... TO pol_app` ทันที**; บน dev DB ตารางมีอยู่แล้วพร้อม PII จริง จึงทุก case INSERT/DELETE เฉพาะ row ของตัวเอง (prefix `ZTEST-`, `br_code` `Z0`-`Z9`) และ assert เฉพาะ key ตัวเอง ห้ามนับแถวรวม; `LegacyKey` ตั้งบน seed office/division แล้วคืนค่า NULL ตอนจบ; reader รันด้วย `pol_app` | Found, Missing, duplicate EmpCode, blank name, name > 500, blank `und_brcode`, branch 0/2, LegacyKey 0, `DepartmentID` blank, trailing space ของ `br_code`, `DivisionID` ไม่ถูกอ่าน (แถวที่ `DivisionID` ต่างแต่ `DepartmentID` ตรงต้อง Found), HR table ไม่มีสิทธิ์ (REVOKE ชั่วคราวใน throwaway DB) → SourceUnavailable | 3.1-3.3, 3.6-3.12, 3.15-3.19, 4.1-4.8, 4.15, 4.18, 5.1-5.6, 5.13, 6.6-6.7, 7.10, 11.7 |
 | Integration | `Tier0EmployeeProfileTransactionTests.cs` ต่อ handler จริงบน `ControlPlaneDbContext` | commit 5 field พร้อมกัน, rollback เมื่อ Unmapped (ไม่มี user/audit ใหม่), unique index race 2 admin → conflict, UpdatedAt stamp | 2.11-2.14, 7.2-7.9, 7.13, 8.4 |
 | Integration | `Tier0EmployeeProfileMigrationTests.cs` | คอลัมน์/ชนิด/index/FK คงเดิม, `Down` ไม่แตะ HR tables, grant `pol_app` SELECT เมื่อมีตาราง | 8.1-8.13 |
 | Architecture.Tests | `BypassPrimitiveTests` allowlist เพิ่ม `EmployeeProfileReader.cs`; `Tier0WorkforceArchitectureTests` เพิ่ม `MicrosoftGraphEmployeeIdReader.cs` และ `EmployeeProfileReader.cs` เข้า file list ของ `Tier0_catch_paths_never_pass_exception_objects_to_logger`, assert ไม่มี `SaveTokens = true`, ไม่มี `Log.*(employeeId|FirstName|LastName|accessToken)`, ไม่มี assignment `EmployeeId =` นอก `User.cs` | 1.4-1.6, 2.15, 9.1-9.6 |

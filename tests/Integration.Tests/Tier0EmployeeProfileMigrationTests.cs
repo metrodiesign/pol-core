@@ -9,7 +9,7 @@ namespace Integration.Tests;
 /// tier0-graph-employee-profile task 1 (REQ-8): the Tier0EmployeeProfile migration against a real scratch database.
 /// Up adds the five nullable profile columns + three filtered unique indexes, keeps OfficeId/DivisionId as GUID FKs,
 /// grants SELECT on the HR mirror tables ONLY when they exist, and never creates them; Down removes exactly what Up
-/// added and leaves cfg.VibEmp / cfg.branch untouched.
+/// added and leaves dbo.VibEmp / dbo.branch untouched.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class Tier0EmployeeProfileMigrationTests
@@ -77,8 +77,8 @@ public sealed class Tier0EmployeeProfileMigrationTests
                 """)));
 
             // REQ-8.7 / 8.12: the migration neither creates the HR mirror tables nor fails without them.
-            Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, "SELECT OBJECT_ID(N'cfg.VibEmp', N'U');"));
-            Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, "SELECT OBJECT_ID(N'cfg.branch', N'U');"));
+            Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, "SELECT OBJECT_ID(N'dbo.VibEmp', N'U');"));
+            Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, "SELECT OBJECT_ID(N'dbo.branch', N'U');"));
 
             // REQ-8.8: no backfill.
             Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(verify,
@@ -117,10 +117,10 @@ public sealed class Tier0EmployeeProfileMigrationTests
             // Operator-loaded mirror tables exist BEFORE this migration (minimal shape; never created by any migration).
             await using (var setup = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
                 await IntegrationDb.ExecAsync(setup, """
-                    CREATE TABLE cfg.VibEmp (EmpCode nvarchar(50) NULL, FirstNameTh nvarchar(500) NULL,
+                    CREATE TABLE dbo.VibEmp (EmpCode nvarchar(50) NULL, FirstNameTh nvarchar(500) NULL,
                         LastNameTh nvarchar(500) NULL, und_brcode char(3) NULL, DepartmentID nvarchar(50) NULL);
-                    CREATE TABLE cfg.branch (br_code char(3) NULL);
-                    INSERT cfg.VibEmp (EmpCode) VALUES (N'ZTEST-KEEP');
+                    CREATE TABLE dbo.branch (br_code char(3) NULL);
+                    INSERT dbo.VibEmp (EmpCode) VALUES (N'ZTEST-KEEP');
                     """);
 
             await migrator.MigrateAsync();
@@ -132,11 +132,11 @@ public sealed class Tier0EmployeeProfileMigrationTests
                     SELECT COUNT(*) FROM sys.database_permissions p
                     JOIN sys.database_principals u ON u.principal_id = p.grantee_principal_id
                     WHERE u.name = N'pol_app' AND p.permission_name = N'SELECT' AND p.state = 'G'
-                      AND p.major_id IN (OBJECT_ID(N'cfg.VibEmp'), OBJECT_ID(N'cfg.branch'));
+                      AND p.major_id IN (OBJECT_ID(N'dbo.VibEmp'), OBJECT_ID(N'dbo.branch'));
                     """)));
                 // REQ-8.7: the mirror data is untouched by Up.
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(verify,
-                    "SELECT COUNT(*) FROM cfg.VibEmp WHERE EmpCode = N'ZTEST-KEEP';")));
+                    "SELECT COUNT(*) FROM dbo.VibEmp WHERE EmpCode = N'ZTEST-KEEP';")));
             }
 
             await migrator.MigrateAsync(PreviousMigration); // Down (REQ-8.9)
@@ -151,10 +151,10 @@ public sealed class Tier0EmployeeProfileMigrationTests
                     Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(down, $"""
                         SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'{table}') AND name = N'{column}';
                         """) ?? DBNull.Value);
-                Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'cfg.VibEmp', N'U');"));
-                Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'cfg.branch', N'U');"));
+                Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'dbo.VibEmp', N'U');"));
+                Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'dbo.branch', N'U');"));
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(down,
-                    "SELECT COUNT(*) FROM cfg.VibEmp WHERE EmpCode = N'ZTEST-KEEP';")));
+                    "SELECT COUNT(*) FROM dbo.VibEmp WHERE EmpCode = N'ZTEST-KEEP';")));
                 // Offices/Divisions seed rows survive Down (REQ-6.5 / 8.9).
                 Assert.Equal(8, Convert.ToInt32(await IntegrationDb.ScalarAsync(down, "SELECT COUNT(*) FROM cfg.Offices;")));
                 Assert.Equal(10, Convert.ToInt32(await IntegrationDb.ScalarAsync(down, "SELECT COUNT(*) FROM cfg.Divisions;")));

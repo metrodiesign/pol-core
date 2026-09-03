@@ -11,7 +11,7 @@ namespace Persistence.ControlPlane.Admins;
 
 /// <summary>
 /// tier0-graph-employee-profile task 2: the HR lookup port over the operator-loaded mirror tables
-/// <c>cfg.VibEmp</c>/<c>cfg.branch</c> (raw, read-only, NOT EF entities — ModelDisjointnessTests forbids mapping
+/// <c>dbo.VibEmp</c>/<c>dbo.branch</c> (raw, read-only, NOT EF entities — ModelDisjointnessTests forbids mapping
 /// them) plus <c>cfg.Offices</c>/<c>cfg.Divisions</c> by <c>LegacyKey</c> (normal EF queries). Every statement is
 /// parameterised (REQ-7.10); only the REQ-3.12 columns are read; nothing here writes. A <see cref="SqlException"/>
 /// from the mirror tables (208 invalid object, 229 permission denied, timeout, ...) becomes
@@ -43,7 +43,7 @@ internal sealed class EmployeeProfileReader(ControlPlaneDbContext db, ILogger<Em
         var rows = await db.Database.SqlQueryRaw<VibEmpRow>(
                 """
                 SELECT TOP (2) FirstNameTh, LastNameTh, und_brcode, DepartmentID
-                FROM cfg.VibEmp WHERE EmpCode = @employeeId;
+                FROM dbo.VibEmp WHERE EmpCode = @employeeId;
                 """,
                 new SqlParameter("@employeeId", SqlDbType.NVarChar, 16) { Value = employeeId })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -54,7 +54,7 @@ internal sealed class EmployeeProfileReader(ControlPlaneDbContext db, ILogger<Em
     {
         // REQ-4.3/4.4/4.18: exact br_code equality (char(3) trailing-space insensitive), active_row ignored.
         var rows = await db.Database.SqlQueryRaw<string>(
-                "SELECT TOP (2) br_code AS [Value] FROM cfg.branch WHERE br_code = @branchCode;",
+                "SELECT TOP (2) br_code AS [Value] FROM dbo.branch WHERE br_code = @branchCode;",
                 new SqlParameter("@branchCode", SqlDbType.NVarChar, 100) { Value = branchCode })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         return rows.Count;

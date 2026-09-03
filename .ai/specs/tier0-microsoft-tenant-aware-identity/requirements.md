@@ -411,7 +411,7 @@ runtime sourceใด
 - 7.11 THE SYSTEM SHALL sync `docker/migrations/schema.sql` กับ migration HEAD
 - 7.12 THE SYSTEM SHALL sync fresh-database bootstrap assertions กับ migration HEAD
 - 7.13 THE SYSTEM SHALL คง existing profile columns, indexes และ FKs ของ employee-profile work เดิม
-- 7.14 THE SYSTEM SHALL ไม่เปลี่ยนข้อมูลใน `cfg.VibEmp` หรือ `cfg.branch`
+- 7.14 THE SYSTEM SHALL ไม่เปลี่ยนข้อมูลใน `dbo.VibEmp` หรือ `dbo.branch`
 - 7.15 THE SYSTEM SHALL ไม่เปลี่ยนข้อมูลใน `cfg.Offices` หรือ `cfg.Divisions` ระหว่าง identity migration
 - 7.16 THE SYSTEM SHALL require production backup ก่อน apply identity migration
 - 7.17 WHILE schema ถูก apply แต่ offline mapping ยังไม่ complete THE SYSTEM SHALL ห้าม Admin Microsoft application instance รับ traffic

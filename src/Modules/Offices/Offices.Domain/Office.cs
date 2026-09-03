@@ -20,7 +20,7 @@ public sealed class Office : AggregateRoot<Guid>
     public OfficeStatus Status { get; private set; }
     public long Version { get; private set; }
 
-    /// <summary>Legacy source key (<c>cfg.branch.br_code</c>) an operator maps via SQL (tier0-graph-employee-profile
+    /// <summary>Legacy source key (<c>dbo.branch.br_code</c>) an operator maps via SQL (tier0-graph-employee-profile
     /// REQ-6); NULL = unmapped. No mutator in code by design — filtered unique in <c>cfg.Offices</c>.</summary>
     public string? LegacyKey { get; private set; }
 

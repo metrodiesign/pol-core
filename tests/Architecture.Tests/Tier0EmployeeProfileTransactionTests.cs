@@ -61,7 +61,7 @@ public sealed class Tier0EmployeeProfileTransactionTests
                 + "(SELECT COUNT(*) FROM admin.MerchantAccess WHERE AdminUserId = @id);", ("@id", adminId))));
         }
 
-        await database.ExecuteAsync("UPDATE cfg.VibEmp SET FirstNameTh = N'สมหญิง' WHERE EmpCode = N'ZTEST-T1';");
+        await database.ExecuteAsync("UPDATE dbo.VibEmp SET FirstNameTh = N'สมหญิง' WHERE EmpCode = N'ZTEST-T1';");
         var second = await database.ResolveAsync(
             ObjectId, "renamed@example.com", "ZTEST-T1", "corr-2", SecondLogin);
 
@@ -122,7 +122,7 @@ public sealed class Tier0EmployeeProfileTransactionTests
         }
 
         await database.ExecuteAsync(
-            "UPDATE cfg.VibEmp SET FirstNameTh = N'ห้ามบันทึก', und_brcode = N'Z99' WHERE EmpCode = N'ZTEST-T2';");
+            "UPDATE dbo.VibEmp SET FirstNameTh = N'ห้ามบันทึก', und_brcode = N'Z99' WHERE EmpCode = N'ZTEST-T2';");
         var denied = await database.ResolveAsync(
             existingObjectId, "changed@example.com", "ZTEST-T2", "corr-denied", SecondLogin);
 
@@ -362,14 +362,14 @@ public sealed class Tier0EmployeeProfileTransactionTests
             await database.MigrateAsync();
             await database.ExecuteAsync(
                 """
-                CREATE TABLE cfg.VibEmp (
+                CREATE TABLE dbo.VibEmp (
                     EmpCode nvarchar(50) NULL,
                     FirstNameTh nvarchar(500) NULL,
                     LastNameTh nvarchar(500) NULL,
                     und_brcode char(3) NULL,
                     DepartmentID nvarchar(50) NULL);
-                CREATE TABLE cfg.branch (br_code char(3) NULL);
-                INSERT cfg.branch (br_code) VALUES ('Z01');
+                CREATE TABLE dbo.branch (br_code char(3) NULL);
+                INSERT dbo.branch (br_code) VALUES ('Z01');
                 """);
 
             var output = new StringWriter();
@@ -402,7 +402,7 @@ public sealed class Tier0EmployeeProfileTransactionTests
         public Task SeedHrAsync(string employeeId, string first, string last, string branchCode = "Z01") =>
             ExecuteAsync(
                 """
-                INSERT cfg.VibEmp (EmpCode, FirstNameTh, LastNameTh, und_brcode, DepartmentID)
+                INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh, und_brcode, DepartmentID)
                 VALUES (@employeeId, @first, @last, @branchCode, N'ZD1');
                 """,
                 ("@employeeId", employeeId), ("@first", first), ("@last", last), ("@branchCode", branchCode));
