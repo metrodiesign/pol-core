@@ -109,8 +109,7 @@ internal static class OidcAuthentication
         options.Scope.Add("openid");
         options.Scope.Add("email");
         options.Scope.Add("profile");            // required for Entra oid; email remains best-effort contact data
-        if (oidc.RequireEmployeeProfile)
-            options.Scope.Add("User.Read");      // Graph /me employeeId only (tier0-graph-employee-profile REQ-1.1/1.2)
+        options.Scope.Add("User.Read");          // mandatory Graph /me employeeId on every new Admin callback
 
         options.TokenValidationParameters.ValidateIssuer = true;
         // The library default skew (5 min) is generous for short-lived id_tokens; servers run NTP — 2 min covers real drift.
@@ -121,6 +120,16 @@ internal static class OidcAuthentication
 
         options.Events = new OpenIdConnectEvents
         {
+            // Provider-side consent failures arrive before token validation. Classify only the exact protocol error
+            // code; never inspect error_description, AADSTS text or exception messages. access_denied remains the
+            // framework's distinct user-cancel path in OnAccessDenied.
+            OnMessageReceived = context =>
+            {
+                if (string.Equals(context.ProtocolMessage.Error, "consent_required", StringComparison.Ordinal))
+                    MicrosoftOidcFailureClassifier.MarkEmployeeProfileUnavailable(context.HttpContext);
+                return Task.CompletedTask;
+            },
+
             // The workforce gate runs after signature/issuer/audience/nonce/lifetime validation. It stores one typed
             // result in request state so the ticket hook never reparses mutable claims.
             OnTokenValidated = async context =>
@@ -133,32 +142,28 @@ internal static class OidcAuthentication
                     return;
                 }
 
-                // tier0-graph-employee-profile REQ-1.7-1.11, 1.23: with the switch on, Graph is read HERE — after
-                // every token and workforce gate, before any DB access — with the code-exchange access token that
-                // exists only on this event (SaveTokens stays false; nothing is persisted). Failure -> deny.
-                if (oidc.RequireEmployeeProfile)
+                // Graph is mandatory HERE — after every token and workforce gate, before any DB access — with the
+                // code-exchange access token that exists only on this event. SaveTokens remains false.
+                try
                 {
-                    try
+                    var accessToken = context.TokenEndpointResponse?.AccessToken;
+                    if (string.IsNullOrEmpty(accessToken))
+                        throw new EmployeeProfileException(EmployeeProfileException.Unavailable);
+                    var reader = context.HttpContext.RequestServices.GetRequiredService<MicrosoftGraphEmployeeIdReader>();
+                    var raw = await reader.ReadAsync(
+                        accessToken, context.HttpContext.TraceIdentifier, context.HttpContext.RequestAborted);
+                    claims = EmployeeIdPolicy.TryNormalize(raw, out var employeeId) switch
                     {
-                        var accessToken = context.TokenEndpointResponse?.AccessToken;
-                        if (string.IsNullOrEmpty(accessToken))
-                            throw new EmployeeProfileException(EmployeeProfileException.Unavailable); // REQ-1.4
-                        var reader = context.HttpContext.RequestServices.GetRequiredService<MicrosoftGraphEmployeeIdReader>();
-                        var raw = await reader.ReadAsync(
-                            accessToken, context.HttpContext.TraceIdentifier, context.HttpContext.RequestAborted);
-                        claims = EmployeeIdPolicy.TryNormalize(raw, out var employeeId) switch
-                        {
-                            EmployeeIdCheck.Ok => claims with { EmployeeId = employeeId },
-                            EmployeeIdCheck.Missing =>
-                                throw new EmployeeProfileException(EmployeeProfileException.Missing),  // REQ-2.2
-                            _ => throw new EmployeeProfileException(EmployeeProfileException.Invalid), // REQ-2.3/2.4
-                        };
-                    }
-                    catch (EmployeeProfileException failure)
-                    {
-                        context.Fail(failure);
-                        return;
-                    }
+                        EmployeeIdCheck.Ok => claims with { EmployeeId = employeeId },
+                        EmployeeIdCheck.Missing =>
+                            throw new EmployeeProfileException(EmployeeProfileException.Missing),
+                        _ => throw new EmployeeProfileException(EmployeeProfileException.Invalid),
+                    };
+                }
+                catch (EmployeeProfileException failure)
+                {
+                    context.Fail(failure);
+                    return;
                 }
 
                 context.HttpContext.Items[MicrosoftWorkforceClaimsValidator.ContextItemKey] = claims;

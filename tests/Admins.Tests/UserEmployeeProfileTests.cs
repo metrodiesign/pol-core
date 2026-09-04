@@ -2,91 +2,89 @@ using Admins.Domain.Users;
 
 namespace Admins.Tests;
 
-/// <summary>tier0-graph-employee-profile: <see cref="User.ApplyEmployeeProfile"/> is the single writer of
-/// EmployeeId/FirstName/LastName and refreshes OfficeId/DivisionId (REQ-2.6-2.9, 2.18, 3.13-3.14, 4.16, 5.11,
-/// 7.11-7.12, 10.7).</summary>
 public sealed class UserEmployeeProfileTests
 {
-    private static readonly DateTime Now = new(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
-    private static readonly Guid Office = Guid.NewGuid();
-    private static readonly Guid Division = Guid.NewGuid();
+    private static readonly DateTime Now = new(2026, 9, 3, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly Guid Position = Guid.Parse("10000000-0000-4000-8000-000000000001");
+    private static readonly Guid Office = Guid.Parse("20000000-0000-4000-8000-000000000001");
+    private static readonly Guid Level = Guid.Parse("30000000-0000-4000-8000-000000000001");
+    private static readonly Guid Division = Guid.Parse("40000000-0000-4000-8000-000000000001");
 
-    private static User NewMicrosoft() => User.JitProvisionMicrosoft(
-        Guid.Parse("11111111-1111-4111-8111-111111111111"), Guid.NewGuid(), "employee@viriyah.co.th", Now);
+    private static User NewMicrosoft() => User.CreateScopedMicrosoft(
+        Guid.Parse("11111111-1111-4111-8111-111111111111"),
+        Guid.Parse("22222222-2222-4222-8222-222222222222"),
+        "synthetic@example.test",
+        Now,
+        Position,
+        Office,
+        Level,
+        Division);
 
     [Fact]
-    public void First_apply_binds_employee_id_and_bumps_version_only()
+    public void First_apply_binds_three_fields_and_bumps_only_resource_version()
     {
         var user = NewMicrosoft();
         var version = user.Version;
         var authz = user.AuthorizationVersion;
 
-        var changed = user.ApplyEmployeeProfile("E001", "สมชาย", "ใจดี", Office, Division);
+        var change = user.ApplyEmployeeProfile("E001", "ชื่อทดสอบ", "นามสกุลทดสอบ");
 
-        Assert.True(changed);
+        Assert.Equal(new EmployeeProfileChange(true, true, true), change);
         Assert.Equal("E001", user.EmployeeId);
-        Assert.Equal("สมชาย", user.FirstName);
-        Assert.Equal("ใจดี", user.LastName);
-        Assert.Equal(Office, user.OfficeId);
-        Assert.Equal(Division, user.DivisionId);
+        Assert.Equal("ชื่อทดสอบ", user.FirstName);
+        Assert.Equal("นามสกุลทดสอบ", user.LastName);
         Assert.Equal(version + 1, user.Version);
         Assert.Equal(authz, user.AuthorizationVersion);
+        AssertOrgFields(user);
     }
 
     [Fact]
-    public void Identical_profile_does_not_bump_version()
+    public void Identical_profile_is_a_no_op()
     {
         var user = NewMicrosoft();
-        user.ApplyEmployeeProfile("E001", "สมชาย", "ใจดี", Office, Division);
+        user.ApplyEmployeeProfile("E001", "ชื่อทดสอบ", "นามสกุลทดสอบ");
         var version = user.Version;
 
-        Assert.False(user.ApplyEmployeeProfile("E001", "สมชาย", "ใจดี", Office, Division));
+        var change = user.ApplyEmployeeProfile("E001", "ชื่อทดสอบ", "นามสกุลทดสอบ");
+
+        Assert.Equal(new EmployeeProfileChange(false, false, false), change);
         Assert.Equal(version, user.Version);
+        AssertOrgFields(user);
     }
 
     [Fact]
-    public void Changed_name_or_office_refreshes_and_bumps_version()
+    public void Changed_name_refreshes_names_once_without_org_or_authorization_change()
     {
         var user = NewMicrosoft();
-        user.ApplyEmployeeProfile("E001", "สมชาย", "ใจดี", Office, Division);
+        user.ApplyEmployeeProfile("E001", "ชื่อเดิม", "นามสกุลเดิม");
         var version = user.Version;
-        var otherOffice = Guid.NewGuid();
+        var authz = user.AuthorizationVersion;
 
-        Assert.True(user.ApplyEmployeeProfile("E001", "สมหญิง", "ใจดี", otherOffice, Division));
-        Assert.Equal("สมหญิง", user.FirstName);
-        Assert.Equal(otherOffice, user.OfficeId);
-        Assert.Equal("E001", user.EmployeeId);
+        var change = user.ApplyEmployeeProfile("E001", "ชื่อใหม่", "นามสกุลเดิม");
+
+        Assert.Equal(new EmployeeProfileChange(true, false, true), change);
+        Assert.Equal("ชื่อใหม่", user.FirstName);
+        Assert.Equal("นามสกุลเดิม", user.LastName);
         Assert.Equal(version + 1, user.Version);
+        Assert.Equal(authz, user.AuthorizationVersion);
+        AssertOrgFields(user);
     }
 
     [Fact]
     public void Different_bound_employee_id_throws_and_keeps_everything()
     {
         var user = NewMicrosoft();
-        user.ApplyEmployeeProfile("E001", "สมชาย", "ใจดี", Office, Division);
+        user.ApplyEmployeeProfile("E001", "ชื่อเดิม", "นามสกุลเดิม");
         var version = user.Version;
 
         Assert.Throws<InvalidOperationException>(() =>
-            user.ApplyEmployeeProfile("E002", "อื่น", "อื่น", Guid.NewGuid(), Guid.NewGuid()));
+            user.ApplyEmployeeProfile("E002", "ชื่ออื่น", "นามสกุลอื่น"));
+
         Assert.Equal("E001", user.EmployeeId);
-        Assert.Equal("สมชาย", user.FirstName);
-        Assert.Equal(Office, user.OfficeId);
+        Assert.Equal("ชื่อเดิม", user.FirstName);
+        Assert.Equal("นามสกุลเดิม", user.LastName);
         Assert.Equal(version, user.Version);
-    }
-
-    [Fact]
-    public void Position_and_level_are_untouched()
-    {
-        var position = Guid.NewGuid();
-        var level = Guid.NewGuid();
-        var user = User.CreateScoped("employee@viriyah.co.th", Now, position, Guid.NewGuid(), level, Guid.NewGuid());
-
-        user.ApplyEmployeeProfile("E001", "สมชาย", "ใจดี", Office, Division);
-
-        Assert.Equal(position, user.PositionId);
-        Assert.Equal(level, user.LevelId);
-        Assert.Equal(Office, user.OfficeId);
-        Assert.Equal(Division, user.DivisionId);
+        AssertOrgFields(user);
     }
 
     [Theory]
@@ -97,6 +95,14 @@ public sealed class UserEmployeeProfileTests
     {
         var user = NewMicrosoft();
         Assert.Throws<ArgumentException>(() =>
-            user.ApplyEmployeeProfile(employeeId, firstName, lastName, Office, Division));
+            user.ApplyEmployeeProfile(employeeId, firstName, lastName));
+    }
+
+    private static void AssertOrgFields(User user)
+    {
+        Assert.Equal(Position, user.PositionId);
+        Assert.Equal(Office, user.OfficeId);
+        Assert.Equal(Level, user.LevelId);
+        Assert.Equal(Division, user.DivisionId);
     }
 }

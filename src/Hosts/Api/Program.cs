@@ -3691,6 +3691,11 @@ internal static class ProvisioningGuards
     /// Admin provider, so enabling it is a deployment error rather than a fallback.</summary>
     public static void RequireWorkforceAdminProvider(IConfiguration configuration)
     {
+        var graphBaseUrl = configuration["AdminAuth:GraphBaseUrl"] ?? "https://graph.microsoft.com";
+        if (!string.Equals(graphBaseUrl, "https://graph.microsoft.com", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "AdminAuth:GraphBaseUrl must be https://graph.microsoft.com in Production.");
+
         var providers = configuration.GetSection("AdminAuth:Providers").GetChildren().ToArray();
         var google = providers.FirstOrDefault(provider =>
             string.Equals(provider.Key, "Google", StringComparison.OrdinalIgnoreCase));

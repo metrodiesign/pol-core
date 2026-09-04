@@ -19,7 +19,7 @@ public sealed record ResolveQuery(ProviderIdentity Identity) : IQuery<ResolveRes
 public enum ResolveOutcome
 {
     Resolved, Suspended, NotFound, IdentityConflict,
-    EmployeeProfileMissing, EmployeeProfileInvalid, EmployeeProfileUnmapped, EmployeeProfileUnavailable
+    EmployeeProfileMissing, EmployeeProfileInvalid, EmployeeProfileUnavailable
 }
 
 /// <summary>An active admin's identity + reach, materialized once per request into <c>IAdminScope</c>.</summary>
@@ -51,7 +51,6 @@ public sealed record ResolveResult(ResolveOutcome Outcome, Resolution? Resolutio
     public static readonly ResolveResult IdentityConflict = new(ResolveOutcome.IdentityConflict, null);
     public static readonly ResolveResult EmployeeProfileMissing = new(ResolveOutcome.EmployeeProfileMissing, null);
     public static readonly ResolveResult EmployeeProfileInvalid = new(ResolveOutcome.EmployeeProfileInvalid, null);
-    public static readonly ResolveResult EmployeeProfileUnmapped = new(ResolveOutcome.EmployeeProfileUnmapped, null);
     public static readonly ResolveResult HrSourceUnavailable =
         new(ResolveOutcome.EmployeeProfileUnavailable, null, HrSourceUnavailableReason);
     public static ResolveResult EmployeeConflict(string reason) => new(ResolveOutcome.IdentityConflict, null, reason);

@@ -99,6 +99,7 @@ public sealed class ResolveMicrosoftAdminHandler :
         {
             await _admins.AcquireIdentityMutationLockAsync(ct);
             var account = await _admins.GetByMicrosoftIdentityAsync(command.TenantId, command.ObjectId, ct);
+            var wasExisting = account is not null;
             var now = _clock.UtcNow;
             if (account is null)
             {
@@ -113,14 +114,20 @@ public sealed class ResolveMicrosoftAdminHandler :
             }
 
             if (command.EmployeeId is not null)
-                await ApplyEmployeeProfileAsync(account, command.EmployeeId, command.CorrelationId, now, ct);
+                await ApplyEmployeeProfileAsync(
+                    account, wasExisting, command.EmployeeId, command.CorrelationId, now, ct);
 
             await _unitOfWork.SaveChangesAsync(ct);
             return await ResolveAsync(account, ct);
         }, cancellationToken);
 
     private async Task ApplyEmployeeProfileAsync(
-        User account, string employeeId, string correlationId, DateTime now, CancellationToken cancellationToken)
+        User account,
+        bool wasExisting,
+        string employeeId,
+        string correlationId,
+        DateTime now,
+        CancellationToken cancellationToken)
     {
         if (account.EmployeeId is not null && !string.Equals(account.EmployeeId, employeeId, StringComparison.Ordinal))
             throw new EmployeeProfileDeniedException(ResolveResult.EmployeeConflict(ResolveResult.EmployeeMismatchReason));
@@ -134,20 +141,17 @@ public sealed class ResolveMicrosoftAdminHandler :
             {
                 EmployeeProfileStatus.Missing => ResolveResult.EmployeeProfileMissing,
                 EmployeeProfileStatus.Invalid => ResolveResult.EmployeeProfileInvalid,
-                EmployeeProfileStatus.Unmapped => ResolveResult.EmployeeProfileUnmapped,
                 EmployeeProfileStatus.SourceUnavailable => ResolveResult.HrSourceUnavailable,
                 _ => throw new InvalidOperationException($"Unexpected employee profile status {lookup.Status}."),
             });
 
         var profile = lookup.Profile!;
-        if (!profile.OfficeActive && profile.OfficeId != account.OfficeId
-            || !profile.DivisionActive && profile.DivisionId != account.DivisionId)
-            throw new EmployeeProfileDeniedException(ResolveResult.EmployeeProfileUnmapped);
-
-        var firstBind = account.EmployeeId is null;
-        account.ApplyEmployeeProfile(employeeId, profile.FirstName, profile.LastName, profile.OfficeId, profile.DivisionId);
-        if (firstBind)
+        var change = account.ApplyEmployeeProfile(employeeId, profile.FirstName, profile.LastName);
+        if (change.EmployeeBound)
             _audit.Append(Audit.For(AuditAction.EmployeeBind, account.Id, correlationId, now, targetAdminId: account.Id));
+        if (wasExisting && change.NamesChanged)
+            _audit.Append(Audit.For(
+                AuditAction.EmployeeProfileSync, account.Id, correlationId, now, targetAdminId: account.Id));
     }
 
     private async Task<ResolveResult> ResolveAsync(User account, CancellationToken cancellationToken)

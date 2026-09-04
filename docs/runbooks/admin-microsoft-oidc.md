@@ -40,11 +40,9 @@ Google/Microsoft ใช้ configuration, scheme, cookie และ behavior ข�
 |---|---|
 | Admin provider prefix | `AdminAuth:Providers:Microsoft` |
 | callback | `/api/v1/admins/auth/microsoft/callback` |
-| profile switch | `AdminAuth:Providers:Microsoft:RequireEmployeeProfile` หรือ `ADMIN_REQUIRE_EMPLOYEE_PROFILE`; default `false` |
-| Graph base URL | `AdminAuth:GraphBaseUrl`; default `https://graph.microsoft.com` |
-| Graph permission เมื่อเปิด switch | delegated `User.Read` |
-| scopes เมื่อปิด switch | `openid email profile` |
-| scopes เมื่อเปิด switch | `openid email profile User.Read` |
+| Graph base URL | `AdminAuth:GraphBaseUrl`; Production pin `https://graph.microsoft.com` |
+| Graph permission | delegated `User.Read`; mandatory |
+| authorization scopes | `openid email profile User.Read` |
 | profile migration | `20260830172117_Tier0EmployeeProfile` |
 | identity migration | `20260902133906_Tier0MicrosoftTenantAwareIdentity` |
 
@@ -61,84 +59,81 @@ Production boot ต้อง fail เมื่อ Microsoft provider ไม่�
 3. ตั้ง tenant-pinned Authority ตามข้อ 1
 4. ใช้ Conditional Access, MFA และ Enterprise Application assignment เป็น access policy ฝั่ง Entra
 5. ไม่สร้าง App Role เพื่อ map Tier หรือ permission
-6. ถ้าเปิด employee profile ให้เพิ่ม delegated `User.Read` และ grant admin consent
+6. เพิ่ม delegated `User.Read` และ grant admin consentก่อนเปิด Admin login traffic
 7. ตรวจว่า directory object ID จาก authoritative export ตรงกับ token claim `oid`; ห้าม derive จาก Email
-8. ถ้าเปิด employee profile ให้ตรวจว่า `employeeId` ถูก sync และตรง HR mirror หลัง normalization
+8. ตรวจว่า `employeeId` ถูก sync และตรง HR mirrorหลัง normalization
 
-หาก `User.Read` ยังไม่ consent ขณะ switch เปิด Graph จะปฏิเสธ request, login จบด้วย
-`employee-profile-unavailable`, ไม่มี User/profile/session success write และมี generic denied-auth audit เท่านั้น
+หากไม่มี effective `User.Read`, Graph `401/403`, access tokenหาย หรือ providerคืน exact `consent_required`, loginจบด้วย
+`employee-profile-unavailable` ไม่มี User/profile/session success writeและมี generic denied-auth auditเท่านั้น Userยกเลิก
+loginด้วย `access_denied`ยังได้ `access-denied` ระบบไม่ parse `error_description`, AADSTSหรือ exception message
 
 ## 4. Employee-profile flow
 
-เมื่อ switch เปิด ระบบใช้ access token แบบ transient ใน validated callback เพื่อเรียก:
+ทุก Admin Microsoft OIDC callbackใหม่ที่ protocolและ workforce validationผ่านใช้ access tokenแบบ transientเพื่อเรียก:
 
 ```http
 GET /v1.0/me?$select=employeeId
 ```
 
-access token ไม่ถูก persist จากนั้นระบบ normalize `employeeId`, อ่าน HR mirror (`dbo.VibEmp`, `dbo.branch`) และ map
-`cfg.Offices.LegacyKey`/`cfg.Divisions.LegacyKey` แล้ว commit User identity/profile/success audits ตาม transaction
-contract
+access token ไม่ถูก persist จากนั้นระบบ normalize `employeeId` และ query `dbo.VibEmp` ด้วย exact parameterized
+`EmpCode` match โดยอ่านเฉพาะ `EmpCode`, `FirstNameTh`, `LastNameTh` แล้ว commit identity, profileและ `UserAudits`
+ตาม transaction contract Existing Admin session requestและ session rotationไม่ใช่ OIDC callbackใหม่ จึงไม่เรียก Graph
 
-เมื่อ switch ปิด:
-
-- ไม่เรียก Graph
-- ไม่อ่าน HR
-- ไม่แตะ profile
-- exact tenant-aware identity/JIT/session flow ยังคงทำงาน ไม่ใช่ legacy Email flow
-
-กฎ profile เดิมยังคงอยู่:
+กฎ profile:
 
 - `EmployeeId` เป็น profile attribute ไม่ใช่ identity key และ unique แบบ global ใน runtime single tenant ปัจจุบัน
-- `FirstName`, `LastName`, `OfficeId`, `DivisionId` refresh เมื่อข้อมูล valid และเปลี่ยนจริง
-- `PositionId` และ `LevelId` ไม่ถูก Graph/HR flow เปลี่ยน
-- profile-only change bump `Version` แต่ไม่ bump `AuthorizationVersion`
-- HR/Graph/mapping/mismatch/taken failure rollback JIT/profile/success audits และไม่สร้าง session
+- `FirstName` และ `LastName` refreshเมื่อ HR value validและเปลี่ยนจริง
+- no-opไม่ bump `Version`, ไม่ stamp `UpdatedAt`และไม่ append profile audit
+- name change bump `Version`หนึ่งครั้ง, stamp `UpdatedAt`, append `employee-profile-sync` และไม่ bump `AuthorizationVersion`
+- `PositionId`, `OfficeId`, `LevelId`, `DivisionId`, Tier, rolesและ `MerchantAccess`ไม่ถูกอ่านหรือเปลี่ยน
+- Graph/HR/mismatch/taken failure rollback JIT/profile/success auditsและไม่สร้าง session
 
-## 5. เตรียม `LegacyKey`
+## 5. เตรียม read-only HR source
 
-migration ไม่ seed mapping Operator ต้องเติม mapping จาก HR source ของ environment เอง ห้าม copy production value ลง
-repository
+`dbo.VibEmp` เป็น external/operator-managed table ระบบนี้ไม่สร้าง, alterหรือ seed production table Schemaที่ runtimeอ่านมีเพียง:
 
-ตรวจ missing mapping แบบ read-only:
-
-```sql
-SELECT DISTINCT b.br_code
-FROM dbo.branch AS b
-WHERE NOT EXISTS (SELECT 1 FROM cfg.Offices AS o WHERE o.LegacyKey = b.br_code);
-
-SELECT DISTINCT e.DepartmentID
-FROM dbo.VibEmp AS e
-WHERE e.DepartmentID IS NOT NULL AND LTRIM(RTRIM(e.DepartmentID)) <> N''
-  AND NOT EXISTS (SELECT 1 FROM cfg.Divisions AS d WHERE d.LegacyKey = e.DepartmentID);
+```text
+EmpCode
+FirstNameTh
+LastNameTh
 ```
 
-template สำหรับ operator-controlled update:
+ถ้าตารางมีอยู่ก่อน migration `20260830172117_Tier0EmployeeProfile` migrationจะ grant `SELECT`แบบ conditional
+ถ้าตารางถูกสร้างภายหลัง ให้ privileged operatorรัน idempotent stepนี้ก่อนเปิด Admin login traffic:
 
 ```sql
-BEGIN TRAN;
-UPDATE cfg.Offices
-SET LegacyKey = N'<branch-key>'
-WHERE Code = N'<approved-office-code>' AND LegacyKey IS NULL;
-
-UPDATE cfg.Divisions
-SET LegacyKey = N'<department-key>'
-WHERE Code = N'<approved-division-code>' AND LegacyKey IS NULL;
--- ตรวจว่าแต่ละ statement กระทบหนึ่งแถว ก่อน COMMIT
-COMMIT;
-```
-
-- filtered unique index บังคับหนึ่ง `LegacyKey` ต่อ mapping row
-- mapping ใหม่มีผลกับ login ถัดไปโดยไม่ restart
-- Office/Division ที่ Inactive ใช้ได้เฉพาะเมื่อเป็นค่าเดิมของ Admin; การเปลี่ยนไป inactive target ถูกปฏิเสธ
-- flow ไม่ใช้ `dbo.branch.active_row`, `dbo.VibEmp.status_code`, `Status` หรือ `TerminatedDate`
-
-ถ้า HR mirror ถูก load หลัง migration ต้อง grant read ด้วย operator process:
-
-```sql
+IF OBJECT_ID(N'dbo.VibEmp', N'U') IS NULL
+    THROW 51000, N'HR source is not available.', 1;
 GRANT SELECT ON dbo.VibEmp TO pol_app;
-GRANT SELECT ON dbo.branch TO pol_app;
 ```
+
+ตรวจ least privilegeโดยไม่อ่าน employee rows:
+
+```sql
+EXECUTE AS USER = 'pol_app';
+SELECT
+    HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'SELECT') AS CanSelect,
+    HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'INSERT') AS CanInsert,
+    HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'UPDATE') AS CanUpdate,
+    HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'DELETE') AS CanDelete,
+    HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'ALTER') AS CanAlter,
+    HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'CONTROL') AS CanControl;
+REVERT;
+```
+
+ผลที่ยอมรับคือ `CanSelect=1` และค่าอื่นทุกตัวเป็น `0` ถ้ายังไม่มี grant runtimeคืน
+`employee-profile-unavailable`โดยไม่มี SQL detailหรือ parameter valueใน browser/log
+
+บน local dev ตารางกลุ่มนี้ไม่มี migration หรือ `docker/bootstrap` สร้างให้ (REQ-8.7) ดังนั้นทุกครั้งที่
+รีเซ็ตหรือ migrate database ใหม่ ให้โหลดจาก dump ของ operator เองด้วย
+`./scripts/load-hr-mirror.sh [--tables VibEmp,branch]` ซึ่ง drop แล้วโหลดใหม่และ re-grant `SELECT`
+ให้ `pol_app` แบบ idempotent จบด้วยการเทียบจำนวนแถวกับจำนวน `INSERT` ในไฟล์ dump
+
+ค่าเริ่มต้นโหลดครบสี่ตารางใช้เวลาประมาณ 4 นาที เพราะ `dbo.sale` กินพื้นที่เกือบทั้ง dump ตัวที่สอง
+(~284MB) และไม่มี consumer ในโค้ด ถ้าต้องการเฉพาะที่ runtime อ่านจริงให้ใช้ `--tables VibEmp,branch`
+ซึ่งใช้เวลาประมาณ 20 วินาที Docker VM มี RAM 8GB ต่อ SQL Server สามตัว การโหลดพร้อมงานหนักอื่นทำให้
+`pol-db` ถูก OOM kill (exit 137) ได้ ให้รันทีละครั้ง (สคริปต์กัน run ซ้อนด้วย
+`/tmp/load-hr-mirror.lock`)
 
 ## 6. Pre-bound Microsoft invite
 
@@ -165,10 +160,10 @@ Super Admin สร้าง invite ผ่าน `POST /api/v1/admins` พร้�
 
 1. ผ่าน tenant-aware schema/offline mapping ตาม
    [cutover runbook](admin-workforce-jit-rollout.md) และคง Admin traffic ปิดตลอดช่วง incompatible schema
-2. เติม `LegacyKey` และ grant HR reads
-3. grant `User.Read` admin consent ถ้าจะเปิด profile switch
+2. provision `dbo.VibEmp`, ตรวจสาม source columnsและ grant `pol_app`เฉพาะ `SELECT`
+3. grant `User.Read` admin consent
 4. start new binary ให้ startup tenant/state verifier ผ่าน
-5. staging ทดสอบ email-less exact login, JIT, pre-bound invite และ profile switch ทั้ง on/off
+5. staging ทดสอบ email-less exact login, JIT, pre-bound invite, profile bind/refreshและ session requestที่ไม่เรียก Graph
 6. Production smoke ใช้ approved existing pre-mapped account เท่านั้น ห้ามสร้าง JIT/invite mutation เพื่อ smoke
 7. เปิด traffic แล้ว monitor fixed aggregate categories โดยไม่มี identity/profile values
 
@@ -182,8 +177,7 @@ Super Admin สร้าง invite ผ่าน `POST /api/v1/admins` พร้�
 | `identity-conflict` | employee mismatch/taken หรือ unresolved unique race | rollback resolution; denied-auth audit |
 | `employee-profile-unavailable` | Graph/HR dependency unavailable | rollback resolution; denied-auth audit |
 | `employee-profile-missing` | Graph ไม่มี `employeeId` หรือ HR ไม่มี exact row | rollback resolution; denied-auth audit |
-| `employee-profile-invalid` | profile/HR row malformed หรือ ambiguous | rollback resolution; denied-auth audit |
-| `employee-profile-unmapped` | branch/division mapping ไม่พร้อม | rollback resolution; denied-auth audit |
+| `employee-profile-invalid` | employeeIdหรือ HR row malformed, ชื่อ invalid หรือ cardinalityมากกว่าหนึ่ง | rollback resolution; denied-auth audit |
 
 Browser query string มีเพียง fixed reason label ไม่มี claim, Email หรือ EmployeeId
 
@@ -212,9 +206,9 @@ allowed diagnostic คือ fixed category/status class/SQL error number, inter
 
 ## 11. Rollback
 
-ปิด profile switchได้โดยไม่ลบข้อมูล profile และไม่เปลี่ยน identity flow หลัง tenant-aware mapping แล้ว ห้าม deploy
-Email-only binary, reconstruct object ID จาก Email หรือรัน guarded identity migration `Down()` ใน production ใช้ forward
-recovery หรือ verified backup restore ตาม cutover runbook
+ไม่มี profile switchสำหรับ bypass Graph Rollbackต้องใช้ binaryที่ยังบังคับ employee profileหรือปิด Admin login trafficทั้งก้อน
+ห้าม deploy Email-only binary, reconstruct object IDจาก Emailหรือรัน guarded identity migration `Down()`ใน production
+ใช้ forward recoveryหรือ verified backup restoreตาม cutover runbook
 
 Existing session ไม่ถูก revoke จาก migration และยังใช้ expiry, rotation, reuse detection และ revocation contract เดิม
 
@@ -228,5 +222,5 @@ bash docker/migrate-entrypoint.test.sh
 bash docker/bootstrap/assert-fresh-db.test.sh
 scripts/check-migration-script.sh
 .ai/bin/check-secrets.sh --all
-scripts/spec-trace.sh tier0-microsoft-tenant-aware-identity
+scripts/spec-trace.sh admin-employee-profile-sync
 ```

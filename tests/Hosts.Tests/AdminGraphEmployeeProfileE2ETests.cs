@@ -25,9 +25,9 @@ using AdminSessionStore = Admins.Application.Users.ISessionStore;
 namespace Hosts.Tests;
 
 // tier0-graph-employee-profile task 4: the Graph employeeId acquisition THROUGH the real OIDC middleware with a fake
-// backchannel (code exchange) and a fake Graph handler (REQ-11.6). Switch on: the challenge carries User.Read, a 200
-// hands the NORMALISED employeeId to the resolver, and every Graph failure class denies with the right browser
-// reason BEFORE the resolver runs — no session, one denied audit with no PII. Switch off: no Graph request at all.
+// backchannel (code exchange) and a fake Graph handler. Every Admin challenge carries User.Read, a 200 hands the
+// NORMALISED employeeId to the resolver, and every Graph failure class denies with the right browser reason BEFORE
+// the resolver runs — no session, one denied audit with no PII. Existing session requests never call Graph.
 
 internal static class GraphTestOidc
 {
@@ -120,9 +120,10 @@ internal sealed class GraphRecordingAdminSessionStore : AdminSessionStore
     public List<Session> Added { get; } = [];
     public void Add(Session session) => Added.Add(session);
     public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
-    public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<Session?>(null);
+    public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult(
+        Added.SingleOrDefault(session => CryptographicOperations.FixedTimeEquals(session.TokenHash, hash)));
     public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
-    public Task<bool> TrySupersedeAsync(Guid id, Guid successorId, DateTime now, CancellationToken ct) => Task.FromResult(false);
+    public Task<bool> TrySupersedeAsync(Guid id, Guid successorId, DateTime now, CancellationToken ct) => Task.FromResult(true);
     public Task SlideIdleAsync(Guid id, DateTime idleExpiresAt, CancellationToken ct) => Task.CompletedTask;
     public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) => Task.CompletedTask;
     public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) => Task.CompletedTask;
@@ -139,6 +140,12 @@ internal sealed class GraphRecordingAdminAuthAudit : AdminAuthAuditWriter
     public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
 }
 
+internal sealed class GraphSessionResolver : ApiHost::Api.Admins.ISessionResolver
+{
+    public ByIdResult Result { get; set; } = ByIdResult.NotFound;
+    public Task<ByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken ct) => Task.FromResult(Result);
+}
+
 internal sealed class GraphE2EFactory : WebApplicationFactory<ApiHost::Program>
 {
     public const string AdminMicrosoftClient = "admin-microsoft-client";
@@ -148,14 +155,12 @@ internal sealed class GraphE2EFactory : WebApplicationFactory<ApiHost::Program>
     public GraphRecordingAdminResolver AdminResolver { get; } = new();
     public GraphRecordingAdminSessionStore AdminSessions { get; } = new();
     public GraphRecordingAdminAuthAudit AdminAuthAudits { get; } = new();
-    private readonly bool _requireEmployeeProfile;
-
-    public GraphE2EFactory(bool requireEmployeeProfile) => _requireEmployeeProfile = requireEmployeeProfile;
-
+    public GraphSessionResolver SessionResolver { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("AdminSession:WebAppBaseUrl", "https://localhost:3001");
+        builder.UseSetting("AdminSession:RotationMinutes", "0");
         builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
@@ -164,7 +169,6 @@ internal sealed class GraphE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientId", AdminMicrosoftClient);
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback");
-        builder.UseSetting("AdminAuth:Providers:Microsoft:RequireEmployeeProfile", _requireEmployeeProfile ? "true" : "false");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.IgnoreMachineLocalDevelopmentSettings();
@@ -185,6 +189,8 @@ internal sealed class GraphE2EFactory : WebApplicationFactory<ApiHost::Program>
             services.AddSingleton<AdminSessionStore>(AdminSessions);
             services.RemoveAll<AdminAuthAuditWriter>();
             services.AddSingleton<AdminAuthAuditWriter>(AdminAuthAudits);
+            services.RemoveAll<ApiHost::Api.Admins.ISessionResolver>();
+            services.AddSingleton<ApiHost::Api.Admins.ISessionResolver>(SessionResolver);
             services.AddScoped<ApiHost::Api.Admins.ICallbackResolver>(_ => AdminResolver);
             // REQ-11.6: the named Graph client gets the fake handler; nothing leaves the process.
             services.AddHttpClient(ApiHost::Api.Admins.MicrosoftGraphEmployeeIdReader.ClientName)
@@ -242,19 +248,19 @@ public sealed class AdminGraphEmployeeProfileE2ETests
         return QueryHelpers.ParseQuery(response.Headers.Location!.Query)["reason"].ToString();
     }
 
-    private static (GraphE2EFactory Factory, HttpClient Client) Build(bool requireEmployeeProfile)
+    private static (GraphE2EFactory Factory, HttpClient Client) Build()
     {
-        var factory = new GraphE2EFactory(requireEmployeeProfile);
+        var factory = new GraphE2EFactory();
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         return (factory, client);
     }
 
-    // ---- switch on ----
+    // ---- mandatory Admin Microsoft employee profile ----
 
     [Fact]
-    public async Task Switch_on_requests_user_read_and_hands_the_normalised_employee_id_to_the_resolver()
+    public async Task Authorization_requests_user_read_and_callback_forwards_normalised_employee_id()
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -280,9 +286,9 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     }
 
     [Fact]
-    public async Task Switch_on_success_establishes_a_session_when_the_resolver_resolves()
+    public async Task Successful_profile_resolution_establishes_a_session()
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -301,6 +307,32 @@ public sealed class AdminGraphEmployeeProfileE2ETests
         }
     }
 
+    [Fact]
+    public async Task Existing_session_request_and_rotation_do_not_call_graph_again()
+    {
+        var (factory, client) = Build();
+        using (factory)
+        using (client)
+        {
+            var adminId = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+            var resolution = new AdminResolution(adminId, null, Tier.Super, AccessibleMerchants.All);
+            factory.AdminResolver.Result = ResolveResult.Of(resolution);
+            factory.SessionResolver.Result = ByIdResult.Of(resolution, subject: null);
+            var challenge = await StartAsync(client);
+
+            var callback = await CallbackAsync(client, factory, challenge);
+            Assert.Equal("https://localhost:3001/", callback.Headers.Location?.ToString());
+            Assert.Single(factory.Graph.Requests);
+            Assert.Single(factory.AdminSessions.Added);
+
+            var me = await client.GetAsync("/api/v1/admins/me");
+
+            Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+            Assert.Single(factory.Graph.Requests);
+            Assert.Equal(2, factory.AdminSessions.Added.Count); // RotationMinutes=0 forces the session rotation path.
+        }
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.BadRequest)]
     [InlineData(HttpStatusCode.Unauthorized)]
@@ -311,7 +343,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     [InlineData(HttpStatusCode.BadGateway)]
     public async Task Non_200_from_graph_is_employee_profile_unavailable(HttpStatusCode status)
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -331,7 +363,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     {
         foreach (var failure in new Exception[] { new TaskCanceledException("timeout"), new HttpRequestException("dns") })
         {
-            var (factory, client) = Build(requireEmployeeProfile: true);
+            var (factory, client) = Build();
             using (factory)
             using (client)
             {
@@ -341,6 +373,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
                 var response = await CallbackAsync(client, factory, challenge);
 
                 AssertDenied(factory, response, "employee-profile-unavailable"); // REQ-1.14
+                Assert.Single(factory.Graph.Requests);
             }
         }
     }
@@ -350,7 +383,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     [InlineData("""{"employeeId": """)]
     public async Task Malformed_graph_json_is_employee_profile_unavailable(string body)
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -360,6 +393,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
             var response = await CallbackAsync(client, factory, challenge);
 
             AssertDenied(factory, response, "employee-profile-unavailable"); // REQ-1.16
+            Assert.Single(factory.Graph.Requests);
         }
     }
 
@@ -370,7 +404,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     [InlineData("""{"employeeId":"   "}""")]
     public async Task Missing_or_blank_employee_id_is_employee_profile_missing(string body)
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -380,6 +414,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
             var response = await CallbackAsync(client, factory, challenge);
 
             AssertDenied(factory, response, "employee-profile-missing"); // REQ-1.17 / 2.2
+            Assert.Single(factory.Graph.Requests);
         }
     }
 
@@ -390,7 +425,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     [InlineData("""{"employeeId":123}""")]                   // wrong JSON type
     public async Task Malformed_employee_id_is_employee_profile_invalid(string body)
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -400,13 +435,14 @@ public sealed class AdminGraphEmployeeProfileE2ETests
             var response = await CallbackAsync(client, factory, challenge);
 
             AssertDenied(factory, response, "employee-profile-invalid");
+            Assert.Single(factory.Graph.Requests);
         }
     }
 
     [Fact]
     public async Task Missing_access_token_in_the_code_exchange_is_employee_profile_unavailable_without_a_graph_call()
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -421,9 +457,48 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     }
 
     [Fact]
+    public async Task Exact_consent_required_is_profile_unavailable_without_exposing_provider_detail()
+    {
+        var (factory, client) = Build();
+        using (factory)
+        using (client)
+        {
+            var challenge = await StartAsync(client);
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{Callback}?error=consent_required&error_description=AADSTS-canary&state={Uri.EscapeDataString(challenge.State)}");
+            request.Headers.Add("Cookie", challenge.Cookies);
+
+            var response = await client.SendAsync(request);
+
+            AssertDenied(factory, response, "employee-profile-unavailable");
+            Assert.Empty(factory.Graph.Requests);
+            Assert.DoesNotContain("AADSTS", response.Headers.Location!.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task User_cancel_access_denied_keeps_its_distinct_reason()
+    {
+        var (factory, client) = Build();
+        using (factory)
+        using (client)
+        {
+            var challenge = await StartAsync(client);
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{Callback}?error=access_denied&error_description=cancel-canary&state={Uri.EscapeDataString(challenge.State)}");
+            request.Headers.Add("Cookie", challenge.Cookies);
+
+            var response = await client.SendAsync(request);
+
+            AssertDenied(factory, response, "access-denied");
+            Assert.Empty(factory.Graph.Requests);
+        }
+    }
+
+    [Fact]
     public async Task Workforce_gate_failure_still_wins_and_never_calls_graph()
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -448,7 +523,7 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     [InlineData("oid")]
     public async Task Duplicate_tuple_claim_is_denied_before_graph_resolution_or_session(string duplicateType)
     {
-        var (factory, client) = Build(requireEmployeeProfile: true);
+        var (factory, client) = Build();
         using (factory)
         using (client)
         {
@@ -470,28 +545,6 @@ public sealed class AdminGraphEmployeeProfileE2ETests
             var response = await client.SendAsync(request);
 
             AssertDenied(factory, response, "workforce-access-denied");
-            Assert.Empty(factory.Graph.Requests);
-        }
-    }
-
-    // ---- switch off (REQ-10.13, 12.2-12.5) ----
-
-    [Fact]
-    public async Task Switch_off_keeps_the_original_scopes_never_calls_graph_and_passes_a_null_employee_id()
-    {
-        var (factory, client) = Build(requireEmployeeProfile: false);
-        using (factory)
-        using (client)
-        {
-            var challenge = await StartAsync(client);
-            Assert.Equal("openid email profile", challenge.Scope);
-
-            var response = await CallbackAsync(client, factory, challenge);
-
-            Assert.Equal("not-provisioned", Reason(response));
-            Assert.Equal(new GraphAdminResolved(
-                User.MicrosoftProvider, Guid.Parse(GraphTestOidc.WorkforceTenant),
-                GraphTestOidc.WorkforceObject, Email, null), factory.AdminResolver.Resolved);
             Assert.Empty(factory.Graph.Requests);
         }
     }
