@@ -129,9 +129,6 @@ public sealed class ResolveMicrosoftAdminHandler :
         DateTime now,
         CancellationToken cancellationToken)
     {
-        if (account.EmployeeId is not null && !string.Equals(account.EmployeeId, employeeId, StringComparison.Ordinal))
-            throw new EmployeeProfileDeniedException(ResolveResult.EmployeeConflict(ResolveResult.EmployeeMismatchReason));
-
         if (await _admins.GetByEmployeeIdAsync(employeeId, account.Id, cancellationToken) is not null)
             throw new EmployeeProfileDeniedException(ResolveResult.EmployeeConflict(ResolveResult.EmployeeTakenReason));
 
@@ -149,7 +146,7 @@ public sealed class ResolveMicrosoftAdminHandler :
         var change = account.ApplyEmployeeProfile(employeeId, profile.FirstName, profile.LastName);
         if (change.EmployeeBound)
             _audit.Append(Audit.For(AuditAction.EmployeeBind, account.Id, correlationId, now, targetAdminId: account.Id));
-        if (wasExisting && change.NamesChanged)
+        if (wasExisting && (change.EmployeeIdChanged || change.NamesChanged))
             _audit.Append(Audit.For(
                 AuditAction.EmployeeProfileSync, account.Id, correlationId, now, targetAdminId: account.Id));
     }

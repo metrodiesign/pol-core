@@ -1,9 +1,9 @@
 # Design: Admin Employee Profile Sync
 
 > Status: approved 2026-09-03
-> Status-Note: amended and approved 2026-09-03 — mandatory Graph on every new Admin Microsoft OIDC callback
+> Status-Note: amended and approved 2026-09-04 — mutable EmployeeId refresh for an exact Microsoft identity
 
-เอกสารนี้ออกแบบ employee profile flow `Entra → employeeId → dbo.VibEmp → admin.Users` โดยทุก Admin Microsoft OIDC authorization/callbackใหม่ต้องขอ `User.Read`และเรียก Graphหลัง validation ไม่มี optional runtime switchที่ silentlyข้าม profile ส่วน tenant-aware identity, transaction, JIT, sessionและ schema guardเดิมคงอยู่ และ production decision pathไม่อ่าน branch, Office, Divisionหรือ legacy mapping
+เอกสารนี้ออกแบบ employee profile flow `Entra → employeeId → dbo.VibEmp → admin.Users` โดยทุก Admin Microsoft OIDC authorization/callbackใหม่ต้องขอ `User.Read`และเรียก Graphหลัง validation ไม่มี optional runtime switchที่ silentlyข้าม profile Exact `(microsoft, validated tid, validated oid)`เป็น authentication identity ส่วน `EmployeeId`เป็น mutable HR profile attributeที่ replaceพร้อมชื่อได้ ส่วน transaction, JIT, sessionและ schema guardเดิมคงอยู่ และ production decision pathไม่อ่าน branch, Office, Divisionหรือ legacy mapping
 
 ## Architecture Overview
 
@@ -13,7 +13,7 @@
 2. ทุก Admin Microsoft authorization requestขอ `openid email profile User.Read`และทุก callbackใหม่ที่ validationผ่านเรียก Graphหนึ่งครั้งก่อนเปิด SQL transaction
 3. Access tokenอยู่ใน callback stackของ requestเดียวและ `SaveTokens=false` Named clientไม่มี retry/resilience handler
 4. Microsoft identity resolutionใช้ exact `(Provider=microsoft, TenantId=tid, Subject=oid)` เท่านั้น Email, `WorkforceEmailKey`และ `EmployeeId`ไม่มีอำนาจใน identity decision
-5. ภายใน identity transaction ระบบ resolve exact identityและ statusก่อน ตรวจ immutable/global EmployeeId conflict แล้วจึง query `dbo.VibEmp`
+5. ภายใน identity transaction ระบบ resolve exact identityและ statusก่อน ตรวจว่า candidate EmployeeIdถูก Adminรายอื่นถือหรือไม่โดย exclude exact Adminปัจจุบัน แล้วจึง query `dbo.VibEmp`
 6. HR readerใช้หนึ่ง parameterized exact query อ่านเพียง `EmpCode`, `FirstNameTh`, `LastNameTh` และคืน cardinalityสูงสุดสองแถว
 7. JITหรือexisting profile mutationกับ `UserAudits` commitหรือ rollbackพร้อมกัน Sessionถูกสร้างได้หลัง commitเท่านั้น
 8. Profile writerแตะเฉพาะ `EmployeeId`, `FirstName`, `LastName`, `Version` และ `UpdatedAt` ไม่แตะ org fieldsหรือ `AuthorizationVersion`
@@ -32,10 +32,10 @@
 | Host | `LoginService` | ลบ `EmployeeProfileUnmapped` mappingและคง session-after-commit denial flow |
 | Domain | `EmployeeIdPolicy` | reuse trim, blank/control/internal-whitespace/length/case policyเดิมโดยไม่สร้าง normalizerใหม่ |
 | Domain | `User.ApplyEmployeeProfile` | ลด signatureเหลือสาม profile fieldsและคืน change flagsสำหรับ Version/audit |
-| Domain | `AuditAction.EmployeeProfileSync` | stable action `employee-profile-sync` สำหรับ existing-user name change |
+| Domain | `AuditAction.EmployeeProfileSync` | stable action `employee-profile-sync` สำหรับ existing-user EmployeeIdหรือ name change |
 | Application | `EmployeeProfile` | เหลือ `FirstName`, `LastName` |
 | Application | `EmployeeProfileResolver` | cardinalityและ name validationจาก VibEmp rowชุดเดียว |
-| Application | `ResolveMicrosoftAdminHandler` | exact identity/status → mismatch/taken → HR → apply/audit → single save |
+| Application | `ResolveMicrosoftAdminHandler` | exact identity/status → other-owner check → HR → replace/audit → single save |
 | Persistence | `EmployeeProfileReader` | raw read-only exact queryต่อ `dbo.VibEmp`เพียง statementเดียว |
 | Persistence | `UserRepository` | reuse global `GetByEmployeeIdAsync`ภายใต้ identity transaction |
 | Database | existing profile migration/model | reuse `nvarchar(16/500/500)`และ global filtered unique index ไม่มี DDLใหม่ |
@@ -85,7 +85,7 @@ sequenceDiagram
     O->>H: validated tuple and normalized employeeId
     H->>D: BEGIN and acquire identity mutation lock
     H->>D: exact tuple lookup and status check
-    H->>D: global EmployeeId conflict check
+    H->>D: global EmployeeId owner check excluding current Admin
     H->>D: SELECT TOP 2 from dbo.VibEmp by parameter
     D-->>H: one row
     H->>H: trim and validate names
@@ -266,6 +266,7 @@ new SqlParameter("@employeeId", SqlDbType.NVarChar, EmployeeIdPolicy.MaxLength)
 public readonly record struct EmployeeProfileChange(
     bool Changed,
     bool EmployeeBound,
+    bool EmployeeIdChanged,
     bool NamesChanged);
 
 public EmployeeProfileChange ApplyEmployeeProfile(
@@ -276,11 +277,11 @@ public EmployeeProfileChange ApplyEmployeeProfile(
 
 กฎ:
 
-- bound EmployeeIdต่าง → throwก่อน assignment
 - exactสาม fieldเหมือนเดิม → `Changed=false`; ไม่มี tracked modification
-- first bindตั้ง `EmployeeId`; `EmployeeBound=true`
+- first bindจาก nullตั้ง `EmployeeId`; `EmployeeBound=true`
+- EmployeeIdที่ bindแล้วเปลี่ยนเป็น candidateใหม่ได้เมื่อ handlerยืนยันว่าไม่มี ownerรายอื่น
 - ชื่อใดเปลี่ยนรวม nullไปเป็นชื่อจริง → `NamesChanged=true`
-- เมื่อมี change assignสาม fieldแล้ว `BumpResourceVersion()`ครั้งเดียว
+- เมื่อ fieldใดเปลี่ยน assignสาม fieldแล้ว `BumpResourceVersion()`ครั้งเดียว
 - ไม่ assign `PositionId`, `OfficeId`, `LevelId`, `DivisionId`หรือ `AuthorizationVersion`
 - `UserUpdatedAtInterceptor` stamp `UpdatedAt`เฉพาะ entity state `Modified`; no-opจึงไม่เปลี่ยน timestamp
 
@@ -291,6 +292,7 @@ Handlerเก็บ `wasExisting = account is not null`ก่อนสร้า�
 | New JIT + first profile | `jit-provision`, `employee-bind` |
 | Existing + first EmployeeId bind + names changed | `employee-bind`, `employee-profile-sync` |
 | Existing + same EmployeeId + names changed | `employee-profile-sync` |
+| Existing + changed non-null EmployeeId (ชื่อเปลี่ยนหรือไม่) | `employee-profile-sync` |
 | Existing + exact profile no-op | ไม่มี profile audit |
 
 Auditทุก rowใช้ internal AdminIdเป็น actor/target, stable correlation IDและไม่มี EmployeeIdหรือชื่อ
@@ -303,9 +305,9 @@ Auditทุก rowใช้ internal AdminIdเป็น actor/target, stable co
 2. exact `(microsoft, tenantId, oid)` lookup
 3. exact Suspended → return `Suspended`ก่อน HR
 4. exact miss → stage JIT + `jit-provision`
-5. bound EmployeeId mismatch → throw typed denialก่อน HR
-6. global `GetByEmployeeIdAsync`พบ ownerอื่น → throw typed denialก่อน HR
-7. `LookupAsync` statementเดียว
+5. global `GetByEmployeeIdAsync(candidateEmployeeId, exceptAdminId)`พบ ownerอื่น → throw `employee-taken`ก่อน HR
+6. `LookupAsync` candidate EmployeeIdด้วย statementเดียว
+7. validate candidate HR profileโดยยังไม่ mutate account
 8. non-Found → throw `EmployeeProfileDeniedException`
 9. apply profileและ append auditตาม change flags
 10. `SaveChangesAsync`ครั้งเดียว
@@ -323,8 +325,7 @@ Final production profile outcomes:
 | `EmployeeProfileMissing` | `employee-profile-missing` | same |
 | `EmployeeProfileInvalid` | `employee-profile-invalid` | same |
 | `EmployeeProfileUnavailable` | `employee-profile-unavailable` | `hr-source-unavailable` |
-| `IdentityConflict`จาก mismatch | `identity-conflict` | `employee-mismatch` |
-| `IdentityConflict`จาก taken/race | `identity-conflict` | `employee-taken` |
+| `IdentityConflict`จาก ownerรายอื่นหรือ unique race | `identity-conflict` | `employee-taken` |
 
 ลบ `ResolveOutcome.EmployeeProfileUnmapped`, `ResolveResult.EmployeeProfileUnmapped` และ switch armใน `LoginService` Frontendอาจคง legacy error copyได้แต่ backendไม่มี producer
 
@@ -395,7 +396,7 @@ Operator verify `HAS_PERMS_BY_NAME`หรือ `sys.database_permissions`ว่
 | Graph | missing/null/blank employeeId | `employee-profile-missing` | denied-auth audit only |
 | Graph/policy | control, inner whitespace, overlength, wrong JSON type | `employee-profile-invalid` | denied-auth audit only |
 | Exact identity | Suspended | `suspended` | no HR query, no profile/session |
-| Employee binding | bound value differs | `identity-conflict` + `employee-mismatch` | rollback/no HR query/no session |
+| Employee profile | exact identityเสนอ unowned EmployeeIdใหม่และ HR valid | `Resolved` + `employee-profile-sync` | replaceสาม field atomic, commitก่อน session |
 | Employee owner | held by another Admin | `identity-conflict` + `employee-taken` | rollback/no HR query/no session |
 | VibEmp | 0 row | `employee-profile-missing` | rollback/no session |
 | VibEmp | >1 row | `employee-profile-invalid` | rollback/no session |
@@ -415,8 +416,8 @@ Logger templatesรับเฉพาะ category, status class, SQL error numbe
 |---|---|---|
 | `tests/Admins.Tests/EmployeeIdPolicyTests.cs` | trim, blank, control, internal whitespace, max 16/17และ uppercaseเดิม | REQ-2.1-REQ-2.9 |
 | `tests/Admins.Tests/EmployeeProfileReaderStatusTests.cs` | 0/1/2 rows, trimmed names, null/blank/500/501, no mapping interfaces | REQ-3.9-REQ-3.11, REQ-4.1-REQ-4.9 |
-| `tests/Admins.Tests/UserEmployeeProfileTests.cs` | three-field writer, first bind, no-op, name change, mismatch, org fields preserved, Version/AuthVersion flags | REQ-5.1-REQ-5.20 |
-| `tests/Admins.Tests/ResolveMicrosoftAdminEmployeeProfileTests.cs` | Suspended/mismatch/takenก่อน HR, JIT, four final outcomes, audit matrix, rollback, one retry | REQ-5.21-REQ-5.23, REQ-6.1-REQ-6.20 |
+| `tests/Admins.Tests/UserEmployeeProfileTests.cs` | three-field writer, first bind, no-op, name change, changed EmployeeId, org fields preserved, Version/AuthVersion flags | REQ-5.1-REQ-5.20 |
+| `tests/Admins.Tests/ResolveMicrosoftAdminEmployeeProfileTests.cs` | Suspended/takenก่อน HR, exact-identity changed-ID refresh, JIT, four final outcomes, audit matrix, rollback, one retry | REQ-5.21-REQ-5.25, REQ-6.1-REQ-6.20 |
 
 ### Host E2E tests
 
@@ -432,7 +433,7 @@ Logger templatesรับเฉพาะ category, status class, SQL error numbe
 - callback `error=access_denied`ยังคืน `access-denied`
 - resolver/sessionไม่ถูกเรียกเมื่อ Graphหรือ consent fail
 - หลัง successful OIDC session ให้ clear Graph request recorderแล้วเรียก authenticated `/api/v1/admins/me`ทั้ง serve-activeและ rotation-due path ผลต้องไม่เพิ่ม Graph request count
-- `AdminLoginServiceTests`ให้ resolverคืน missing, invalid, unavailableและ identity-conflictแล้ว assert session storeว่างพร้อม denied-auth audit reasonที่ redacted
+- `AdminLoginServiceTests`ให้ resolverคืน missing, invalid, unavailableและ identity-conflictแล้ว assert session storeว่างพร้อม denied-auth audit reasonที่ redacted และพิสูจน์ session creationเกิดหลัง resolved profile transactionคืนผลสำเร็จ
 - test base URL/handlerไม่ออก networkจริง
 - named Graph clientไม่มี retry policyและ fake handlerเห็น requestเดียว
 - static ownership testยืนยัน `MicrosoftGraphEmployeeIdReader.ReadAsync`ถูกเรียกจาก OIDC callback fileเท่านั้นและ `SessionAuthenticationHandler`ไม่มี Graph dependency
@@ -465,9 +466,10 @@ Logger templatesรับเฉพาะ category, status class, SQL error numbe
 - existing null EmployeeId bindและชื่อเปลี่ยน appendสอง profile auditsตาม matrix
 - refreshชื่อ append `employee-profile-sync`, Version +1, AuthVersionเดิม, org fieldsเดิม
 - exact no-opไม่ update Version/UpdatedAt/audit
-- mismatch/takenไม่ query HR
-- 0/2/invalid/source unavailable rollback user/profile/audits
-- duplicate raceแพ้ด้วย global indexและไม่มี partial row
+- candidate EmployeeIdที่ ownerรายอื่นถือไม่ query HR
+- exact identityเปลี่ยนจาก `E001`เป็น unowned `E002`แล้ว HR valid: replaceสาม field, preserve AdminId/Tier/roles/MerchantAccess/org/AuthVersion, Version +1และ sync auditเดียว; Host testแยกพิสูจน์ sessionเกิดหลัง resolver commit
+- 0/2/invalid/source unavailableของ candidateใหม่ rollback profileเดิมครบ
+- duplicate raceแพ้ด้วย global index, `employee-taken`และไม่มี partial row
 
 ครอบ REQ-5.1-REQ-6.20, REQ-7.1-REQ-7.10และ REQ-9.7-REQ-9.10
 
@@ -505,9 +507,9 @@ scripts/spec-trace.sh admin-employee-profile-sync
 | exact raw SQL statementและ three-column projection | Data Models & Interfaces | REQ-3.1-REQ-3.8 |
 | resolver cardinalityและ source outcomes | Data Models & Interfaces | REQ-3.9-REQ-3.16 |
 | name validationและ mapping | Data Models & Interfaces | REQ-4.1-REQ-4.9 |
-| handler conflict/bind/refresh behavior | Data Models & Interfaces | REQ-5.1-REQ-5.6 |
+| handler candidate-owner/bind/refresh behavior | Data Models & Interfaces | REQ-5.1-REQ-5.6 |
 | aggregate no-op/version/authz/org-field preservation | Data Models & Interfaces | REQ-5.7-REQ-5.20 |
-| profile audit change flagsและ action matrix | Data Models & Interfaces | REQ-5.21-REQ-5.23 |
+| profile audit change flags, changed-ID semanticsและ action matrix | Data Models & Interfaces | REQ-5.21-REQ-5.25 |
 | JIT shape, transaction, rollback, raceและ session boundary | Data Models & Interfaces | REQ-6.1-REQ-6.15 |
 | pre-HR denial orderingและ fresh denied audit | Error Handling Strategy | REQ-6.16-REQ-6.20 |
 | stable denial, privacyและ retired unmapped outcome | Error Handling Strategy | REQ-7.1-REQ-7.15 |
@@ -516,6 +518,7 @@ scripts/spec-trace.sh admin-employee-profile-sync
 | external VibEmp ownership, grantsและ migration assertions | Data Models & Interfaces | REQ-8.7-REQ-8.14 |
 | unit, E2E, integration, architectureและ full gate strategy | Testing Strategy | REQ-9.1-REQ-9.15 |
 | mandatory scope, one callback call, session isolation, consentและ cancel regression | Testing Strategy | REQ-9.16-REQ-9.20 |
+| exact-identity changed EmployeeId RED/GREEN regression | Testing Strategy | REQ-9.21 |
 
 ## Design Review Resolutions
 

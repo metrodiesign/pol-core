@@ -36,13 +36,12 @@ public sealed record Resolution(Guid AdminId, string? Email, Tier Tier, Accessib
     public long AuthorizationVersion { get; init; }
 }
 
-/// <summary><paramref name="DenialReason"/> = the internal audit reason when it differs from the browser reason
-/// (tier0-graph-employee-profile REQ-2.17/3.19): <c>employee-mismatch</c>/<c>employee-taken</c> behind an
-/// <see cref="ResolveOutcome.IdentityConflict"/>, <c>hr-source-unavailable</c> behind
-/// <see cref="ResolveOutcome.EmployeeProfileUnavailable"/>. Null = audit the browser reason (pre-existing outcomes).</summary>
+/// <summary><paramref name="DenialReason"/> = the internal audit reason when it differs from the browser reason:
+/// <c>employee-taken</c> behind an <see cref="ResolveOutcome.IdentityConflict"/> or
+/// <c>hr-source-unavailable</c> behind <see cref="ResolveOutcome.EmployeeProfileUnavailable"/>.
+/// Null = audit the browser reason (pre-existing outcomes).</summary>
 public sealed record ResolveResult(ResolveOutcome Outcome, Resolution? Resolution, string? DenialReason = null)
 {
-    public const string EmployeeMismatchReason = "employee-mismatch";
     public const string EmployeeTakenReason = "employee-taken";
     public const string HrSourceUnavailableReason = "hr-source-unavailable";
 

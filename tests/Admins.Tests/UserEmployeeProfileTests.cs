@@ -29,7 +29,7 @@ public sealed class UserEmployeeProfileTests
 
         var change = user.ApplyEmployeeProfile("E001", "ชื่อทดสอบ", "นามสกุลทดสอบ");
 
-        Assert.Equal(new EmployeeProfileChange(true, true, true), change);
+        Assert.Equal(new EmployeeProfileChange(true, true, true, true), change);
         Assert.Equal("E001", user.EmployeeId);
         Assert.Equal("ชื่อทดสอบ", user.FirstName);
         Assert.Equal("นามสกุลทดสอบ", user.LastName);
@@ -47,7 +47,7 @@ public sealed class UserEmployeeProfileTests
 
         var change = user.ApplyEmployeeProfile("E001", "ชื่อทดสอบ", "นามสกุลทดสอบ");
 
-        Assert.Equal(new EmployeeProfileChange(false, false, false), change);
+        Assert.Equal(new EmployeeProfileChange(false, false, false, false), change);
         Assert.Equal(version, user.Version);
         AssertOrgFields(user);
     }
@@ -62,7 +62,7 @@ public sealed class UserEmployeeProfileTests
 
         var change = user.ApplyEmployeeProfile("E001", "ชื่อใหม่", "นามสกุลเดิม");
 
-        Assert.Equal(new EmployeeProfileChange(true, false, true), change);
+        Assert.Equal(new EmployeeProfileChange(true, false, false, true), change);
         Assert.Equal("ชื่อใหม่", user.FirstName);
         Assert.Equal("นามสกุลเดิม", user.LastName);
         Assert.Equal(version + 1, user.Version);
@@ -71,19 +71,21 @@ public sealed class UserEmployeeProfileTests
     }
 
     [Fact]
-    public void Different_bound_employee_id_throws_and_keeps_everything()
+    public void Changed_employee_id_replaces_three_fields_with_one_resource_version_bump()
     {
         var user = NewMicrosoft();
         user.ApplyEmployeeProfile("E001", "ชื่อเดิม", "นามสกุลเดิม");
         var version = user.Version;
+        var authz = user.AuthorizationVersion;
 
-        Assert.Throws<InvalidOperationException>(() =>
-            user.ApplyEmployeeProfile("E002", "ชื่ออื่น", "นามสกุลอื่น"));
+        var change = user.ApplyEmployeeProfile("E002", "ชื่ออื่น", "นามสกุลอื่น");
 
-        Assert.Equal("E001", user.EmployeeId);
-        Assert.Equal("ชื่อเดิม", user.FirstName);
-        Assert.Equal("นามสกุลเดิม", user.LastName);
-        Assert.Equal(version, user.Version);
+        Assert.Equal(new EmployeeProfileChange(true, false, true, true), change);
+        Assert.Equal("E002", user.EmployeeId);
+        Assert.Equal("ชื่ออื่น", user.FirstName);
+        Assert.Equal("นามสกุลอื่น", user.LastName);
+        Assert.Equal(version + 1, user.Version);
+        Assert.Equal(authz, user.AuthorizationVersion);
         AssertOrgFields(user);
     }
 

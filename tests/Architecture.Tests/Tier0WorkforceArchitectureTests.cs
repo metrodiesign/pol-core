@@ -432,8 +432,8 @@ public sealed partial class Tier0WorkforceArchitectureTests
     [GeneratedRegex(@"Log(?:Error|Warning|Information|Debug|Trace|Critical)\s*\([^;]*\b(?:accessToken|employeeId|EmployeeId|FirstName|LastName|LegacyKey|legacyKey|branchCode|departmentId|raw|body)\b", RegexOptions.CultureInvariant)]
     private static partial Regex LogPii();
 
-    /// <summary>tier0-graph-employee-profile REQ-2.15: <c>User.ApplyEmployeeProfile</c> is the ONLY writer of
-    /// <c>EmployeeId</c> — no other production file may assign it (no endpoint/command can rewrite a bound id).</summary>
+    /// <summary><c>User.ApplyEmployeeProfile</c> is the ONLY writer of mutable HR attribute
+    /// <c>EmployeeId</c> — no endpoint or unrelated command may assign it.</summary>
     [Fact]
     public void EmployeeId_is_assigned_only_inside_the_user_aggregate()
     {

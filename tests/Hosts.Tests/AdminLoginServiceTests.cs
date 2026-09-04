@@ -98,6 +98,23 @@ public sealed class AdminLoginServiceTests
     }
 
     [Fact]
+    public async Task Microsoft_session_is_created_only_after_profile_resolution_commits()
+    {
+        var events = new List<string>();
+        var resolved = ResolveResult.Of(new Resolution(
+            AdminId, "ops@org.com", Tier.Scoped, AccessibleMerchants.Of(new HashSet<Guid>())));
+        var resolver = new CommitTrackingResolver(resolved, events);
+        var (service, store, _, http) = Build(
+            resolved, resolver: resolver, onSessionAdd: () => events.Add("session-created"));
+
+        await service.EstablishMicrosoftSessionAsync(
+            http, WorkforceClaims(employeeId: "E002"), "/dashboard", default);
+
+        Assert.Single(store.Added);
+        Assert.Equal(["profile-committed", "session-created"], events);
+    }
+
+    [Fact]
     public async Task A_suspended_admin_gets_no_session_a_denied_audit_and_an_error_redirect()
     {
         var (service, store, audit, http) = Build(ResolveResult.Suspended);
@@ -142,7 +159,6 @@ public sealed class AdminLoginServiceTests
     [InlineData(ResolveOutcome.EmployeeProfileMissing, null, "employee-profile-missing", "employee-profile-missing")]
     [InlineData(ResolveOutcome.EmployeeProfileInvalid, null, "employee-profile-invalid", "employee-profile-invalid")]
     [InlineData(ResolveOutcome.EmployeeProfileUnavailable, "hr-source-unavailable", "employee-profile-unavailable", "hr-source-unavailable")]
-    [InlineData(ResolveOutcome.IdentityConflict, "employee-mismatch", "identity-conflict", "employee-mismatch")]
     [InlineData(ResolveOutcome.IdentityConflict, "employee-taken", "identity-conflict", "employee-taken")]
     [InlineData(ResolveOutcome.IdentityConflict, null, "identity-conflict", "identity-conflict")]
     public async Task Employee_profile_outcomes_map_browser_reason_and_internal_audit_reason(
@@ -359,9 +375,10 @@ public sealed class AdminLoginServiceTests
         IReadOnlyCollection<string>? allowlist = null,
         string defaultReturnPath = "/",
         ICallbackResolver? resolver = null,
-        ILogger<LoginService>? logger = null)
+        ILogger<LoginService>? logger = null,
+        Action? onSessionAdd = null)
     {
-        var store = new FakeSessionStore();
+        var store = new FakeSessionStore { OnAdd = onSessionAdd };
         var audit = new FakeAuthAudit();
         var cookies = new SessionCookies(Options.Create(new AdminSessionOptions()), new Env());
         var sessionOptions = Options.Create(new AdminSessionOptions
@@ -394,6 +411,21 @@ public sealed class AdminLoginServiceTests
         public Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
             Guid tenantId, Guid objectId, string? email, string? employeeId,
             string correlationId, CancellationToken ct) => Task.FromResult(result);
+    }
+
+    private sealed class CommitTrackingResolver(ResolveResult result, List<string> events) : ICallbackResolver
+    {
+        public Task<ResolveResult> ResolveAtCallbackAsync(
+            ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken ct) =>
+            throw new InvalidOperationException("Microsoft resolver expected.");
+
+        public Task<ResolveResult> ResolveMicrosoftAtCallbackAsync(
+            Guid tenantId, Guid objectId, string? email, string? employeeId,
+            string correlationId, CancellationToken ct)
+        {
+            events.Add("profile-committed");
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class RecordingResolver : ICallbackResolver
@@ -442,7 +474,12 @@ public sealed class AdminLoginServiceTests
         public readonly List<Session> Added = [];
         public int SaveCount;
         public Exception? SaveFailure;
-        public void Add(Session session) => Added.Add(session);
+        public Action? OnAdd;
+        public void Add(Session session)
+        {
+            OnAdd?.Invoke();
+            Added.Add(session);
+        }
         public Task<int> SaveChangesAsync(CancellationToken ct)
         {
             if (SaveFailure is not null)

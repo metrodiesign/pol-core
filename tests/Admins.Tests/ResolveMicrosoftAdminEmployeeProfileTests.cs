@@ -89,20 +89,54 @@ public sealed class ResolveMicrosoftAdminEmployeeProfileTests
     }
 
     [Fact]
-    public async Task Mismatch_denies_before_hr_and_keeps_profile()
+    public async Task Existing_exact_identity_replaces_changed_employee_profile()
     {
         var admins = new FakePlatformUserRepository();
         var account = User.JitProvisionMicrosoft(TenantId, ObjectId, Email, Now);
-        account.ApplyEmployeeProfile("OTHER", "เดิม", "คงไว้");
+        account.ApplyEmployeeProfile("E001", "ชื่อเดิม", "นามสกุลเดิม");
         admins.Add(account);
+        var adminId = account.Id;
+        var tier = account.Tier;
+        var version = account.Version;
+        var authz = account.AuthorizationVersion;
+        var audit = new FakePlatformUserAuditWriter();
         var reader = new FakeProfileReader(EmployeeProfileLookup.Found(Profile));
 
-        var result = await Handler(admins, new FakePlatformUserAuditWriter(), reader).Handle(Command(), default);
+        var result = await Handler(admins, audit, reader).Handle(Command(employeeId: "E002"), default);
 
-        Assert.Equal(ResolveOutcome.IdentityConflict, result.Outcome);
-        Assert.Equal(ResolveResult.EmployeeMismatchReason, result.DenialReason);
-        Assert.Equal("OTHER", account.EmployeeId);
-        Assert.Empty(reader.Lookups);
+        Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
+        Assert.Equal(adminId, result.Resolution!.AdminId);
+        Assert.Equal("E002", account.EmployeeId);
+        Assert.Equal(Profile.FirstName, account.FirstName);
+        Assert.Equal(Profile.LastName, account.LastName);
+        Assert.Equal(tier, account.Tier);
+        Assert.Equal(version + 1, account.Version);
+        Assert.Equal(authz, account.AuthorizationVersion);
+        Assert.Equal(["E002"], reader.Lookups);
+        Assert.Equal(AuditAction.EmployeeProfileSync, Assert.Single(audit.Appended).Action);
+        Assert.DoesNotContain(audit.Appended, item => item.Action == AuditAction.EmployeeBind);
+    }
+
+    [Fact]
+    public async Task Changed_employee_id_with_missing_hr_keeps_existing_profile()
+    {
+        var admins = new FakePlatformUserRepository();
+        var account = User.JitProvisionMicrosoft(TenantId, ObjectId, Email, Now);
+        account.ApplyEmployeeProfile("E001", "ชื่อเดิม", "นามสกุลเดิม");
+        admins.Add(account);
+        var version = account.Version;
+        var audit = new FakePlatformUserAuditWriter();
+
+        var result = await Handler(
+                admins, audit, new FakeProfileReader(EmployeeProfileLookup.Missing))
+            .Handle(Command(employeeId: "E002"), default);
+
+        Assert.Equal(ResolveOutcome.EmployeeProfileMissing, result.Outcome);
+        Assert.Equal("E001", account.EmployeeId);
+        Assert.Equal("ชื่อเดิม", account.FirstName);
+        Assert.Equal("นามสกุลเดิม", account.LastName);
+        Assert.Equal(version, account.Version);
+        Assert.Empty(audit.Appended);
     }
 
     [Fact]
@@ -124,6 +158,29 @@ public sealed class ResolveMicrosoftAdminEmployeeProfileTests
         Assert.Empty(audit.Appended);
         Assert.Empty(reader.Lookups);
         Assert.True(uow.RolledBack);
+    }
+
+    [Fact]
+    public async Task Existing_exact_identity_denies_before_hr_when_candidate_employee_id_has_another_owner()
+    {
+        var admins = new FakePlatformUserRepository();
+        var account = User.JitProvisionMicrosoft(TenantId, ObjectId, Email, Now);
+        account.ApplyEmployeeProfile("E001", "ชื่อเดิม", "นามสกุลเดิม");
+        admins.Add(account);
+        var owner = User.JitProvisionMicrosoft(TenantId, Guid.NewGuid(), null, Now);
+        owner.ApplyEmployeeProfile("E002", "เจ้าของ", "รหัสใหม่");
+        admins.Add(owner);
+        var reader = new FakeProfileReader(EmployeeProfileLookup.Found(Profile));
+
+        var result = await Handler(admins, new FakePlatformUserAuditWriter(), reader)
+            .Handle(Command(employeeId: "E002"), default);
+
+        Assert.Equal(ResolveOutcome.IdentityConflict, result.Outcome);
+        Assert.Equal(ResolveResult.EmployeeTakenReason, result.DenialReason);
+        Assert.Equal("E001", account.EmployeeId);
+        Assert.Equal("ชื่อเดิม", account.FirstName);
+        Assert.Equal("นามสกุลเดิม", account.LastName);
+        Assert.Empty(reader.Lookups);
     }
 
     [Theory]
