@@ -26,6 +26,10 @@ public sealed class Tier0EmployeeProfileTransactionTests
     private static readonly Guid ObjectId = Guid.Parse("22222222-2222-4222-8222-222222222222");
     private static readonly DateTime FirstLogin = new(2026, 8, 30, 8, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SecondLogin = new(2026, 8, 31, 8, 0, 0, DateTimeKind.Utc);
+    private static readonly Guid PositionId = Guid.Parse("a1000000-0000-4000-8000-000000000001");
+    private static readonly Guid OfficeId = Guid.Parse("b2000000-0000-4000-8000-000000000001");
+    private static readonly Guid LevelId = Guid.Parse("c3000000-0000-4000-8000-000000000001");
+    private static readonly Guid DivisionId = Guid.Parse("d4000000-0000-4000-8000-000000000002");
 
     [Fact]
     public async Task Email_less_jit_and_profile_commit_together_then_refresh_without_authorization_change()
@@ -87,6 +91,56 @@ public sealed class Tier0EmployeeProfileTransactionTests
         await using (var verify = await database.OpenAsync())
             Assert.Equal(3L, Convert.ToInt64(await ScalarAsync(
                 verify, "SELECT Version FROM admin.Users WHERE Id = @id;", ("@id", adminId))));
+    }
+
+    [Fact]
+    public async Task Exact_identity_replaces_unowned_employee_id_and_preserves_authorization_and_org_state()
+    {
+        await using var database = await ScratchDatabase.CreateAsync();
+        await database.SeedHrAsync("E001", "ชื่อเดิม", "นามสกุลเดิม");
+        await database.SeedHrAsync("E002", "ชื่อใหม่", "นามสกุลใหม่");
+
+        var initial = await database.ResolveAsync(
+            ObjectId, "synthetic@example.test", "E001", "corr-initial", FirstLogin);
+        Assert.Equal(ResolveOutcome.Resolved, initial.Outcome);
+        var adminId = initial.Resolution!.AdminId;
+        var merchantId = Guid.Parse("eeeeeeee-0000-4000-8000-000000000001");
+        await database.ExecuteAsync(
+            """
+            UPDATE admin.Users
+            SET PositionId = @positionId, OfficeId = @officeId, LevelId = @levelId, DivisionId = @divisionId
+            WHERE Id = @adminId;
+            DECLARE @roleId uniqueidentifier = (SELECT TOP (1) Id FROM iam.Roles ORDER BY Id);
+            INSERT admin.RoleAssignments (Id, AdminUserId, RoleId, AssignedById, AssignedAt)
+            VALUES (NEWID(), @adminId, @roleId, @adminId, @assignedAt);
+            INSERT admin.MerchantAccess (Id, AdminUserId, MerchantId, AssignedByAdminId, AssignedAt)
+            VALUES (NEWID(), @adminId, @merchantId, @adminId, @assignedAt);
+            """,
+            ("@positionId", PositionId), ("@officeId", OfficeId), ("@levelId", LevelId),
+            ("@divisionId", DivisionId), ("@adminId", adminId), ("@merchantId", merchantId),
+            ("@assignedAt", FirstLogin));
+
+        string? preservedBefore;
+        await using (var verify = await database.OpenAsync())
+            preservedBefore = await PreservedStateAsync(verify, adminId);
+
+        var refreshed = await database.ResolveAsync(
+            ObjectId, "changed@example.test", "E002", "corr-refresh", SecondLogin);
+
+        Assert.Equal(ResolveOutcome.Resolved, refreshed.Outcome);
+        Assert.Equal(adminId, refreshed.Resolution!.AdminId);
+        await using (var verify = await database.OpenAsync())
+        {
+            Assert.Equal("E002|ชื่อใหม่|นามสกุลใหม่|3|0|" + SecondLogin.ToString("yyyy-MM-dd HH:mm:ss"),
+                await database.ProfileRowAsync(verify, adminId));
+            Assert.Equal(preservedBefore, await PreservedStateAsync(verify, adminId));
+            Assert.Equal(1, Convert.ToInt32(await ScalarAsync(verify,
+                "SELECT COUNT(*) FROM admin.UserAudits WHERE TargetAdminId = @id AND Action = N'employee-bind';",
+                ("@id", adminId))));
+            Assert.Equal(1, Convert.ToInt32(await ScalarAsync(verify,
+                "SELECT COUNT(*) FROM admin.UserAudits WHERE TargetAdminId = @id AND Action = N'employee-profile-sync';",
+                ("@id", adminId))));
+        }
     }
 
     [Fact]
@@ -259,6 +313,50 @@ public sealed class Tier0EmployeeProfileTransactionTests
         Assert.Equal(0, Convert.ToInt32(await ScalarAsync(verify, "SELECT COUNT(*) FROM admin.UserAudits;")));
     }
 
+    [Fact]
+    public async Task Changed_employee_id_unique_race_rolls_back_existing_profile_as_employee_taken()
+    {
+        await using var database = await ScratchDatabase.CreateAsync();
+        var loserObjectId = Guid.Parse("bbbbbbbb-0000-4000-8000-000000000001");
+        var winnerId = Guid.Parse("bbbbbbbb-0000-4000-8000-000000000002");
+        var winnerObjectId = Guid.Parse("bbbbbbbb-0000-4000-8000-000000000003");
+        await database.SeedHrAsync("E001", "ชื่อเดิม", "นามสกุลเดิม");
+        await database.SeedHrAsync("E002", "ชื่อใหม่", "นามสกุลใหม่");
+        var initial = await database.ResolveAsync(
+            loserObjectId, "loser@example.test", "E001", "corr-initial", FirstLogin);
+        Assert.Equal(ResolveOutcome.Resolved, initial.Outcome);
+        var loserId = initial.Resolution!.AdminId;
+        await database.SeedMicrosoftAsync(winnerId, winnerObjectId, "winner@example.test");
+        string? profileBefore;
+        await using (var verify = await database.OpenAsync())
+            profileBefore = await database.ProfileRowAsync(verify, loserId);
+
+        var raced = 0;
+        var result = await database.ResolveAsync(
+            loserObjectId,
+            "loser@example.test",
+            "E002",
+            "corr-race-existing",
+            SecondLogin,
+            afterEmployeeCheck: async () =>
+            {
+                if (raced++ == 0)
+                    await database.ExecuteAsync(
+                        "UPDATE admin.Users SET EmployeeId = N'E002' WHERE Id = @id;", ("@id", winnerId));
+            });
+
+        Assert.Equal(ResolveOutcome.IdentityConflict, result.Outcome);
+        Assert.Equal(ResolveResult.EmployeeTakenReason, result.DenialReason);
+        Assert.Equal(2, raced);
+        await using var final = await database.OpenAsync();
+        Assert.Equal(profileBefore, await database.ProfileRowAsync(final, loserId));
+        Assert.Equal(0, Convert.ToInt32(await ScalarAsync(final,
+            "SELECT COUNT(*) FROM admin.UserAudits WHERE TargetAdminId = @id AND Action = N'employee-profile-sync';",
+            ("@id", loserId))));
+        Assert.Equal("E002", Convert.ToString(await ScalarAsync(final,
+            "SELECT EmployeeId FROM admin.Users WHERE Id = @id;", ("@id", winnerId))));
+    }
+
     private static async Task<(T First, T Second)> RunTogetherAsync<T>(Func<Task<T>> first, Func<Task<T>> second)
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -273,6 +371,22 @@ public sealed class Tier0EmployeeProfileTransactionTests
         gate.SetResult();
         return (await firstTask, await secondTask);
     }
+
+    private static async Task<string?> PreservedStateAsync(SqlConnection connection, Guid adminId) =>
+        Convert.ToString(await ScalarAsync(
+            connection,
+            """
+            SELECT CONCAT(
+                u.Id, '|', u.Tier, '|', u.AuthorizationVersion, '|',
+                LOWER(CONVERT(nvarchar(36), u.PositionId)), '|',
+                LOWER(CONVERT(nvarchar(36), u.OfficeId)), '|',
+                LOWER(CONVERT(nvarchar(36), u.LevelId)), '|',
+                LOWER(CONVERT(nvarchar(36), u.DivisionId)), '|',
+                (SELECT COUNT(*) FROM admin.RoleAssignments r WHERE r.AdminUserId = u.Id), '|',
+                (SELECT COUNT(*) FROM admin.MerchantAccess m WHERE m.AdminUserId = u.Id))
+            FROM admin.Users u WHERE u.Id = @id;
+            """,
+            ("@id", adminId)));
 
     private static async Task<object?> ScalarAsync(
         SqlConnection connection, string sql, params (string Name, object? Value)[] parameters)

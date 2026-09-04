@@ -1,14 +1,14 @@
 # Requirements: Admin Employee Profile Sync
 
 > Status: approved 2026-09-03
-> Status-Note: amended and approved 2026-09-03 — employee profile is mandatory on every new Admin Microsoft OIDC callback
+> Status-Note: amended and approved 2026-09-04 — exact Microsoft identity may atomically replace its mutable employee profile
 > Workflow: Requirements-First
 
 เอกสารนี้กำหนด flow `Entra → employeeId → dbo.VibEmp → admin.Users` สำหรับ Admin Microsoft login โดยคง authentication identity `(Provider, TenantId, Subject)` แยกจาก HR profile และลด HR mapping ให้เหลือเฉพาะรหัสพนักงานกับชื่อเท่านั้น
 
 ## Overview
 
-ทุก Admin Microsoft OIDC authorization/callback ใหม่ต้องขอ delegated `User.Read` และหลัง Microsoft OIDC validationกับ workforce tenant validationสำเร็จ ระบบอ่าน `employeeId` จาก Microsoft Graphหนึ่งครั้ง ใช้ policyเดิม normalizeค่า แล้วค้น `[dbo].[VibEmp]` ด้วย `EmpCode` แบบ exact parameterized matchก่อนบันทึก `EmployeeId`, `FirstName`, `LastName`อย่าง atomicกับ identity/JIT/audit mutationเดิม Requestจาก Admin sessionที่มีอยู่และ session rotationไม่เรียก Graph
+ทุก Admin Microsoft OIDC authorization/callback ใหม่ต้องขอ delegated `User.Read` และหลัง Microsoft OIDC validationกับ workforce tenant validationสำเร็จ ระบบอ่าน `employeeId` จาก Microsoft Graphหนึ่งครั้ง ใช้ policyเดิม normalizeค่า แล้วตรวจ global ownershipโดย exclude exact Admin ปัจจุบันก่อนค้น `[dbo].[VibEmp]` ด้วย `EmpCode` แบบ exact parameterized match เมื่อ HR row valid ระบบ replace `EmployeeId`, `FirstName`, `LastName`อย่าง atomicกับ identity/JIT/audit mutationเดิม `EmployeeId`เป็น mutable HR profile attribute ไม่ใช่ authentication identity Requestจาก Admin sessionที่มีอยู่และ session rotationไม่เรียก Graph
 
 ฟีเจอร์นี้ supersede เฉพาะส่วน employee-profile ของ `tier0-graph-employee-profile` ที่อ่าน `dbo.branch`, `und_brcode`, `DepartmentID`, Office หรือ Division ส่วน tenant-aware identity ของ `tier0-microsoft-tenant-aware-identity`, RBAC, Tier, roles, permissions, `MerchantAccess`, session security และ Merchant-user authentication คงเดิม
 
@@ -142,9 +142,9 @@
 
 - 5.1 WHEN exact tenant-aware Microsoft identity resolve Active Adminที่ `EmployeeId=NULL` THE SYSTEM SHALL bind normalized `employeeId`
 - 5.2 WHEN exact tenant-aware Microsoft identity resolve Active Adminที่ `EmployeeId` ตรง normalized value THE SYSTEM SHALL คง `EmployeeId` เดิม
-- 5.3 IF exact tenant-aware Microsoft identity resolve Adminที่ `EmployeeId` ต่างจาก normalized value THEN THE SYSTEM SHALL ปฏิเสธ callbackด้วย `identity-conflict`
-- 5.4 IF bound `EmployeeId` ต่าง THEN THE SYSTEM SHALL ไม่ overwriteค่าที่ bindไว้
-- 5.5 IF normalized `employeeId` ถูก Adminรายอื่นถือ THEN THE SYSTEM SHALL ปฏิเสธ callbackด้วย `identity-conflict`
+- 5.3 WHEN exact tenant-aware Microsoft identity resolve Active Adminที่ `EmployeeId` ต่างจาก normalized value THE SYSTEM SHALL ถือ normalized valueเป็น candidate HR profileของ Adminเดิม
+- 5.4 WHEN candidate HR profileผ่าน validation THE SYSTEM SHALL overwrite `EmployeeId`, `FirstName` และ `LastName`เดิมใน transactionเดียว
+- 5.5 IF normalized `employeeId` ถูก Adminรายอื่นถือ THEN THE SYSTEM SHALL ปฏิเสธ callbackด้วย `identity-conflict`และ internal reason `employee-taken`
 - 5.6 WHEN HR profileผ่าน validation THE SYSTEM SHALL refresh `FirstName` และ `LastName` ทุก Microsoft login
 - 5.7 WHEN `EmployeeId`, `FirstName`, `LastName` เท่าค่าเดิมทั้งหมด THE SYSTEM SHALL ไม่เพิ่ม resource `Version`
 - 5.8 WHEN ค่าใดใน `EmployeeId`, `FirstName`, `LastName` เปลี่ยน THE SYSTEM SHALL persist profileสาม fieldเป็นค่าที่ resolveได้
@@ -160,9 +160,11 @@
 - 5.18 WHEN profile syncสำเร็จ THE SYSTEM SHALL ไม่เปลี่ยน `OfficeId`
 - 5.19 WHEN profile syncสำเร็จ THE SYSTEM SHALL ไม่เปลี่ยน `LevelId`
 - 5.20 WHEN profile syncสำเร็จ THE SYSTEM SHALL ไม่เปลี่ยน `DivisionId`
-- 5.21 WHEN `EmployeeId` ถูก bindครั้งแรก THE SYSTEM SHALL append audit action `employee-bind` หนึ่งรายการใน identity/profile transaction
-- 5.22 WHEN ชื่อของ existing Adminเปลี่ยน THE SYSTEM SHALL append audit action `employee-profile-sync` หนึ่งรายการใน identity/profile transaction
+- 5.21 WHEN `EmployeeId` ถูก bindครั้งแรกจาก null THE SYSTEM SHALL append audit action `employee-bind` หนึ่งรายการใน identity/profile transaction
+- 5.22 WHEN `EmployeeId`ที่เคย bindหรือชื่อของ existing Adminเปลี่ยน THE SYSTEM SHALL append audit action `employee-profile-sync` หนึ่งรายการใน identity/profile transaction
 - 5.23 WHEN profileเป็น no-op THE SYSTEM SHALL ไม่ append `employee-bind` หรือ `employee-profile-sync` audit
+- 5.24 WHEN existing exact identityเปลี่ยน `EmployeeId`จาก non-null valueหนึ่งเป็นอีก valueหนึ่ง THE SYSTEM SHALL ไม่ append `employee-bind`
+- 5.25 THE SYSTEM SHALL คืน `identity-conflict`จาก employee profile flowเฉพาะเมื่อ candidate `EmployeeId`ถูก Adminรายอื่นถือ
 
 ## REQ-6: Atomic JIT และ transaction boundary
 
@@ -187,8 +189,8 @@
 - 6.15 IF identity/profile transactionไม่สำเร็จ THEN THE SYSTEM SHALL ไม่สร้าง Admin session
 - 6.16 WHEN exact Microsoft identityตรง Suspended Admin THE SYSTEM SHALL ปฏิเสธก่อน query `[dbo].[VibEmp]`
 - 6.17 IF tenant-aware identity conflictถูกตรวจพบก่อน profile resolution THEN THE SYSTEM SHALL ปฏิเสธก่อน query `[dbo].[VibEmp]`
-- 6.18 IF bound `EmployeeId` ต่างจาก normalized value THEN THE SYSTEM SHALL ปฏิเสธก่อน query `[dbo].[VibEmp]`
-- 6.19 IF normalized `employeeId` ถูก Adminรายอื่นถือ THEN THE SYSTEM SHALL ปฏิเสธก่อน query `[dbo].[VibEmp]`
+- 6.18 WHEN exact identityมี bound `EmployeeId`ต่างจาก normalized value THE SYSTEM SHALL ตรวจ ownerรายอื่นของ normalized valueโดย exclude Adminปัจจุบันก่อน query `[dbo].[VibEmp]`
+- 6.19 IF normalized `employeeId` ถูก Adminรายอื่นถือ THEN THE SYSTEM SHALL ปฏิเสธด้วย internal reason `employee-taken`ก่อน query `[dbo].[VibEmp]`
 - 6.20 WHEN mutation transaction rollbackเพราะ profile failure THE SYSTEM SHALL เขียน denied-auth auditภายหลังบน fresh scopeตาม current flow
 
 ## REQ-7: Denial, audit และ privacy
@@ -200,7 +202,7 @@
 - 7.1 IF Graphไม่มีหรือให้ invalid `employeeId` THEN THE SYSTEM SHALL เขียน denied-auth auditด้วย stable non-PII reason
 - 7.2 IF HR profile missingหรือinvalid THEN THE SYSTEM SHALL เขียน denied-auth auditด้วย stable non-PII reason
 - 7.3 IF HR source unavailable THEN THE SYSTEM SHALL เขียน denied-auth auditด้วย stable non-PII reason
-- 7.4 IF EmployeeId mismatchหรือถูก Adminอื่นถือ THEN THE SYSTEM SHALL เขียน denied-auth auditด้วย stable non-PII reason
+- 7.4 IF EmployeeIdถูก Adminอื่นถือหรือ unique-index raceแพ้ THEN THE SYSTEM SHALL เขียน denied-auth auditด้วย stable non-PII reason `employee-taken`
 - 7.5 THE SYSTEM SHALL ไม่ใส่ access tokenใน logหรือ audit
 - 7.6 THE SYSTEM SHALL ไม่ใส่ `employeeId` หรือ `EmpCode` ใน logหรือ audit
 - 7.7 THE SYSTEM SHALL ไม่ใส่ `FirstNameTh`, `LastNameTh`, `FirstName` หรือ `LastName` ใน logหรือ audit
@@ -248,7 +250,7 @@
 - 9.4 THE SYSTEM SHALL มี testยืนยัน exact parameterized `EmpCode` query
 - 9.5 THE SYSTEM SHALL มี testครอบ `[dbo].[VibEmp]` cardinality 0, 1และ 2 rows
 - 9.6 THE SYSTEM SHALL มี testครอบ null, blankและ overlength names
-- 9.7 THE SYSTEM SHALL มี testครอบ existing-user bind, refresh, no-opและ mismatch
+- 9.7 THE SYSTEM SHALL มี testครอบ existing-user first bind, same-ID name refresh, changed-ID three-field refreshและ no-op
 - 9.8 THE SYSTEM SHALL มี testครอบ JIT identity/profile/audit transaction
 - 9.9 THE SYSTEM SHALL มี testครอบ EmployeeId duplicateและ race outcome
 - 9.10 THE SYSTEM SHALL มี testพิสูจน์ rollbackไม่มี partial user, profile, auditหรือ session
@@ -262,6 +264,7 @@
 - 9.18 THE SYSTEM SHALL มี testยืนยัน requestจาก existing Admin sessionและ session rotationไม่เรียก Graph
 - 9.19 THE SYSTEM SHALL มี testยืนยัน missing access token, Graph `401`, Graph `403`และ exact `consent_required`คืน `employee-profile-unavailable`โดยไม่มี resolver mutationหรือ session
 - 9.20 THE SYSTEM SHALL มี regression testยืนยัน user-cancelled `access_denied`ยังคืน `access-denied`และไม่ถูก mapเป็น profile failure
+- 9.21 THE SYSTEM SHALL มี regression testที่ REDก่อน fixและ GREENหลัง fixสำหรับ exact identityเปลี่ยน `EmployeeId`จาก `E001`เป็น unowned `E002`พร้อม valid HR row โดย assert profileสาม field, preserved account/authorization state, Version +1, auditเดียวและ session-after-commit
 
 ## EmployeeId uniqueness audit ก่อน design
 
@@ -282,7 +285,7 @@
 
 - Microsoft Graph delegated `User.Read` เป็น sourceของ `employeeId`; optional/custom ID-token claimยังไม่ใช้
 - profile syncทำทุก successful Microsoft login
-- EmployeeId bindครั้งแรกแล้ว immutable
+- `EmployeeId` เป็น mutable HR profile attribute; immutable authentication identityมีเพียง exact `(microsoft, validated tid, validated oid)`
 - `[dbo].[VibEmp]` เป็น external/operator-managed read-only table
 - global EmployeeId uniquenessคงไว้ตาม auditด้านบน
 - existing Office/Division fieldsบน `admin.Users` คงค่าปัจจุบันและไม่ถูกอ่านหรือเปลี่ยนโดย flowนี้
@@ -301,8 +304,9 @@
 | M4 | classifyเฉพาะ exact provider error code `consent_required`;ห้าม parse description/AADSTS | REQ-1.27, 1.29, 7.16-7.17 |
 | M5 | exact user-cancel `access_denied`คง behaviorเดิม | REQ-1.28, 9.20 |
 | M6 | schema, identity, HR lookupและ atomic profile contractเดิมไม่เปลี่ยน | REQ-2ถึง REQ-8เดิม |
+| M7 | `EmployeeId`เป็น mutable HR profile attribute; exact identityเปลี่ยนไปใช้ unowned EmployeeIdได้และ conflictเฉพาะ ownerรายอื่น | REQ-5.3-REQ-5.5, REQ-5.22-REQ-5.25, REQ-6.18-REQ-6.19, REQ-7.4, REQ-9.7, REQ-9.21 |
 
-Designและ Tasksที่ approvedก่อน amendmentนี้ staleและต้อง syncหลัง Requirements amendmentได้รับ approval Tasksเดิมที่เสร็จแล้วต้องคง Evidenceไว้และเพิ่ม taskใหม่สำหรับ mandatory Graph delta
+Designและ Tasksถูก syncตาม amendments M1-M7แล้ว Tasksเดิมที่เสร็จคง Evidenceไว้ และ Task 5ครอบ mutable EmployeeId delta
 
 ### Findings log (spec-analyze 2026-09-03, anchor `3e546ac` — requirements fileยัง untracked)
 

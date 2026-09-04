@@ -3,7 +3,11 @@ using SharedKernel;
 namespace Admins.Domain.Users;
 
 /// <summary>Observable result of applying the three-field employee profile.</summary>
-public readonly record struct EmployeeProfileChange(bool Changed, bool EmployeeBound, bool NamesChanged);
+public readonly record struct EmployeeProfileChange(
+    bool Changed,
+    bool EmployeeBound,
+    bool EmployeeIdChanged,
+    bool NamesChanged);
 
 /// <summary>
 /// A platform operator in the Admin Console. Control-plane — NOT under the merchant RLS predicate (REQ-3.2).
@@ -62,9 +66,9 @@ public sealed class User : AggregateRoot<Guid>
     /// <summary>ฝ่าย/ภาค — FK to <see cref="Division"/>.</summary>
     public Guid? DivisionId { get; private set; }
 
-    /// <summary>Normalised Graph <c>employeeId</c> (tier0-graph-employee-profile REQ-2). A profile attribute, NOT
-    /// an identity key (REQ-2.5); bound once by <see cref="ApplyEmployeeProfile"/> and never rewritten
-    /// (REQ-2.9/2.15) — that method is the only writer (static gate in Tier0WorkforceArchitectureTests).</summary>
+    /// <summary>Normalised Graph <c>employeeId</c> (tier0-graph-employee-profile REQ-2). A mutable HR profile
+    /// attribute, NOT an identity key; <see cref="ApplyEmployeeProfile"/> is its only writer
+    /// (static gate in Tier0WorkforceArchitectureTests).</summary>
     public string? EmployeeId { get; private set; }
 
     /// <summary>Thai given name refreshed from the HR source on every Tier 0 login (REQ-3.6/3.13).</summary>
@@ -239,26 +243,24 @@ public sealed class User : AggregateRoot<Guid>
         BumpResourceVersion();
     }
 
-    /// <summary>Applies the resolved three-field employee profile. EmployeeId binds once; names refresh on login.
+    /// <summary>Replaces the resolved three-field employee profile on login.
     /// Org-profile fields and <see cref="AuthorizationVersion"/> are never touched.</summary>
     public EmployeeProfileChange ApplyEmployeeProfile(string employeeId, string firstName, string lastName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(employeeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
         ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
-        if (EmployeeId is not null && !string.Equals(EmployeeId, employeeId, StringComparison.Ordinal))
-            throw new InvalidOperationException("This admin account is already bound to a different employee.");
-
         var employeeBound = EmployeeId is null;
+        var employeeIdChanged = !string.Equals(EmployeeId, employeeId, StringComparison.Ordinal);
         var namesChanged = !string.Equals(FirstName, firstName, StringComparison.Ordinal)
             || !string.Equals(LastName, lastName, StringComparison.Ordinal);
-        if (!employeeBound && !namesChanged)
-            return new EmployeeProfileChange(false, false, false);
+        if (!employeeIdChanged && !namesChanged)
+            return new EmployeeProfileChange(false, false, false, false);
 
         EmployeeId = employeeId;
         FirstName = firstName;
         LastName = lastName;
         BumpResourceVersion();
-        return new EmployeeProfileChange(true, employeeBound, namesChanged);
+        return new EmployeeProfileChange(true, employeeBound, employeeIdChanged, namesChanged);
     }
 }

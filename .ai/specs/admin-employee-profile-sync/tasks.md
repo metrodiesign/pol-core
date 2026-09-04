@@ -1,7 +1,7 @@
 # Implementation Tasks: Admin Employee Profile Sync
 
 > Status: approved 2026-09-03
-> Status-Note: amended and approved 2026-09-03 — Task 4 mandatory Graph delta
+> Status-Note: amended and approved 2026-09-04 — Task 5 mutable EmployeeId refresh delta
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task
 > in one pass (it may touch many files). Decompose into sub-steps yourself at
@@ -10,7 +10,7 @@
 Gate ต่อ task: `dotnet build pol-core.slnx --no-restore -warnaserror` และ
 `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` งานที่แตะ SQL Serverต้องรัน targeted integration testจริงด้วย Taskสุดท้ายรัน required commandทั้งชุดจาก requirements
 
-- [x] 1. **Exact HR profile sync transaction** — ลด employee profile contractเหลือ `EmpCode`/ชื่อ, เปลี่ยน production readerเป็น exact parameterized `dbo.VibEmp` queryเดียว, ลด aggregate writerเหลือ `EmployeeId`/ชื่อ, retire branch/Office/Division/unmapped path, เพิ่ม `employee-profile-sync` audit และ wire existing/JIT bind-refresh-no-op-mismatch-taken/raceทั้งหมดใน identity transactionเดิม Doneเมื่อ unit testsและ real SQL reader/transaction integration testsพิสูจน์ cardinality, name validation, field/version preservation, audit matrix, rollbackและ duplicate raceครบ
+- [x] 1. **Exact HR profile sync transaction** — ลด employee profile contractเหลือ `EmpCode`/ชื่อ, เปลี่ยน production readerเป็น exact parameterized `dbo.VibEmp` queryเดียว, ลด aggregate writerเหลือ `EmployeeId`/ชื่อ, retire branch/Office/Division/unmapped path, เพิ่ม `employee-profile-sync` audit และ wire existing/JIT bind-refresh-no-op/conflict/raceทั้งหมดใน identity transactionเดิม Doneเมื่อ unit testsและ real SQL reader/transaction integration testsพิสูจน์ cardinality, name validation, field/version preservation, audit matrix, rollbackและ duplicate raceครบ
      Satisfies: REQ-2.1-REQ-2.7, REQ-3.1-REQ-3.14, REQ-4.1-REQ-4.9, REQ-5.1-REQ-5.23, REQ-6.1-REQ-6.13, REQ-6.16-REQ-6.19, REQ-9.2-REQ-9.9, REQ-9.11
      Verify: `dotnet test tests/Admins.Tests/Admins.Tests.csproj --filter "FullyQualifiedName~EmployeeIdPolicyTests|FullyQualifiedName~EmployeeProfileReaderStatusTests|FullyQualifiedName~UserEmployeeProfileTests|FullyQualifiedName~ResolveMicrosoftAdminEmployeeProfileTests"`; `dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --filter "FullyQualifiedName~EmployeeProfileReaderIntegrationTests|FullyQualifiedName~Tier0EmployeeProfileTransactionTests"`; standard task gate
      Evidence:
@@ -66,6 +66,24 @@ Gate ต่อ task: `dotnet build pol-core.slnx --no-restore -warnaserror` แ�
        - viewports: n/a — backend/config/docs-only
        - deviations: ไม่รัน SQL integrationซ้ำเพราะ Task 4ไม่แตะ reader, transaction, schemaหรือ migration; focused/full testรอบแรกพบ fixtureและ expected scopeเดิม จากนั้นปรับเฉพาะ testsที่ต้องรองรับ mandatory Graphแล้ว rerunเขียว
 
+- [x] 5. **Mutable EmployeeId refresh for exact identity** — เปลี่ยน existing exact `(microsoft, tid, oid)`ให้ตรวจ candidate EmployeeId ownerโดย exclude current Admin แล้ว lookup HRและ replace `EmployeeId`/ชื่อแบบ atomic ลบ denialจาก stored valueเดิม คง global unique index/race mappingเป็น `employee-taken` เพิ่ม RED→GREEN regressionทั้ง handlerและ SQL transaction พร้อม preserve session-after-commit, Version/Audit/AuthVersion/org/RBAC semantics
+     Satisfies: REQ-5.3-REQ-5.5, REQ-5.7-REQ-5.25, REQ-6.6-REQ-6.15, REQ-6.18-REQ-6.20, REQ-7.4-REQ-7.15, REQ-9.7-REQ-9.10, REQ-9.21
+     Depends on: 1, 2, 3, 4
+     Verify: `dotnet test tests/Admins.Tests/Admins.Tests.csproj --filter "FullyQualifiedName~UserEmployeeProfileTests|FullyQualifiedName~ResolveMicrosoftAdminEmployeeProfileTests"`; `set -a; source .env.integration; set +a; dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --filter "FullyQualifiedName~Tier0EmployeeProfileTransactionTests"`; required success-criteria commands
+     Evidence:
+       - red: `dotnet test tests/Admins.Tests/Admins.Tests.csproj --filter "FullyQualifiedName~Existing_exact_identity_replaces_changed_employee_profile|FullyQualifiedName~Changed_employee_id_replaces_three_fields_with_one_resource_version_bump"` -> 0 passed / 2 failed; handlerได้ `IdentityConflict`แทน `Resolved`และ aggregate throwเมื่อ `E001`เปลี่ยนเป็น `E002`
+       - test: `dotnet test tests/Admins.Tests/Admins.Tests.csproj --filter "FullyQualifiedName~UserEmployeeProfileTests|FullyQualifiedName~ResolveMicrosoftAdminEmployeeProfileTests"` -> 22 passed / 0 failed
+       - test: `set -a; source .env.integration; set +a; dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --filter "FullyQualifiedName~Tier0EmployeeProfileTransactionTests"` -> 8 passed / 0 failed; changed-ID commit, preserved state, HR rollbackและ existing-profile unique raceผ่าน
+       - test: `dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --filter "FullyQualifiedName~AdminLoginServiceTests"` -> 30 passed / 0 failed; session creationเกิดหลัง profile resolver commit
+       - build: `dotnet build pol-core.slnx --no-restore -warnaserror` -> Build succeeded, 0 warnings, 0 errors
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> 2,082 passed / 0 failedรวมทุก test project
+       - script: `scripts/spec-trace.sh admin-employee-profile-sync` -> 162 criteria covered, EARS lint passed
+       - script: `.ai/bin/check-secrets.sh --all` -> exit 0, no findings
+       - check: `git diff --check` -> exit 0
+       - check: `rg "employee-mismatch"` scoped to production, active testsและ active spec -> no matches
+       - viewports: n/a — backend/docs-only
+       - deviations: ไม่ทดสอบ live Microsoft browser login; no schema/index migrationและไม่เปลี่ยน Graph/consent mappingตาม scope
+
 ## Suggested execution batches
 
-Tasks 1–4เสร็จพร้อม Evidenceแล้ว ไม่มี implementation taskค้าง Task 4 amendmentแตะเฉพาะ Admin OIDC/config/tests/docsและไม่ได้เปลี่ยน HR reader, profile transaction, migration, schemaหรือ Merchant authentication
+Tasks 1–4เสร็จพร้อม Evidenceแล้ว Task 5เป็น cohesive amendmentสำหรับ mutable EmployeeId และต้อง implementแบบ RED→GREENใน sessionเดียว
