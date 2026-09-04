@@ -141,7 +141,6 @@ public sealed class AdminLoginServiceTests
     [Theory]
     [InlineData(ResolveOutcome.EmployeeProfileMissing, null, "employee-profile-missing", "employee-profile-missing")]
     [InlineData(ResolveOutcome.EmployeeProfileInvalid, null, "employee-profile-invalid", "employee-profile-invalid")]
-    [InlineData(ResolveOutcome.EmployeeProfileUnmapped, null, "employee-profile-unmapped", "employee-profile-unmapped")]
     [InlineData(ResolveOutcome.EmployeeProfileUnavailable, "hr-source-unavailable", "employee-profile-unavailable", "hr-source-unavailable")]
     [InlineData(ResolveOutcome.IdentityConflict, "employee-mismatch", "identity-conflict", "employee-mismatch")]
     [InlineData(ResolveOutcome.IdentityConflict, "employee-taken", "identity-conflict", "employee-taken")]

@@ -166,6 +166,7 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
     public const string MerchantMicrosoftClient = "merchant-microsoft-client";
 
     public FakeBackchannel Backchannel { get; } = new();
+    public FakeGraphHandler Graph { get; } = new();
     public RecordingAdminResolver AdminResolver { get; } = new();
     public RecordingUserResolver UserResolver { get; } = new();
     public TestWorkforceTenantBindingStore TenantBindingStore { get; } = new();
@@ -191,6 +192,7 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientId", AdminMicrosoftClient);
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback");
+        builder.UseSetting("AdminAuth:GraphBaseUrl", GraphTestOidc.GraphOrigin);
         builder.UseSetting("MerchantAuth:Providers:Google:ClientId", MerchantGoogleClient);
         builder.UseSetting("MerchantAuth:Providers:Google:ClientSecret", "test-secret");
         builder.UseSetting("MerchantAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
@@ -223,6 +225,8 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
             services.AddSingleton<AdminAuthAuditWriter>(AdminAuthAudits);
             services.AddScoped<ApiHost::Api.Admins.ICallbackResolver>(_ => AdminResolver);
             services.AddScoped<ApiHost::Api.Merchants.IUserCallbackResolver>(_ => UserResolver);
+            services.AddHttpClient(ApiHost::Api.Admins.MicrosoftGraphEmployeeIdReader.ClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => Graph);
 
             // Static metadata per scheme: the ISSUER here is the literal the framework-default validation
             // compares the token's iss against (M5) — workforce for admin, CIAM for merchant, Google for merchant.

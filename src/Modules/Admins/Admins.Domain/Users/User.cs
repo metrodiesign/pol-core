@@ -2,6 +2,9 @@ using SharedKernel;
 
 namespace Admins.Domain.Users;
 
+/// <summary>Observable result of applying the three-field employee profile.</summary>
+public readonly record struct EmployeeProfileChange(bool Changed, bool EmployeeBound, bool NamesChanged);
+
 /// <summary>
 /// A platform operator in the Admin Console. Control-plane — NOT under the merchant RLS predicate (REQ-3.2).
 /// <see cref="Tier"/> decides reach: a <see cref="Tier.Super"/> has unrestricted cross-merchant control;
@@ -236,12 +239,9 @@ public sealed class User : AggregateRoot<Guid>
         BumpResourceVersion();
     }
 
-    /// <summary>Applies the resolved Tier 0 employee profile (REQ-2.6/2.7, 3.13, 4.16, 5.11). Binds
-    /// <see cref="EmployeeId"/> on first call; a DIFFERENT bound id throws (defence-in-depth — the handler checks
-    /// first and answers IdentityConflict, REQ-2.8/2.9). Position/Level are untouched (REQ-10.7). Returns true when
-    /// any of the five fields changed (<see cref="Version"/> bumped, REQ-2.18/7.11); false when identical
-    /// (no bump, REQ-3.14). <see cref="AuthorizationVersion"/> is never touched (REQ-7.12).</summary>
-    public bool ApplyEmployeeProfile(string employeeId, string firstName, string lastName, Guid officeId, Guid divisionId)
+    /// <summary>Applies the resolved three-field employee profile. EmployeeId binds once; names refresh on login.
+    /// Org-profile fields and <see cref="AuthorizationVersion"/> are never touched.</summary>
+    public EmployeeProfileChange ApplyEmployeeProfile(string employeeId, string firstName, string lastName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(employeeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
@@ -249,16 +249,16 @@ public sealed class User : AggregateRoot<Guid>
         if (EmployeeId is not null && !string.Equals(EmployeeId, employeeId, StringComparison.Ordinal))
             throw new InvalidOperationException("This admin account is already bound to a different employee.");
 
-        if (EmployeeId == employeeId && FirstName == firstName && LastName == lastName
-            && OfficeId == officeId && DivisionId == divisionId)
-            return false;
+        var employeeBound = EmployeeId is null;
+        var namesChanged = !string.Equals(FirstName, firstName, StringComparison.Ordinal)
+            || !string.Equals(LastName, lastName, StringComparison.Ordinal);
+        if (!employeeBound && !namesChanged)
+            return new EmployeeProfileChange(false, false, false);
 
         EmployeeId = employeeId;
         FirstName = firstName;
         LastName = lastName;
-        OfficeId = officeId;
-        DivisionId = divisionId;
         BumpResourceVersion();
-        return true;
+        return new EmployeeProfileChange(true, employeeBound, namesChanged);
     }
 }

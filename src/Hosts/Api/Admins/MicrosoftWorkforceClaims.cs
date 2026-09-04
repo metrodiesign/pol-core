@@ -56,13 +56,19 @@ internal sealed class MicrosoftWorkforcePolicyException : Exception { }
 internal static class MicrosoftOidcFailureClassifier
 {
     internal const string PolicyFailureItemKey = "admin.microsoft.workforce-policy-failure";
+    internal const string EmployeeProfileUnavailableItemKey = "admin.microsoft.employee-profile-unavailable";
 
     public static void MarkPolicyFailure(HttpContext httpContext) =>
         httpContext.Items[PolicyFailureItemKey] = true;
 
+    public static void MarkEmployeeProfileUnavailable(HttpContext httpContext) =>
+        httpContext.Items[EmployeeProfileUnavailableItemKey] = true;
+
     public static string BrowserReason(HttpContext httpContext, Exception? failure) =>
         Find<EmployeeProfileException>(failure)?.Reason
-        ?? (IsPolicyFailure(httpContext, failure) ? "workforce-access-denied" : "auth-failed");
+        ?? (IsEmployeeProfileUnavailable(httpContext)
+            ? EmployeeProfileException.Unavailable
+            : IsPolicyFailure(httpContext, failure) ? "workforce-access-denied" : "auth-failed");
 
     private static T? Find<T>(Exception? exception)
         where T : Exception
@@ -72,6 +78,9 @@ internal static class MicrosoftOidcFailureClassifier
                 return match;
         return null;
     }
+
+    private static bool IsEmployeeProfileUnavailable(HttpContext httpContext) =>
+        httpContext.Items.TryGetValue(EmployeeProfileUnavailableItemKey, out var marker) && marker is true;
 
     private static bool IsPolicyFailure(HttpContext httpContext, Exception? failure) =>
         httpContext.Items.TryGetValue(PolicyFailureItemKey, out var marker) && marker is true

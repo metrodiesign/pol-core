@@ -1,8 +1,10 @@
+using System.Data.Common;
 using Admins.Application.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging;
@@ -11,129 +13,169 @@ using Persistence.ControlPlane.Admins;
 
 namespace Architecture.Tests;
 
-/// <summary>
-/// tier0-graph-employee-profile task 2: <see cref="EmployeeProfileReader"/> against a REAL scratch database, reading
-/// as the REAL <c>pol_app</c> login (the server-level login the dev database already has). The HR mirror tables are
-/// created with the minimal REQ-11.7 shape before the migration so the conditional GRANT (REQ-8.11) applies; rows use
-/// the <c>ZTEST-</c> prefix only and the database is dropped afterwards — no shared-database PII is ever read.
-/// Lives here (not Integration.Tests) because <c>ControlPlaneDbContext</c> is internal to Persistence.ControlPlane.
-/// </summary>
 [Trait("Category", "Integration")]
 public sealed class EmployeeProfileReaderIntegrationTests
 {
-    private static readonly Guid Hq = Guid.Parse("b2000000-0000-4000-8000-000000000001");
-    private static readonly Guid North = Guid.Parse("b2000000-0000-4000-8000-000000000002");
-    private static readonly Guid Finance = Guid.Parse("d4000000-0000-4000-8000-000000000002");
-    private static readonly Guid Legal = Guid.Parse("d4000000-0000-4000-8000-000000000008");
-
     [Fact]
-    public async Task Reads_every_status_of_the_design_table_as_pol_app()
+    public async Task Production_reader_uses_one_exact_parameterized_query_and_maps_cardinality_and_names()
     {
-        await using var database = await ScratchDatabase.CreateAsync(createHrTables: true);
+        await using var database = await ScratchDatabase.CreateAsync(createHrTableBeforeMigration: true);
         await database.ExecuteAsync("""
-            INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh, und_brcode, DepartmentID) VALUES
-                (N'ZTEST-OK',      N' สมชาย ',  N' ใจดี ', 'Z01', N'ZD1'),
-                (N'ZTEST-DUP',     N'a', N'b', 'Z01', N'ZD1'),
-                (N'ZTEST-DUP',     N'c', N'd', 'Z01', N'ZD1'),
-                (N'ZTEST-NONAME',  N'   ', N'x', 'Z01', N'ZD1'),
-                (N'ZTEST-LONG',    REPLICATE(N'ก', 501), N'x', 'Z01', N'ZD1'),
-                (N'ZTEST-NOBR',    N'a', N'b', NULL, N'ZD1'),
-                (N'ZTEST-BADBR',   N'a', N'b', 'Z99', N'ZD1'),
-                (N'ZTEST-NOOFF',   N'a', N'b', 'Z02', N'ZD1'),
-                (N'ZTEST-NODEPT',  N'a', N'b', 'Z01', N''),
-                (N'ZTEST-NODIV',   N'a', N'b', 'Z01', N'ZD9'),
-                (N'ZTEST-INACT',   N'a', N'b', 'Z03', N'ZD3');
-            INSERT dbo.branch (br_code, active_row) VALUES ('Z01', 1), ('Z02', 0), ('Z03', 1);
-            UPDATE cfg.Offices SET LegacyKey = N'Z01' WHERE Id = @hq;
-            UPDATE cfg.Offices SET LegacyKey = N'Z03', Status = 2 WHERE Id = @north;
-            UPDATE cfg.Divisions SET LegacyKey = N'ZD1' WHERE Id = @finance;
-            UPDATE cfg.Divisions SET LegacyKey = N'ZD3', Status = 2 WHERE Id = @legal;
-            """, ("@hq", Hq), ("@north", North), ("@finance", Finance), ("@legal", Legal));
-
-        await using var context = database.AppContext();
+            INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh) VALUES
+                (N'ZTEST-OK', N' ชื่อทดสอบ ', N' นามสกุลทดสอบ '),
+                (N'ZTEST-DUP', N'a', N'b'),
+                (N'ZTEST-DUP', N'c', N'd'),
+                (N'ZTEST-NOFIRST', N' ', N'x'),
+                (N'ZTEST-NOLAST', N'x', NULL),
+                (N'ZTEST-LONG', REPLICATE(N'ก', 501), N'x');
+            """);
+        var capture = new CommandCaptureInterceptor();
+        await using var context = database.AppContext(capture);
         var reader = new EmployeeProfileReader(context, new CapturingLogger());
 
         var found = await reader.LookupAsync("ZTEST-OK", CancellationToken.None);
+
         Assert.Equal(EmployeeProfileStatus.Found, found.Status);
-        // REQ-3.6/3.7 trimmed Thai names, REQ-4.7/5.3 GUIDs via LegacyKey, active flags surfaced (REQ-4.11/5.7 inputs).
-        Assert.Equal(new EmployeeProfile("สมชาย", "ใจดี", Hq, true, Finance, true), found.Profile);
+        Assert.Equal(new EmployeeProfile("ชื่อทดสอบ", "นามสกุลทดสอบ"), found.Profile);
+        Assert.Equal(EmployeeProfileStatus.Missing,
+            (await reader.LookupAsync("ZTEST-NONE", CancellationToken.None)).Status);
+        Assert.Equal(EmployeeProfileStatus.Invalid,
+            (await reader.LookupAsync("ZTEST-DUP", CancellationToken.None)).Status);
+        Assert.Equal(EmployeeProfileStatus.Invalid,
+            (await reader.LookupAsync("ZTEST-NOFIRST", CancellationToken.None)).Status);
+        Assert.Equal(EmployeeProfileStatus.Invalid,
+            (await reader.LookupAsync("ZTEST-NOLAST", CancellationToken.None)).Status);
+        Assert.Equal(EmployeeProfileStatus.Invalid,
+            (await reader.LookupAsync("ZTEST-LONG", CancellationToken.None)).Status);
+        Assert.Equal(EmployeeProfileStatus.Missing,
+            (await reader.LookupAsync("ZTEST-O", CancellationToken.None)).Status);
+        Assert.Equal(EmployeeProfileStatus.Missing,
+            (await reader.LookupAsync("ZTEST-%", CancellationToken.None)).Status);
 
-        // REQ-3.2 / 4.4 / 6.7: trailing whitespace on the lookup key and char(3) padding do not matter.
-        Assert.Equal(EmployeeProfileStatus.Found, (await reader.LookupAsync("ZTEST-OK ", CancellationToken.None)).Status);
-        // REQ-3.3: no prefix / pattern match.
-        Assert.Equal(EmployeeProfileStatus.Missing, (await reader.LookupAsync("ZTEST-O", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Missing, (await reader.LookupAsync("ZTEST-%", CancellationToken.None)).Status);
-
-        Assert.Equal(EmployeeProfileStatus.Missing, (await reader.LookupAsync("ZTEST-NONE", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Invalid, (await reader.LookupAsync("ZTEST-DUP", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Invalid, (await reader.LookupAsync("ZTEST-NONAME", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Invalid, (await reader.LookupAsync("ZTEST-LONG", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NOBR", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-BADBR", CancellationToken.None)).Status);
-        // REQ-4.18: dbo.branch.active_row = 0 is still a valid branch; the office mapping is what is missing here.
-        Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NOOFF", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NODEPT", CancellationToken.None)).Status);
-        Assert.Equal(EmployeeProfileStatus.Unmapped, (await reader.LookupAsync("ZTEST-NODIV", CancellationToken.None)).Status);
-
-        var inactive = await reader.LookupAsync("ZTEST-INACT", CancellationToken.None);
-        Assert.Equal(EmployeeProfileStatus.Found, inactive.Status);
-        Assert.Equal(new EmployeeProfile("a", "b", North, false, Legal, false), inactive.Profile);
-
-        // REQ-3.11 / 4.15: pol_app holds SELECT only on the mirror tables.
-        await using var verify = await database.OpenAsync();
-        foreach (var table in new[] { "dbo.VibEmp", "dbo.branch" })
+        Assert.Equal(8, capture.Commands.Count);
+        Assert.All(capture.Commands, command =>
         {
-            Assert.Equal(1, await PermissionAsync(verify, table, "SELECT"));
-            Assert.Equal(0, await PermissionAsync(verify, table, "INSERT"));
-            Assert.Equal(0, await PermissionAsync(verify, table, "UPDATE"));
-            Assert.Equal(0, await PermissionAsync(verify, table, "DELETE"));
+            Assert.Contains("SELECT TOP (2) EmpCode, FirstNameTh, LastNameTh", command.Text, StringComparison.Ordinal);
+            Assert.Contains("WHERE EmpCode = @employeeId", command.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("ZTEST-", command.Text, StringComparison.Ordinal);
+            Assert.Equal(["@employeeId"], command.ParameterNames);
+        });
+
+        await using var verify = await database.OpenAsync();
+        Assert.Equal(1, await PermissionAsync(verify, "SELECT"));
+        foreach (var permission in new[] { "INSERT", "UPDATE", "DELETE", "ALTER", "CONTROL" })
+            Assert.Equal(0, await PermissionAsync(verify, permission));
+    }
+
+    [Fact]
+    public async Task Missing_or_ungranted_table_is_unavailable_with_redacted_log()
+    {
+        await using var missingDatabase = await ScratchDatabase.CreateAsync(createHrTableBeforeMigration: false);
+        await using (var context = missingDatabase.AppContext())
+        {
+            var logger = new CapturingLogger();
+            var lookup = await new EmployeeProfileReader(context, logger)
+                .LookupAsync("ZTEST-MISSING", CancellationToken.None);
+            Assert.Equal(EmployeeProfileStatus.SourceUnavailable, lookup.Status);
+            AssertRedacted(logger, 208, "ZTEST-MISSING");
+        }
+
+        await using var deniedDatabase = await ScratchDatabase.CreateAsync(createHrTableBeforeMigration: false);
+        await deniedDatabase.ExecuteAsync(ScratchDatabase.HrTableDdl);
+        await using (var context = deniedDatabase.AppContext())
+        {
+            var logger = new CapturingLogger();
+            var lookup = await new EmployeeProfileReader(context, logger)
+                .LookupAsync("ZTEST-DENIED", CancellationToken.None);
+            Assert.Equal(EmployeeProfileStatus.SourceUnavailable, lookup.Status);
+            AssertRedacted(logger, 229, "ZTEST-DENIED");
         }
     }
 
     [Fact]
-    public async Task Missing_hr_table_is_source_unavailable_and_logs_only_error_number_and_correlation_id()
+    public async Task Sql_command_timeout_is_unavailable_and_request_cancellation_propagates()
     {
-        await using var database = await ScratchDatabase.CreateAsync(createHrTables: false);
-        await using var context = database.AppContext();
-        var logger = new CapturingLogger();
-        var reader = new EmployeeProfileReader(context, logger);
+        await using var database = await ScratchDatabase.CreateAsync(createHrTableBeforeMigration: true);
+        await database.ExecuteAsync(
+            "INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh) VALUES (N'ZTEST-TIMEOUT', N'a', N'b');");
 
-        var lookup = await reader.LookupAsync("ZTEST-OK", CancellationToken.None);
+        await using var blocker = await database.OpenAsync();
+        await using var transaction = await blocker.BeginTransactionAsync();
+        await using (var lockCommand = blocker.CreateCommand())
+        {
+            lockCommand.Transaction = (SqlTransaction)transaction;
+            lockCommand.CommandText = "SELECT COUNT(*) FROM dbo.VibEmp WITH (TABLOCKX, HOLDLOCK);";
+            _ = await lockCommand.ExecuteScalarAsync();
+        }
 
-        Assert.Equal(EmployeeProfileStatus.SourceUnavailable, lookup.Status);
+        await using (var context = database.AppContext())
+        {
+            context.Database.SetCommandTimeout(1);
+            var logger = new CapturingLogger();
+            var lookup = await new EmployeeProfileReader(context, logger)
+                .LookupAsync("ZTEST-TIMEOUT", CancellationToken.None);
+            Assert.Equal(EmployeeProfileStatus.SourceUnavailable, lookup.Status);
+            AssertRedacted(logger, -2, "ZTEST-TIMEOUT");
+        }
+
+        await transaction.RollbackAsync();
+
+        await using var cancelledContext = database.AppContext();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new EmployeeProfileReader(cancelledContext, new CapturingLogger())
+                .LookupAsync("ZTEST-CANCEL", cancellation.Token));
+    }
+
+    private static void AssertRedacted(CapturingLogger logger, int number, string employeeId)
+    {
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Contains("SqlErrorNumber 208", entry.Message, StringComparison.Ordinal); // invalid object name
-        Assert.DoesNotContain("ZTEST-OK", entry.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Invalid object", entry.Message, StringComparison.Ordinal);
+        Assert.Contains($"SqlErrorNumber {number}", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(employeeId, entry.Message, StringComparison.Ordinal);
         Assert.Null(entry.Exception);
     }
 
-    [Fact]
-    public async Task Permission_denied_on_hr_table_is_source_unavailable()
-    {
-        // Tables created AFTER the migration ran => no conditional GRANT => pol_app has no SELECT (REQ-3.18).
-        await using var database = await ScratchDatabase.CreateAsync(createHrTables: false);
-        await database.ExecuteAsync(ScratchDatabase.HrTablesDdl);
-        await using var context = database.AppContext();
-        var logger = new CapturingLogger();
-        var reader = new EmployeeProfileReader(context, logger);
-
-        var lookup = await reader.LookupAsync("ZTEST-OK", CancellationToken.None);
-
-        Assert.Equal(EmployeeProfileStatus.SourceUnavailable, lookup.Status);
-        Assert.Contains("SqlErrorNumber 229", Assert.Single(logger.Entries).Message, StringComparison.Ordinal);
-    }
-
-    private static async Task<int> PermissionAsync(SqlConnection connection, string objectName, string permission)
+    private static async Task<int> PermissionAsync(SqlConnection connection, string permission)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             EXECUTE AS USER = 'pol_app';
-            SELECT HAS_PERMS_BY_NAME(N'{objectName}', N'OBJECT', N'{permission}');
+            SELECT HAS_PERMS_BY_NAME(N'dbo.VibEmp', N'OBJECT', N'{permission}');
             REVERT;
             """;
         return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
+    private sealed record CapturedCommand(string Text, string[] ParameterNames);
+
+    private sealed class CommandCaptureInterceptor : DbCommandInterceptor
+    {
+        public List<CapturedCommand> Commands { get; } = [];
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            Capture(command);
+            return result;
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Capture(command);
+            return ValueTask.FromResult(result);
+        }
+
+        private void Capture(DbCommand command) => Commands.Add(new CapturedCommand(
+            command.CommandText,
+            command.Parameters.Cast<DbParameter>().Select(parameter => parameter.ParameterName).ToArray()));
     }
 
     private sealed class CapturingLogger : ILogger<EmployeeProfileReader>
@@ -141,27 +183,31 @@ public sealed class EmployeeProfileReaderIntegrationTests
         public readonly List<(LogLevel Level, string Message, Exception? Exception)> Entries = [];
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
             Func<TState, Exception?, string> formatter) =>
             Entries.Add((logLevel, formatter(state, exception), exception));
     }
 
     private sealed class ScratchDatabase : IAsyncDisposable
     {
-        private const string Prefix = "pol_t0profile_reader_it_";
+        private const string Prefix = "pol_employee_profile_reader_it_";
+        private const string PreviousMigration = "20260823132337_Tier0WorkforceEmailIdentity";
 
-        /// <summary>REQ-11.7 minimal DDL: only the REQ-3.12 columns plus br_code (+ active_row to prove REQ-4.18).</summary>
-        public const string HrTablesDdl = """
-            CREATE TABLE dbo.VibEmp (EmpCode nvarchar(50) NULL, FirstNameTh nvarchar(1000) NULL,
-                LastNameTh nvarchar(1000) NULL, und_brcode char(3) NULL, DepartmentID nvarchar(50) NULL);
-            CREATE TABLE dbo.branch (br_code char(3) NULL, active_row bit NULL);
+        public const string HrTableDdl = """
+            CREATE TABLE dbo.VibEmp (
+                EmpCode nvarchar(50) NULL,
+                FirstNameTh nvarchar(1000) NULL,
+                LastNameTh nvarchar(1000) NULL);
             """;
 
         private ScratchDatabase(string name) => Name = name;
-
         public string Name { get; }
 
-        public static async Task<ScratchDatabase> CreateAsync(bool createHrTables)
+        public static async Task<ScratchDatabase> CreateAsync(bool createHrTableBeforeMigration)
         {
             var database = new ScratchDatabase(Prefix + Guid.NewGuid().ToString("N"));
             await using (var master = await database.OpenAsync("master"))
@@ -169,31 +215,24 @@ public sealed class EmployeeProfileReaderIntegrationTests
                 await ExecuteAsync(master, $"EXEC(N'CREATE DATABASE [{database.Name}] COLLATE Thai_100_CI_AS');");
                 await ExecuteAsync(master, $"ALTER DATABASE [{database.Name}] SET COMPATIBILITY_LEVEL = 170;");
             }
-            // The real pol_app login (docker/bootstrap/01-principals.sql) mapped into the scratch database so the
-            // reader runs under the production principal; the migration's GRANT targets this user by name.
             await database.ExecuteAsync("CREATE USER pol_app FOR LOGIN pol_app;");
-            // InitialSchema refuses a non-empty target, so the mirror tables land between the previous head and
-            // Tier0EmployeeProfile — exactly the production shape where the conditional GRANT (REQ-8.11) fires.
             await database.MigrateAsync(PreviousMigration);
-            if (createHrTables)
-                await database.ExecuteAsync(HrTablesDdl);
+            if (createHrTableBeforeMigration)
+                await database.ExecuteAsync(HrTableDdl);
             await database.MigrateAsync();
             return database;
         }
 
-        public async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)
+        public async Task ExecuteAsync(string sql)
         {
             await using var connection = await OpenAsync();
-            await ExecuteAsync(connection, sql, parameters);
+            await ExecuteAsync(connection, sql);
         }
 
-        private static async Task ExecuteAsync(
-            SqlConnection connection, string sql, params (string Name, object Value)[] parameters)
+        private static async Task ExecuteAsync(SqlConnection connection, string sql)
         {
             await using var command = connection.CreateCommand();
             command.CommandText = sql;
-            foreach (var (name, value) in parameters)
-                command.Parameters.AddWithValue(name, value);
             await command.ExecuteNonQueryAsync();
         }
 
@@ -204,22 +243,18 @@ public sealed class EmployeeProfileReaderIntegrationTests
             return connection;
         }
 
-        public ControlPlaneDbContext AppContext()
+        public ControlPlaneDbContext AppContext(DbCommandInterceptor? interceptor = null)
         {
             var options = new DbContextOptionsBuilder<ControlPlaneDbContext>()
-                .UseSqlServer(ConnectionString(Name, "pol_app", "POL_APP_PASSWORD"), sql => sql.UseCompatibilityLevel(170))
-                .Options;
-            return new ControlPlaneDbContext(options, FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
+                .UseSqlServer(ConnectionString(Name, "pol_app", "POL_APP_PASSWORD"), sql => sql.UseCompatibilityLevel(170));
+            if (interceptor is not null)
+                options.AddInterceptors(interceptor);
+            return new ControlPlaneDbContext(
+                options.Options, FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
         }
-
-        private const string PreviousMigration = "20260823132337_Tier0WorkforceEmailIdentity";
 
         private async Task MigrateAsync(string? target = null)
         {
-            // EnableServiceProviderCaching(false): EF's model cache keys on the CONTEXT TYPE, not on
-            // ModuleAssemblies — without it, this shares a cached model with every other PolDbContext test
-            // in the process and whichever runs first wins, causing a spurious PendingModelChangesWarning
-            // here (see EntitySchemaMappingTests for the same guard).
             var options = new DbContextOptionsBuilder<PolDbContext>()
                 .UseSqlServer(ConnectionString(Name, "sa", "POL_SA_PASSWORD"), sql => sql.UseCompatibilityLevel(170))
                 .EnableServiceProviderCaching(false)
@@ -230,9 +265,6 @@ public sealed class EmployeeProfileReaderIntegrationTests
 
         public async ValueTask DisposeAsync()
         {
-            if (!Name.StartsWith(Prefix, StringComparison.Ordinal)
-                || !Guid.TryParseExact(Name[Prefix.Length..], "N", out _))
-                throw new InvalidOperationException("Scratch database name is invalid.");
             SqlConnection.ClearAllPools();
             await using var master = await OpenAsync("master");
             await ExecuteAsync(master,
@@ -255,16 +287,17 @@ public sealed class EmployeeProfileReaderIntegrationTests
             typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);
 
-        private static string ConnectionString(string database, string user, string passwordEnv) => new SqlConnectionStringBuilder
-        {
-            DataSource = Environment.GetEnvironmentVariable("POL_SQL_SERVER") ?? "localhost,11433",
-            InitialCatalog = database,
-            UserID = user,
-            Password = Environment.GetEnvironmentVariable(passwordEnv)
-                ?? throw new InvalidOperationException($"Integration tests need env var '{passwordEnv}'."),
-            Encrypt = true,
-            TrustServerCertificate = true,
-            Pooling = false,
-        }.ConnectionString;
+        private static string ConnectionString(string database, string user, string passwordEnvironment) =>
+            new SqlConnectionStringBuilder
+            {
+                DataSource = Environment.GetEnvironmentVariable("POL_SQL_SERVER") ?? "localhost,11433",
+                InitialCatalog = database,
+                UserID = user,
+                Password = Environment.GetEnvironmentVariable(passwordEnvironment)
+                    ?? throw new InvalidOperationException($"Integration tests need env var '{passwordEnvironment}'."),
+                Encrypt = true,
+                TrustServerCertificate = true,
+                Pooling = false,
+            }.ConnectionString;
     }
 }

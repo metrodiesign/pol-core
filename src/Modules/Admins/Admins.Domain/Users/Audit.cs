@@ -10,6 +10,7 @@ public static class AuditAction
     public const string MicrosoftEmailBind = "microsoft-email-bind";
     // tier0-graph-employee-profile REQ-2.14: first EmployeeId bind, same transaction as the bind.
     public const string EmployeeBind = "employee-bind";
+    public const string EmployeeProfileSync = "employee-profile-sync";
     public const string CreateScoped = "create-scoped";
     public const string AssignMerchant = "assign-merchant";
     public const string UnassignMerchant = "unassign-merchant";

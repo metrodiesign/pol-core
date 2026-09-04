@@ -95,7 +95,7 @@ public sealed class AdminAuthLoginRedirectTests
         var query = QueryHelpers.ParseQuery(location.Query);
         Assert.Equal("code", query["response_type"]);
         Assert.Equal(WorkforceLoginFactory.ClientId, query["client_id"]);
-        Assert.Equal("openid email profile", query["scope"].ToString());
+        Assert.Equal("openid email profile User.Read", query["scope"].ToString());
         Assert.Equal("S256", query["code_challenge_method"]);
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));

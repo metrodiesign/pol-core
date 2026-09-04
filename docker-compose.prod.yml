@@ -108,10 +108,7 @@ services:
       AdminAuth__Providers__Microsoft__ClientId: ${ADMIN_ENTRA_CLIENT_ID:?set ADMIN_ENTRA_CLIENT_ID in .env}
       AdminAuth__Providers__Microsoft__Authority: ${ADMIN_ENTRA_AUTHORITY:?set ADMIN_ENTRA_AUTHORITY in .env}
       ADMIN_ENTRA_CLIENT_SECRET_FILE: /run/secrets/admin_entra_client_secret
-      # Tier 0 employee profile switch (tier0-graph-employee-profile REQ-12): false keeps exact tenant-aware
-      # identity without Graph/HR enrichment; flip to true only after migration + LegacyKey mapping + User.Read
-      # consent (docs/runbooks/admin-microsoft-oidc.md).
-      AdminAuth__Providers__Microsoft__RequireEmployeeProfile: ${ADMIN_REQUIRE_EMPLOYEE_PROFILE:-false}
+      # Admin Microsoft always requires Graph User.Read employee-profile resolution.
       MerchantAuth__Providers__Microsoft__ClientId: ${MERCHANT_ENTRA_CLIENT_ID:-}
       MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-}
       MERCHANT_ENTRA_CLIENT_SECRET_FILE: /run/secrets/merchant_entra_client_secret

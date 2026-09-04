@@ -141,6 +141,67 @@ public sealed partial class Tier0WorkforceArchitectureTests
     }
 
     [Fact]
+    public void Employee_profile_runtime_has_only_the_exact_three_column_vibemp_path()
+    {
+        var root = FindRepoRoot();
+        var reader = File.ReadAllText(Path.Combine(
+            root, "src/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs"));
+        var application = string.Join('\n', new[]
+        {
+            "src/Modules/Admins/Admins.Application/Users/EmployeeProfile.cs",
+            "src/Modules/Admins/Admins.Application/Users/ResolveAdmin.cs",
+            "src/Modules/Admins/Admins.Application/Users/ResolveMicrosoftAdmin.cs",
+            "src/Hosts/Api/Admins/LoginService.cs",
+        }.Select(path => File.ReadAllText(Path.Combine(root, path))));
+
+        Assert.Contains("SELECT TOP (2) EmpCode, FirstNameTh, LastNameTh", reader, StringComparison.Ordinal);
+        Assert.Contains("WHERE EmpCode = @employeeId", reader, StringComparison.Ordinal);
+        Assert.Contains("new SqlParameter(\"@employeeId\"", reader, StringComparison.Ordinal);
+        foreach (var writePrimitive in new[] { "INSERT ", "UPDATE ", "DELETE ", "ExecuteSql" })
+            Assert.DoesNotContain(writePrimitive, reader, StringComparison.OrdinalIgnoreCase);
+
+        var runtimeContext = File.ReadAllText(Path.Combine(
+            root, "src/Persistence/Persistence.ControlPlane/ControlPlaneDbContext.cs"));
+        Assert.DoesNotContain("DbSet<VibEmp", runtimeContext, StringComparison.Ordinal);
+
+        foreach (var forbidden in new[]
+                 {
+                     "dbo.branch", "DepartmentID", "und_brcode", "UndBrCode",
+                     "FindOfficesAsync", "FindDivisionsAsync", "EmployeeProfileUnmapped",
+                 })
+        {
+            Assert.DoesNotContain(forbidden, reader + application, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal("employee-profile-sync", AuditAction.EmployeeProfileSync);
+    }
+
+    [Fact]
+    public void Admin_graph_is_mandatory_only_at_new_oidc_callback_and_has_no_runtime_switch()
+    {
+        var root = FindRepoRoot();
+        var oidc = File.ReadAllText(Path.Combine(root, "src/Hosts/Api/Admins/OidcAuthentication.cs"));
+        var options = File.ReadAllText(Path.Combine(root, "src/Hosts/Api/OidcProviderOptions.cs"));
+        var session = File.ReadAllText(Path.Combine(root, "src/Hosts/Api/Admins/SessionAuthenticationHandler.cs"));
+        var config = string.Join('\n', new[]
+        {
+            ".env.example",
+            "docker-compose.prod.yml",
+            "docs/runbooks/admin-microsoft-oidc.md",
+        }.Select(path => File.ReadAllText(Path.Combine(root, path))));
+
+        Assert.Contains("options.Scope.Add(\"User.Read\")", oidc, StringComparison.Ordinal);
+        Assert.Single(Regex.Matches(
+            oidc, @"\breader\.ReadAsync\(", RegexOptions.CultureInvariant).Cast<Match>());
+        Assert.Contains("context.ProtocolMessage.Error, \"consent_required\"", oidc, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProtocolMessage.ErrorDescription", oidc, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exception.Message", oidc, StringComparison.Ordinal);
+        Assert.DoesNotContain("RequireEmployeeProfile", options + oidc + config, StringComparison.Ordinal);
+        Assert.DoesNotContain("MicrosoftGraphEmployeeIdReader", session, StringComparison.Ordinal);
+        Assert.DoesNotContain("graph", session, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Migrate_container_connection_is_built_in_process_without_adding_a_second_tool_contract()
     {
         const string configured = "Server=operator-provided";

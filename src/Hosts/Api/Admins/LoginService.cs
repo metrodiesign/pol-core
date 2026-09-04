@@ -13,7 +13,7 @@ namespace Api.Admins;
 /// interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
 internal interface ICallbackResolver
 {
-    /// <param name="employeeId">Normalised Graph employeeId (tier0-graph-employee-profile); null = switch off.</param>
+    /// <param name="employeeId">Historical non-Microsoft seam; Admin Microsoft callbacks use the typed method below.</param>
     Task<ResolveResult> ResolveAtCallbackAsync(
         ProviderIdentity identity, string? employeeId, string correlationId, CancellationToken cancellationToken);
 
@@ -167,7 +167,6 @@ internal sealed class LoginService
                 ResolveOutcome.IdentityConflict => "identity-conflict",
                 ResolveOutcome.EmployeeProfileMissing => EmployeeProfileException.Missing,
                 ResolveOutcome.EmployeeProfileInvalid => EmployeeProfileException.Invalid,
-                ResolveOutcome.EmployeeProfileUnmapped => "employee-profile-unmapped",
                 ResolveOutcome.EmployeeProfileUnavailable => EmployeeProfileException.Unavailable,
                 _ => throw new System.Diagnostics.UnreachableException("Unmapped admin resolve outcome."),
             };

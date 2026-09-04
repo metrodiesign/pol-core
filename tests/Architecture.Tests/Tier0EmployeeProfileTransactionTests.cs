@@ -24,8 +24,6 @@ public sealed class Tier0EmployeeProfileTransactionTests
 {
     private static readonly Guid TenantId = Guid.Parse("11111111-1111-4111-8111-111111111111");
     private static readonly Guid ObjectId = Guid.Parse("22222222-2222-4222-8222-222222222222");
-    private static readonly Guid Hq = Guid.Parse("b2000000-0000-4000-8000-000000000001");
-    private static readonly Guid Finance = Guid.Parse("d4000000-0000-4000-8000-000000000002");
     private static readonly DateTime FirstLogin = new(2026, 8, 30, 8, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SecondLogin = new(2026, 8, 31, 8, 0, 0, DateTimeKind.Utc);
 
@@ -50,8 +48,7 @@ public sealed class Tier0EmployeeProfileTransactionTests
                 $"microsoft|{TenantId:D}|{ObjectId:D}|<null>|1|1|2|0",
                 await database.IdentityRowAsync(verify, adminId));
             Assert.Equal(
-                "ZTEST-T1|สมชาย|ใจดี|" + Hq.ToString().ToUpperInvariant() + "|"
-                + Finance.ToString().ToUpperInvariant() + "|2|0|",
+                "ZTEST-T1|สมชาย|ใจดี|2|0|",
                 await database.ProfileRowAsync(verify, adminId));
             Assert.Equal("employee-bind,jit-provision", await ScalarAsync(verify,
                 "SELECT STRING_AGG(Action, ',') WITHIN GROUP (ORDER BY Action) FROM admin.UserAudits WHERE TargetAdminId = @id;",
@@ -71,14 +68,16 @@ public sealed class Tier0EmployeeProfileTransactionTests
         await using (var verify = await database.OpenAsync())
         {
             Assert.Equal(
-                "ZTEST-T1|สมหญิง|ใจดี|" + Hq.ToString().ToUpperInvariant() + "|"
-                + Finance.ToString().ToUpperInvariant() + "|3|0|" + SecondLogin.ToString("yyyy-MM-dd HH:mm:ss"),
+                "ZTEST-T1|สมหญิง|ใจดี|3|0|" + SecondLogin.ToString("yyyy-MM-dd HH:mm:ss"),
                 await database.ProfileRowAsync(verify, adminId));
             Assert.Equal(1, Convert.ToInt32(await ScalarAsync(verify,
                 "SELECT COUNT(*) FROM admin.UserAudits WHERE TargetAdminId = @id AND Action = N'employee-bind';",
                 ("@id", adminId))));
             Assert.Equal(1, Convert.ToInt32(await ScalarAsync(verify,
                 "SELECT COUNT(*) FROM admin.UserAudits WHERE TargetAdminId = @id AND Action = N'jit-provision';",
+                ("@id", adminId))));
+            Assert.Equal(1, Convert.ToInt32(await ScalarAsync(verify,
+                "SELECT COUNT(*) FROM admin.UserAudits WHERE TargetAdminId = @id AND Action = N'employee-profile-sync';",
                 ("@id", adminId))));
         }
 
@@ -122,11 +121,11 @@ public sealed class Tier0EmployeeProfileTransactionTests
         }
 
         await database.ExecuteAsync(
-            "UPDATE dbo.VibEmp SET FirstNameTh = N'ห้ามบันทึก', und_brcode = N'Z99' WHERE EmpCode = N'ZTEST-T2';");
+            "UPDATE dbo.VibEmp SET FirstNameTh = N' ' WHERE EmpCode = N'ZTEST-T2';");
         var denied = await database.ResolveAsync(
             existingObjectId, "changed@example.com", "ZTEST-T2", "corr-denied", SecondLogin);
 
-        Assert.Equal(ResolveOutcome.EmployeeProfileUnmapped, denied.Outcome);
+        Assert.Equal(ResolveOutcome.EmployeeProfileInvalid, denied.Outcome);
         await using (var verify = await database.OpenAsync())
         {
             Assert.Equal(identityBefore, await database.IdentityRowAsync(verify, seeded.Resolution.AdminId));
@@ -365,11 +364,7 @@ public sealed class Tier0EmployeeProfileTransactionTests
                 CREATE TABLE dbo.VibEmp (
                     EmpCode nvarchar(50) NULL,
                     FirstNameTh nvarchar(500) NULL,
-                    LastNameTh nvarchar(500) NULL,
-                    und_brcode char(3) NULL,
-                    DepartmentID nvarchar(50) NULL);
-                CREATE TABLE dbo.branch (br_code char(3) NULL);
-                INSERT dbo.branch (br_code) VALUES ('Z01');
+                    LastNameTh nvarchar(500) NULL);
                 """);
 
             var output = new StringWriter();
@@ -391,21 +386,16 @@ public sealed class Tier0EmployeeProfileTransactionTests
                 await store.EnsureAsync(TenantId, CancellationToken.None);
             }
 
-            await database.ExecuteAsync(
-                """
-                UPDATE cfg.Offices SET LegacyKey = N'Z01' WHERE Id = @hq;
-                UPDATE cfg.Divisions SET LegacyKey = N'ZD1' WHERE Id = @finance;
-                """, ("@hq", Hq), ("@finance", Finance));
             return database;
         }
 
-        public Task SeedHrAsync(string employeeId, string first, string last, string branchCode = "Z01") =>
+        public Task SeedHrAsync(string employeeId, string first, string last) =>
             ExecuteAsync(
                 """
-                INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh, und_brcode, DepartmentID)
-                VALUES (@employeeId, @first, @last, @branchCode, N'ZD1');
+                INSERT dbo.VibEmp (EmpCode, FirstNameTh, LastNameTh)
+                VALUES (@employeeId, @first, @last);
                 """,
-                ("@employeeId", employeeId), ("@first", first), ("@last", last), ("@branchCode", branchCode));
+                ("@employeeId", employeeId), ("@first", first), ("@last", last));
 
         public Task SeedMicrosoftAsync(Guid adminId, Guid objectId, string? email) =>
             ExecuteAsync(
@@ -455,7 +445,6 @@ public sealed class Tier0EmployeeProfileTransactionTests
                 """
                 SELECT CONCAT(
                     EmployeeId, '|', FirstName, '|', LastName, '|',
-                    UPPER(CONVERT(nvarchar(36), OfficeId)), '|', UPPER(CONVERT(nvarchar(36), DivisionId)), '|',
                     Version, '|', AuthorizationVersion, '|', CONVERT(nvarchar(19), UpdatedAt, 120))
                 FROM admin.Users WHERE Id = @id;
                 """, ("@id", adminId)));
