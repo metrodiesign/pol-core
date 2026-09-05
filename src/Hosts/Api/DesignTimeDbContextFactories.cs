@@ -23,12 +23,6 @@ internal static class HostModuleAssemblies
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
         typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
-        // masterdata-split: the four reference modules replace the retired master-data module. global:: for the
-        // same D7 insurance as above (a future Api.<Area> namespace must not shadow the module roots).
-        typeof(global::Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-        typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
-        typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-        typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
         typeof(global::Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
         typeof(global::Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
     ];

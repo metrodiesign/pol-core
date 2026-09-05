@@ -11,11 +11,7 @@ public sealed record CreateScopedCommand(
     string? Email,
     string IdentityApprovalReference,
     Guid ActingAdminId,
-    string CorrelationId,
-    Guid? PositionId = null,
-    Guid? OfficeId = null,
-    Guid? LevelId = null,
-    Guid? DivisionId = null) : ICommand<CreateScopedResult>;
+    string CorrelationId) : ICommand<CreateScopedResult>;
 
 public sealed record CreateScopedResult(Guid AdminId, string? Email);
 
@@ -25,7 +21,6 @@ public sealed class CreateScopedHandler : ICommandHandler<CreateScopedCommand, C
 
     private readonly IUserRepository _admins;
     private readonly IAuditWriter _audit;
-    private readonly IProfileLookup _masters;
     private readonly IWorkforceTenantBindingStore _tenantBinding;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
@@ -33,14 +28,12 @@ public sealed class CreateScopedHandler : ICommandHandler<CreateScopedCommand, C
     public CreateScopedHandler(
         IUserRepository admins,
         IAuditWriter audit,
-        IProfileLookup masters,
         IWorkforceTenantBindingStore tenantBinding,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
         _admins = admins;
         _audit = audit;
-        _masters = masters;
         _tenantBinding = tenantBinding;
         _unitOfWork = unitOfWork;
         _clock = clock;
@@ -65,13 +58,8 @@ public sealed class CreateScopedHandler : ICommandHandler<CreateScopedCommand, C
             if (await _admins.GetByMicrosoftIdentityAsync(tenantId, command.ObjectId, ct) is not null)
                 throw new ConflictException("An admin account already exists for the supplied identity details.");
 
-            await _masters.ValidateProfileFksAsync(
-                command.PositionId, command.OfficeId, command.LevelId, command.DivisionId, ct);
-
             var now = _clock.UtcNow;
-            var account = User.CreateScopedMicrosoft(
-                tenantId, command.ObjectId, email, now,
-                command.PositionId, command.OfficeId, command.LevelId, command.DivisionId);
+            var account = User.CreateScopedMicrosoft(tenantId, command.ObjectId, email, now);
             _admins.Add(account);
             _audit.Append(Audit.For(
                 AuditAction.CreateScoped, command.ActingAdminId, approvalReference, now,

@@ -1,8 +1,4 @@
 using Admins.Domain.Users;
-using Divisions.Domain;
-using Levels.Domain;
-using Offices.Domain;
-using Positions.Domain;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -58,14 +54,8 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.LastName).HasMaxLength(500);
         builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("[EmployeeId] IS NOT NULL");
 
-        // Org-profile FKs to the master lists. Nullable (unknown at invite); Restrict so a referenced master
-        // can't be hard-deleted (soft-deactivate via IsActive instead). No back-navigation on the master side.
         builder.HasOne<WorkforceTenantBinding>().WithMany().HasForeignKey(x => x.TenantId)
             .HasPrincipalKey(x => x.TenantId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
-        builder.HasOne<Position>().WithMany().HasForeignKey(x => x.PositionId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<Office>().WithMany().HasForeignKey(x => x.OfficeId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<Level>().WithMany().HasForeignKey(x => x.LevelId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<Division>().WithMany().HasForeignKey(x => x.DivisionId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
     }
 }
 

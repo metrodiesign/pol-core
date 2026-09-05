@@ -26,10 +26,6 @@ resource ผ่าน owner module เดิม ไม่สร้าง Transac
 | `Admins` | platform admin identity, sessions, profile และ admin operations | control plane |
 | `Governance` | maker-checker approvals, append-only audit hash chain และ governance outbox | control plane `admin` |
 | `Iam` | permissions, groups, roles และ role grants | control plane |
-| `Divisions` | reference division CRUD | control plane `cfg` |
-| `Levels` | reference level CRUD | control plane `cfg` |
-| `Offices` | reference office CRUD | control plane `cfg` |
-| `Positions` | reference position CRUD | control plane `cfg` |
 | `Merchants` | merchant profile, merchant-user OIDC BFF, registration/KYC, provisioning | merchant identity/runtime |
 | `Notifications` | outbound webhook endpoints/deliveries และ notification rules/deliveries | control plane `admin` |
 | `Products` | live upstream insurance-document search/lookup | external source |
@@ -51,8 +47,8 @@ Admin control-plane routes ครอบคลุม merchant/originator, PSP/rou
 governance, webhook/notification delivery และ reporting. รายละเอียด route/permission อยู่ใน
 [`admin-control-plane.md`](admin-control-plane.md).
 
-Current admin routes อยู่ใต้ `/api/v1/admins...`; master-data routes เป็น top-level `/api/v1/positions`,
-`/offices`, `/levels`, `/divisions`. Authorization ใช้ policy `admin`, permission key และ CSRF สำหรับ mutations.
+Current admin routes อยู่ใต้ `/api/v1/admins...`. Authorization ใช้ policy `admin`, permission key และ CSRF
+สำหรับ mutations.
 
 Role resolution ใช้เฉพาะ role/group/permission ที่ `Active`. Shared role ใช้ `MerchantId = NULL`; custom merchant
 role ต้องมี owner.
@@ -194,7 +190,6 @@ implementation. Host composition เป็นจุดเดียวที่�
 | Admins | `/api/v1/admins...` |
 | Merchant users | `/api/v1/merchants/auth...`, `/api/v1/merchants/users...` |
 | Merchant provisioning | `/api/v1/merchants...` |
-| Master data | `/api/v1/positions`, `/offices`, `/levels`, `/divisions` |
 | Admin control | `/api/v1/merchants`, `/originators`, `/payments/psp-connections`, `/payments/routing-rulesets` |
 | Admin identity | `/api/v1/merchants/{merchantId}/users`, `/roles`, `/permissions` |
 | Governance | `/api/v1/approvals`, `/api/v1/audits` |
