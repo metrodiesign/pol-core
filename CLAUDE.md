@@ -1,7 +1,9 @@
 # Spec-Driven Development Constitution (Claude adapter)
 
-This project practices STRICT spec-driven development: specifications come before
-code, ALWAYS. Do not jump to implementation for any non-trivial feature.
+Spec-driven development in this project is OPT-IN, not automatic. Run it only when
+I explicitly invoke a `/spec-*` command (or ask for a spec in so many words). For
+every other request, do the work directly — do not open a spec, do not propose the
+spec workflow, do not treat a missing spec as a blocker.
 
 The behavior, project standards, and the full workflow are defined ONCE in the
 vendor-neutral `.ai/` operating layer and reused by every agent. This file is the
@@ -18,9 +20,9 @@ source of truth; this conversation is temporary working memory:
 - `.ai/shared/ARCHITECTURE.md` — folder layout, naming, file organization
 - `.ai/shared/LESSONS.md` — promoted process lessons (read every session)
 
-Then follow `.ai/shared/TASK_PROTOCOL.md` for how a task flows end-to-end (phases,
-task sizing, Definition of Done, prohibitions). EARS notation lives in
-`.ai/shared/EARS.md`; review, testing, security, output, context, and handoff
+`.ai/shared/TASK_PROTOCOL.md` (phases, task sizing, Definition of Done,
+prohibitions) applies only inside an invoked `/spec-*` run — read it then, not by
+default. EARS notation lives in `.ai/shared/EARS.md`; review, testing, security, output, context, and handoff
 protocols are the other `.ai/shared/*.md` files — open the one the task needs.
 
 `.claude/rules/*.md` are still auto-loaded every turn by the rules loader, but they
@@ -36,7 +38,10 @@ Adopt the Claude-specific adapter and honest self-knowledge in:
 - `.ai/agents/claude/CAPABILITIES.md`
 - `.ai/agents/claude/LIMITATIONS.md`
 
-## The workflow gates (non-negotiable)
+## The workflow gates (inside an invoked `/spec-*` run only)
+
+Once a `/spec-*` command is running, these gates are non-negotiable for that run.
+Outside such a run they do not apply.
 
 Every feature flows through three artifacts under `.ai/specs/<feature-name>/`,
 IN ORDER, with an APPROVAL GATE after each (Design-First swaps 1 and 2 — same gates):
