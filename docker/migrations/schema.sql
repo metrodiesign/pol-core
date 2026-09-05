@@ -5109,3 +5109,243 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] DROP CONSTRAINT [FK_Users_Divisions_DivisionId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] DROP CONSTRAINT [FK_Users_Levels_LevelId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] DROP CONSTRAINT [FK_Users_Offices_OfficeId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    ALTER TABLE [admin].[Users] DROP CONSTRAINT [FK_Users_Positions_PositionId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP TABLE [cfg].[Divisions];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP TABLE [cfg].[Levels];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP TABLE [cfg].[Offices];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP TABLE [cfg].[Positions];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP INDEX [IX_Users_DivisionId] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP INDEX [IX_Users_LevelId] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP INDEX [IX_Users_OfficeId] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DROP INDEX [IX_Users_PositionId] ON [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DECLARE @var7 nvarchar(max);
+    SELECT @var7 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'DivisionId');
+    IF @var7 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var7 + ';');
+    ALTER TABLE [admin].[Users] DROP COLUMN [DivisionId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DECLARE @var8 nvarchar(max);
+    SELECT @var8 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'LevelId');
+    IF @var8 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var8 + ';');
+    ALTER TABLE [admin].[Users] DROP COLUMN [LevelId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DECLARE @var9 nvarchar(max);
+    SELECT @var9 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'OfficeId');
+    IF @var9 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var9 + ';');
+    ALTER TABLE [admin].[Users] DROP COLUMN [OfficeId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    DECLARE @var10 nvarchar(max);
+    SELECT @var10 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'PositionId');
+    IF @var10 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var10 + ';');
+    ALTER TABLE [admin].[Users] DROP COLUMN [PositionId];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905104644_DropOrgReferenceMasterData'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260905104644_DropOrgReferenceMasterData', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905140218_DropRetiredProviderDefaults'
+)
+BEGIN
+    DECLARE @var11 nvarchar(max);
+    SELECT @var11 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[merch].[Users]') AND [c].[name] = N'Provider');
+    IF @var11 IS NOT NULL EXEC(N'ALTER TABLE [merch].[Users] DROP CONSTRAINT ' + @var11 + ';');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905140218_DropRetiredProviderDefaults'
+)
+BEGIN
+    DECLARE @var12 nvarchar(max);
+    SELECT @var12 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'Provider');
+    IF @var12 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var12 + ';');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260905140218_DropRetiredProviderDefaults'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260905140218_DropRetiredProviderDefaults', N'10.0.8');
+END;
+
+COMMIT;
+GO
+

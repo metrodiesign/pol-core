@@ -20,24 +20,21 @@ ports หรือ host composition.
 
 ## Current module set
 
-Current tracked modules มี 14 ตัว:
+Current tracked modules มี 10 ตัว:
 
 1. `Admins`
 2. `Carts`
-3. `Divisions`
-4. `Governance`
-5. `Iam`
-6. `Levels`
-7. `Merchants`
-8. `Notifications`
-9. `Offices`
-10. `Orders`
-11. `Payments`
-12. `Positions`
-13. `Products`
-14. `Reporting`
+3. `Governance`
+4. `Iam`
+5. `Merchants`
+6. `Notifications`
+7. `Orders`
+8. `Payments`
+9. `Products`
+10. `Reporting`
 
-ไม่มี current `Checkouts`, `MasterData`, `Producer` หรือ local product catalogue contract ใน source ที่ใช้งาน.
+ไม่มี current `Checkouts`, `MasterData`, `Divisions`, `Levels`, `Offices`, `Positions`, `Producer` หรือ local
+product catalogue contract ใน source ที่ใช้งาน.
 
 ## 1. SharedKernel
 
@@ -135,9 +132,9 @@ dashboard กับ transaction projection จาก Order/PaymentSession/lifecy
 
 ### Master data
 
-`Divisions`, `Levels`, `Offices`, `Positions` เป็น control-plane reference modules. Domain field ใช้ `Status`
-enum (`Active=1`, `Inactive=2`), ไม่ใช่ `IsActive`. Store implementation อยู่ `Persistence.ControlPlane`;
-route เป็น top-level `/api/v1/{divisions|levels|offices|positions}`.
+ไม่มี org reference module แล้ว (2026-09-05): `cfg.Positions`/`cfg.Offices`/`cfg.Levels`/`cfg.Divisions`,
+โมดูลทั้งสี่ และ area `/api/v1/{divisions|levels|offices|positions}` ถูกลบ — ข้อมูลองค์กรของพนักงานอ่านตรงจาก
+HR mirror (`dbo.VibEmp`, `dbo.branch`).
 
 ### Merchants and KYC
 
@@ -170,8 +167,8 @@ Test projects ปัจจุบันแยกตาม module และ bounda
 
 - `Architecture.Tests` — dependency direction และ forbidden reference
 - `BuildingBlocks.Tests`, `SharedKernel.Tests` — primitives/guards
-- `Admins.Tests`, `Carts.Tests`, `Divisions.Tests`, `Governance.Tests`, `Iam.Tests`, `Levels.Tests`, `Merchants.Tests`,
-  `Offices.Tests`, `Orders.Tests`, `Payments.Tests`, `Positions.Tests`, `Products.Tests`
+- `Admins.Tests`, `Carts.Tests`, `Governance.Tests`, `Iam.Tests`, `Merchants.Tests`, `Orders.Tests`,
+  `Payments.Tests`, `Products.Tests`
 - `Hosts.Tests` ครอบ Admin control-plane, OpenAPI documents, ETag/idempotency และ delivery/reporting contracts
 - `Hosts.Tests` — route composition, policy/CSRF gates, host behavior
 - `Integration.Tests` — persistence/migration/integration paths

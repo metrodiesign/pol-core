@@ -11,9 +11,10 @@
 > `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
 > config `MerchantAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
 >
-> **Admin workforce OIDC:** Admin รับเฉพาะ `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section
-> `AdminAuth:Providers:Microsoft`). Google Admin login/callback ไม่ register และคืน `404`. Merchant user ยังคง
-> รองรับ provider ของตัวเองแยกขาดผ่าน `MerchantAuth`.
+> **Microsoft-only OIDC:** ทั้งสอง plane รับเฉพาะ `microsoft` — Admin ใช้ workforce tenant (scheme `AdminMicrosoft`,
+> config `AdminAuth:Providers:Microsoft`), merchant-user ใช้ CIAM tenant (scheme `MerchantUserMicrosoft`, config
+> `MerchantAuth:Providers:Microsoft`). Google ถูก retire 2026-09-05: login/callback ของ google ไม่ register และคืน
+> `404` ทั้งสอง plane, provider ที่ไม่ใช่ Microsoft ที่ยังมี ClientId จะทำให้ boot guard throw นอก Development.
 
 **Ports (dev):** API `https://localhost:5001` · Customer SPA `https://localhost:3000` · Admin Console
 `https://localhost:3001` · Merchant-user Console `https://localhost:3002` (`Cors:AdminOrigins` /
@@ -84,12 +85,6 @@ module.exports = {
       { source: '/api/v1/api-clients/:path*', destination: 'https://localhost:5001/api/v1/api-clients/:path*' },
       { source: '/api/v1/webhooks/:path*', destination: 'https://localhost:5001/api/v1/webhooks/:path*' },
       { source: '/api/v1/notifications/:path*', destination: 'https://localhost:5001/api/v1/notifications/:path*' },
-      // master-data reference lists (profile FK ของ admin) เป็น top-level area แยกของตัวเอง ไม่อยู่ใต้ /admins —
-      // ไม่ proxy ด้วยจะโดน 404 จาก frontend server แทนที่จะถึง API (ดู Dev / CORS)
-      { source: '/api/v1/positions/:path*', destination: 'https://localhost:5001/api/v1/positions/:path*' },
-      { source: '/api/v1/offices/:path*', destination: 'https://localhost:5001/api/v1/offices/:path*' },
-      { source: '/api/v1/levels/:path*', destination: 'https://localhost:5001/api/v1/levels/:path*' },
-      { source: '/api/v1/divisions/:path*', destination: 'https://localhost:5001/api/v1/divisions/:path*' },
     ]
   },
 }
@@ -203,7 +198,7 @@ Scoped ยิงโดน 403.
 | Method | Path | Tier | CSRF | Body | Success | Note |
 |---|---|---|---|---|---|---|
 | GET | `/api/v1/admins/auth/microsoft/login` | — (anon) | — | — | 302 | redirect ไป Microsoft workforce; `?returnTo=<allowlisted path>`; rate-limited (ดูล่าง) -> 429 ถ้าเกิน |
-| GET | `/api/v1/admins/auth/google/login` | — | — | — | 404 | Admin Google ไม่รองรับ |
+| GET | `/api/v1/admins/auth/google/login` | — | — | — | 404 | Google ถูก retire ทั้งระบบ |
 | POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
 | POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
@@ -360,10 +355,10 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
   merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `https://localhost:3001`), merchant-user =
   `Cors__MerchantOrigins` (dev `https://localhost:3002`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
-  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ `/api/v1/positions`, `/offices`,
-  `/levels`, `/divisions` ด้วย (4 master-data reference list ที่ profile FK อ้างถึง — ย้ายออกจาก `/admins`
-  group เป็น top-level area ของตัวเองตั้งแต่ 2026-07-20, gate `user.manage` ทั้งหมด; บทบาทของแต่ละตาราง ดู
-  [`entity-fields.md`](entity-fields.md)) ไม่ใช่แค่ `/admins`/`/merchants`. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
+  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ admin-plane area อื่นด้วย
+  (`/approvals`, `/audits`, `/originators`, `/products/documents`, `/orders/export`, `/api-clients`,
+  `/notifications`, `/reports`) ไม่ใช่แค่
+  `/admins`/`/merchants`. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
 - XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
   ได้เหมือนกัน

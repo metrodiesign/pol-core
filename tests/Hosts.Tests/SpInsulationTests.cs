@@ -42,14 +42,10 @@ public sealed class SpInsulationTests
         "Persistence.Provisioning",
         "Admins.Application", "Admins.Domain", "Admins.Infrastructure",
         "Carts.Application", "Carts.Domain", "Carts.Infrastructure",
-        "Divisions.Application", "Divisions.Domain", "Divisions.Infrastructure",
         "Iam.Application", "Iam.Domain", "Iam.Infrastructure",
-        "Levels.Application", "Levels.Domain", "Levels.Infrastructure",
         "Merchants.Application", "Merchants.Domain", "Merchants.Infrastructure",
-        "Offices.Application", "Offices.Domain", "Offices.Infrastructure",
         "Orders.Application", "Orders.Domain", "Orders.Infrastructure",
         "Payments.Application", "Payments.Domain", "Payments.Infrastructure",
-        "Positions.Application", "Positions.Domain", "Positions.Infrastructure",
         "Products.Application",      // owns the port + contracts + mapper
         "Products.Domain",
         "Products.Infrastructure",   // owns the adapter

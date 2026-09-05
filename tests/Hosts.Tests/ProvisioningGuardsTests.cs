@@ -94,7 +94,7 @@ public sealed class ProvisioningGuardsTests
     [Fact]
     public void A_side_with_no_configured_provider_fails_fast_when_one_is_required()
     {
-        var config = Oidc(("AdminAuth:Providers:Google:ClientId", ""), ("AdminAuth:Providers:Microsoft:ClientId", ""));
+        var config = Oidc(("AdminAuth:Providers:Microsoft:ClientId", ""));
         Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true));
 
@@ -106,10 +106,30 @@ public sealed class ProvisioningGuardsTests
     public void A_placeholder_client_id_fails_fast()
     {
         var config = Oidc(
-            ("AdminAuth:Providers:Google:ClientId", "REPLACE_WITH_ADMIN_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com"),
-            ("AdminAuth:Providers:Google:ClientSecret", "GOCSPX-an-injected-secret"));
+            ("AdminAuth:Providers:Microsoft:ClientId", "REPLACE_WITH_ADMIN_ENTRA_CLIENT_ID"),
+            ("AdminAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"));
         Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true));
+    }
+
+    // Microsoft is the only supported provider on either side. A leftover provider whose ClientId is still
+    // configured would register no scheme, so its login would 404 at runtime — the guard rejects it at boot.
+    [Theory]
+    [InlineData("AdminAuth")]
+    [InlineData("MerchantAuth")]
+    public void A_configured_non_microsoft_provider_fails_fast(string section)
+    {
+        var config = Oidc(
+            ($"{section}:Providers:Google:ClientId", "333.apps.googleusercontent.com"),
+            ($"{section}:Providers:Google:ClientSecret", "an-injected-secret"),
+            ($"{section}:Providers:Google:Authority", "https://accounts.google.com"),
+            ($"{section}:Providers:Google:CallbackPath", "/api/v1/x/auth/google/callback"));
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, section, requireAtLeastOne: false));
+
+        // A blank ClientId is the documented way to disable a provider — still not an error.
+        ApiHost::ProvisioningGuards.RequireOidcProviders(
+            Oidc(($"{section}:Providers:Google:ClientId", "")), section, requireAtLeastOne: false);
     }
 
     [Theory]
@@ -209,11 +229,12 @@ public sealed class ProvisioningGuardsTests
     public void Injected_confidential_clients_pass_and_blank_providers_are_skipped()
     {
         var config = Oidc(
-            ("AdminAuth:Providers:Google:ClientId", "333-admin.apps.googleusercontent.com"),
-            ("AdminAuth:Providers:Google:ClientSecret", "GOCSPX-an-injected-secret"),
-            ("AdminAuth:Providers:Google:Authority", "https://accounts.google.com"),
-            ("AdminAuth:Providers:Google:CallbackPath", "/api/v1/admins/auth/google/callback"),
-            ("AdminAuth:Providers:Microsoft:ClientId", "")); // blank = disabled, not an error (placeholder Authority ignored too)
+            ("AdminAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ("AdminAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"),
+            ("AdminAuth:Providers:Microsoft:Authority",
+                "https://login.microsoftonline.com/3f2504e0-4f89-11d3-9a0c-0305e82c3301/v2.0"),
+            ("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback"),
+            ("AdminAuth:Providers:Google:ClientId", "")); // blank = disabled, not an error
         ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true); // does not throw
     }
 

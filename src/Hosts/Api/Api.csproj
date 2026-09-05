@@ -19,14 +19,6 @@
     <ProjectReference Include="..\..\Modules\Merchants\Merchants.Infrastructure\Merchants.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Application\Iam.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Infrastructure\Iam.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Divisions\Divisions.Application\Divisions.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Divisions\Divisions.Infrastructure\Divisions.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Levels\Levels.Application\Levels.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Levels\Levels.Infrastructure\Levels.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Offices\Offices.Application\Offices.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Offices\Offices.Infrastructure\Offices.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Positions\Positions.Application\Positions.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Positions\Positions.Infrastructure\Positions.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Governance\Governance.Application\Governance.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Governance\Governance.Infrastructure\Governance.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Reporting\Reporting.Application\Reporting.Application.csproj" />

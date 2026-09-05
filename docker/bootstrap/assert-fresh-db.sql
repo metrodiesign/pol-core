@@ -46,9 +46,11 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260819145219_WorkforceTenantBinding'),
     (N'20260823132337_Tier0WorkforceEmailIdentity'),
     (N'20260830172117_Tier0EmployeeProfile'),
-    (N'20260902133906_Tier0MicrosoftTenantAwareIdentity');
+    (N'20260902133906_Tier0MicrosoftTenantAwareIdentity'),
+    (N'20260905104644_DropOrgReferenceMasterData'),
+    (N'20260905140218_DropRetiredProviderDefaults');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 23
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 25
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -57,7 +59,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 23
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 23 expected migrations through Tier0MicrosoftTenantAwareIdentity; ';
+    SET @fail += N'migration history must contain exactly 25 expected migrations through DropRetiredProviderDefaults; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -210,16 +212,11 @@ IF EXISTS (SELECT 1 FROM iam.PermissionGroups WHERE Status <> 1)
    OR EXISTS (SELECT 1 FROM iam.Roles WHERE Status <> 1)
     SET @fail += N'IAM bootstrap rows must be Active; ';
 
-IF (SELECT COUNT(*) FROM cfg.Positions) <> 12
-   OR (SELECT COUNT(*) FROM cfg.Offices) <> 8
-   OR (SELECT COUNT(*) FROM cfg.Levels) <> 10
-   OR (SELECT COUNT(*) FROM cfg.Divisions) <> 10
-    SET @fail += N'cfg master-data seed counts mismatch; ';
-IF EXISTS (SELECT 1 FROM cfg.Positions WHERE Status <> 1)
-   OR EXISTS (SELECT 1 FROM cfg.Offices WHERE Status <> 1)
-   OR EXISTS (SELECT 1 FROM cfg.Levels WHERE Status <> 1)
-   OR EXISTS (SELECT 1 FROM cfg.Divisions WHERE Status <> 1)
-    SET @fail += N'cfg master-data rows must be Active; ';
+IF OBJECT_ID(N'cfg.Positions', N'U') IS NOT NULL
+   OR OBJECT_ID(N'cfg.Offices', N'U') IS NOT NULL
+   OR OBJECT_ID(N'cfg.Levels', N'U') IS NOT NULL
+   OR OBJECT_ID(N'cfg.Divisions', N'U') IS NOT NULL
+    SET @fail += N'retired cfg org reference tables must not exist; ';
 
 IF (SELECT COUNT(*) FROM merch.Merchants WHERE Id = 'e1000000-0000-4000-8000-000000000001') <> 1
    OR (SELECT COUNT(*) FROM txn.PspConnections WHERE Id = 'e8000000-0000-4000-8000-000000000001'

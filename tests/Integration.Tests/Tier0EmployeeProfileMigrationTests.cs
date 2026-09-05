@@ -7,9 +7,10 @@ namespace Integration.Tests;
 
 /// <summary>
 /// tier0-graph-employee-profile task 1 (REQ-8): the Tier0EmployeeProfile migration against a real scratch database.
-/// Up adds the five nullable profile columns + three filtered unique indexes, keeps OfficeId/DivisionId as GUID FKs,
-/// grants SELECT on the HR mirror tables ONLY when they exist, and never creates them; Down removes exactly what Up
-/// added and leaves dbo.VibEmp / dbo.branch untouched.
+/// Up adds the nullable profile columns + the filtered unique index, grants SELECT on the HR mirror tables ONLY when
+/// they exist, and never creates them; Down removes exactly what Up added and leaves dbo.VibEmp / dbo.branch
+/// untouched. The org reference lists that this migration also touched (cfg.Offices / cfg.Divisions LegacyKey) were
+/// retired by DropOrgReferenceMasterData, so the assertions below stop at the columns that still exist at HEAD.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class Tier0EmployeeProfileMigrationTests
@@ -30,8 +31,7 @@ public sealed class Tier0EmployeeProfileMigrationTests
             foreach (var (table, column, length) in new[]
                      {
                          ("admin.Users", "EmployeeId", 16), ("admin.Users", "FirstName", 500),
-                         ("admin.Users", "LastName", 500), ("cfg.Offices", "LegacyKey", 100),
-                         ("cfg.Divisions", "LegacyKey", 100),
+                         ("admin.Users", "LastName", 500),
                      })
             {
                 // nvarchar max_length is bytes (2 per char); is_nullable must be 1 (REQ-8.1-8.3, 8.13, 6.1).
@@ -45,8 +45,6 @@ public sealed class Tier0EmployeeProfileMigrationTests
             foreach (var (table, index, filter) in new[]
                      {
                          ("admin.Users", "IX_Users_EmployeeId", "[EmployeeId] IS NOT NULL"),
-                         ("cfg.Offices", "IX_Offices_LegacyKey", "[LegacyKey] IS NOT NULL"),
-                         ("cfg.Divisions", "IX_Divisions_LegacyKey", "[LegacyKey] IS NOT NULL"),
                      })
             {
                 // REQ-2.11 / 6.2 / 8.4: unique + filtered on non-NULL (SQL Server stores the filter parenthesised).
@@ -58,23 +56,14 @@ public sealed class Tier0EmployeeProfileMigrationTests
                 Assert.Contains(filter, definition, StringComparison.Ordinal);
             }
 
-            // REQ-8.5/8.6: OfficeId / DivisionId remain uniqueidentifier FKs to cfg.Offices / cfg.Divisions.
-            Assert.Equal("uniqueidentifier|cfg.Offices", Convert.ToString(await IntegrationDb.ScalarAsync(verify, """
-                SELECT CONCAT(t.name, '|', OBJECT_SCHEMA_NAME(fk.referenced_object_id), '.', OBJECT_NAME(fk.referenced_object_id))
-                FROM sys.foreign_key_columns fkc
-                JOIN sys.foreign_keys fk ON fk.object_id = fkc.constraint_object_id
-                JOIN sys.columns c ON c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id
-                JOIN sys.types t ON t.user_type_id = c.user_type_id
-                WHERE fkc.parent_object_id = OBJECT_ID(N'admin.Users') AND c.name = N'OfficeId';
-                """)));
-            Assert.Equal("uniqueidentifier|cfg.Divisions", Convert.ToString(await IntegrationDb.ScalarAsync(verify, """
-                SELECT CONCAT(t.name, '|', OBJECT_SCHEMA_NAME(fk.referenced_object_id), '.', OBJECT_NAME(fk.referenced_object_id))
-                FROM sys.foreign_key_columns fkc
-                JOIN sys.foreign_keys fk ON fk.object_id = fkc.constraint_object_id
-                JOIN sys.columns c ON c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id
-                JOIN sys.types t ON t.user_type_id = c.user_type_id
-                WHERE fkc.parent_object_id = OBJECT_ID(N'admin.Users') AND c.name = N'DivisionId';
-                """)));
+            // DropOrgReferenceMasterData: the org reference lists and the admin FK columns that pointed at them
+            // are gone at HEAD — org data is read from the HR mirror instead.
+            foreach (var table in new[] { "cfg.Positions", "cfg.Offices", "cfg.Levels", "cfg.Divisions" })
+                Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, $"SELECT OBJECT_ID(N'{table}', N'U');"));
+            foreach (var column in new[] { "PositionId", "OfficeId", "LevelId", "DivisionId" })
+                Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, $"""
+                    SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'admin.Users') AND name = N'{column}';
+                    """) ?? DBNull.Value);
 
             // REQ-8.7 / 8.12: the migration neither creates the HR mirror tables nor fails without them.
             Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify, "SELECT OBJECT_ID(N'dbo.VibEmp', N'U');"));
@@ -88,10 +77,10 @@ public sealed class Tier0EmployeeProfileMigrationTests
             var a = Guid.NewGuid();
             var b = Guid.NewGuid();
             await IntegrationDb.ExecAsync(verify, $"""
-                INSERT admin.Users (Id, Subject, Email, Tier, Status, AuthorizationVersion, Version, CreatedAt, EmployeeId)
-                VALUES ('{a}', N'a', N'a@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), N'ZTEST1'),
-                       ('{b}', N'b', N'b@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL),
-                       ('{Guid.NewGuid()}', N'c', N'c@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL);
+                INSERT admin.Users (Id, Provider, Subject, Email, Tier, Status, AuthorizationVersion, Version, CreatedAt, EmployeeId)
+                VALUES ('{a}', N'microsoft', N'a', N'a@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), N'ZTEST1'),
+                       ('{b}', N'microsoft', N'b', N'b@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL),
+                       ('{Guid.NewGuid()}', N'microsoft', N'c', N'c@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL);
                 """);
             var dup = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => IntegrationDb.ExecAsync(verify,
                 $"UPDATE admin.Users SET EmployeeId = N'ZTEST1' WHERE Id = '{b}';"));
@@ -146,7 +135,6 @@ public sealed class Tier0EmployeeProfileMigrationTests
                 foreach (var (table, column) in new[]
                          {
                              ("admin.Users", "EmployeeId"), ("admin.Users", "FirstName"), ("admin.Users", "LastName"),
-                             ("cfg.Offices", "LegacyKey"), ("cfg.Divisions", "LegacyKey"),
                          })
                     Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(down, $"""
                         SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'{table}') AND name = N'{column}';
@@ -155,9 +143,10 @@ public sealed class Tier0EmployeeProfileMigrationTests
                 Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'dbo.branch', N'U');"));
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(down,
                     "SELECT COUNT(*) FROM dbo.VibEmp WHERE EmpCode = N'ZTEST-KEEP';")));
-                // Offices/Divisions seed rows survive Down (REQ-6.5 / 8.9).
-                Assert.Equal(8, Convert.ToInt32(await IntegrationDb.ScalarAsync(down, "SELECT COUNT(*) FROM cfg.Offices;")));
-                Assert.Equal(10, Convert.ToInt32(await IntegrationDb.ScalarAsync(down, "SELECT COUNT(*) FROM cfg.Divisions;")));
+                // Rolling back past DropOrgReferenceMasterData recreates the retired tables EMPTY — the drop is a
+                // one-way data decision, its Down only restores the shape.
+                Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'cfg.Offices', N'U');"));
+                Assert.NotEqual(DBNull.Value, await IntegrationDb.ScalarAsync(down, "SELECT OBJECT_ID(N'cfg.Divisions', N'U');"));
             }
 
             await migrator.MigrateAsync(); // Up again round-trips
@@ -184,10 +173,6 @@ public sealed class Tier0EmployeeProfileMigrationTests
         typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(Admins.Infrastructure.AdminModuleRegistration).Assembly,
         typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
-        typeof(Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-        typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
-        typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-        typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
         typeof(Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
         typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
     ]);

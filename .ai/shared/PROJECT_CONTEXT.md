@@ -53,7 +53,7 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 - **PSP adapter** 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร / PromptPay / ผ่อน), normalize เป็นสัญญาเดียว
 - **Webhook = source of truth** — verify ลายเซ็น + idempotent + fetch-to-confirm ก่อนอัปเดตสถานะ (ไม่เชื่อ browser redirect)
 - **Multi-tenant provisioning** — Admin สร้าง tenant + เก็บ PSP credential ลง vault (encrypt, แยก key ต่อ tenant)
-- **Identity & RBAC** — Google SSO, hd-gate default-deny (Admin), register→approve (Tenant), maker-checker สำหรับ action อ่อนไหว
+- **Identity & RBAC** — Microsoft Entra SSO (workforce สำหรับ Admin, CIAM สำหรับ Merchant user; tenant-pinned default-deny), register→approve (Tenant), maker-checker สำหรับ action อ่อนไหว
 - **Notification (background)** — Orders ส่งลิงก์หน้าสรุปผ่าน Message Queue → Worker, retry backoff → DLQ, ลิงก์มี TTL
 - **Reconciliation = reporting**, retry/dunning, idempotency, audit log (append-only)
 

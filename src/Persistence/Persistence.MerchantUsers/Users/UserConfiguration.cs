@@ -19,7 +19,7 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
             table.HasCheckConstraint("CK_Users_ActorMerchant",
                 "[Status] NOT IN (2, 4) OR ([MerchantId] IS NOT NULL AND [MerchantId] <> '00000000-0000-0000-0000-000000000000')"));
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Google);
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired();
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         // Status + MerchantId are concurrency tokens (bugfix-merchant-prebind-wiring, Codex P1): every tracked

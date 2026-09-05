@@ -7,7 +7,7 @@ namespace Merchants.Domain.Users;
 /// under the merchant RLS predicate for its OWN identity row (mirrors Admins.Domain.PlatformUser);
 /// <see cref="MerchantId"/> is the one merchant this account acts for, set at approval — NULL until then
 /// (absorbs the former separate assignment edge, REQ-2.3). Role and merchant are decided server-side at
-/// approval, NEVER by the token. <see cref="Subject"/> (Google <c>sub</c>) is the stable identity, unique
+/// approval, NEVER by the token. <see cref="Subject"/> (Entra <c>oid</c>) is the stable identity, unique
 /// across users. The user's role(s) are NOT a column here — they live in <c>MerchantUserRoleAssignments</c>.
 /// The registrant's own person details (name, id, license, phone, photo) live directly on this record: a
 /// "merchant" is the company/app, not the person, so person data belongs to the person's account, never a
@@ -15,12 +15,12 @@ namespace Merchants.Domain.Users;
 /// </summary>
 public sealed class User : AggregateRoot<Guid>
 {
-    /// <summary>The identity provider slug (<see cref="ExternalLogin.Google"/>/<see cref="ExternalLogin.Microsoft"/>)
+    /// <summary>The identity provider slug (<see cref="ExternalLogin.Microsoft"/>)
     /// the <see cref="Subject"/> came from — identity is the PAIR <c>(Provider, Subject)</c>, never the subject alone
     /// (microsoft-oidc-ciam-alignment REQ-4.2).</summary>
     public string Provider { get; private set; } = default!;
 
-    /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>); unique per provider.</summary>
+    /// <summary>The provider's stable subject (Entra <c>oid</c>); unique per provider.</summary>
     public string Subject { get; private set; } = default!;
 
     /// <summary>Verified email captured from the id_token. Informational — <see cref="Subject"/> is the key.</summary>

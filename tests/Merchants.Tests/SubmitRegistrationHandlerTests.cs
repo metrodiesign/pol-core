@@ -44,7 +44,7 @@ public sealed class SubmitRegistrationHandlerTests
 
         var login = Assert.Single(ctx.Logins.Added);
         Assert.Equal("g-sub-1", login.Subject);
-        Assert.Equal(ExternalLogin.Google, login.Provider);
+        Assert.Equal(ExternalLogin.Microsoft, login.Provider);
 
         var audit = Assert.Single(ctx.Audits.Appended);
         Assert.Equal(RegistrationAuditAction.Registered, audit.Action);

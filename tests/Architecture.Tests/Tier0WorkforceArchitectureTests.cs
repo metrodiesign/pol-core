@@ -96,7 +96,7 @@ public sealed partial class Tier0WorkforceArchitectureTests
     }
 
     [Fact]
-    public void Production_compose_configures_admin_microsoft_without_retired_google_provider()
+    public void Production_compose_configures_microsoft_without_the_retired_google_provider()
     {
         var root = FindRepoRoot();
         var compose = File.ReadAllText(Path.Combine(root, "docker-compose.prod.yml"));
@@ -104,7 +104,9 @@ public sealed partial class Tier0WorkforceArchitectureTests
         Assert.Contains("AdminAuth__Providers__Microsoft__ClientId", compose, StringComparison.Ordinal);
         Assert.Contains("ADMIN_ENTRA_CLIENT_ID:?", compose, StringComparison.Ordinal);
         Assert.DoesNotContain("AdminAuth__Providers__Google", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("MerchantAuth__Providers__Google", compose, StringComparison.Ordinal);
         Assert.DoesNotContain("admin_oidc_client_secret", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("merchant_user_oidc_client_secret", compose, StringComparison.Ordinal);
     }
 
     [Theory]
