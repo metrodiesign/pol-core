@@ -9,10 +9,6 @@
     <!-- masterdata-split: the ONLY Admins layer that names the four reference entity types — the User->cfg.*
          FK configs (HasOne<Position/Office/Level/Division>) live here. Only each module's Domain, never its
          Application/Infrastructure. -->
-    <ProjectReference Include="..\..\Divisions\Divisions.Domain\Divisions.Domain.csproj" />
-    <ProjectReference Include="..\..\Levels\Levels.Domain\Levels.Domain.csproj" />
-    <ProjectReference Include="..\..\Offices\Offices.Domain\Offices.Domain.csproj" />
-    <ProjectReference Include="..\..\Positions\Positions.Domain\Positions.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

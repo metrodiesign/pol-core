@@ -16,18 +16,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Admins\Admins.Domain\Admins.Domain.csproj" />
-    <ProjectReference Include="..\..\Modules\Divisions\Divisions.Domain\Divisions.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Domain\Iam.Domain.csproj" />
-    <ProjectReference Include="..\..\Modules\Levels\Levels.Domain\Levels.Domain.csproj" />
-    <ProjectReference Include="..\..\Modules\Offices\Offices.Domain\Offices.Domain.csproj" />
-    <ProjectReference Include="..\..\Modules\Positions\Positions.Domain\Positions.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Governance\Governance.Domain\Governance.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Admins\Admins.Application\Admins.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Divisions\Divisions.Application\Divisions.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Application\Iam.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Levels\Levels.Application\Levels.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Offices\Offices.Application\Offices.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Positions\Positions.Application\Positions.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Governance\Governance.Application\Governance.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Notifications\Notifications.Domain\Notifications.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />

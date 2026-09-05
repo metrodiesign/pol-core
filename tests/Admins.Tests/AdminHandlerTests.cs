@@ -290,7 +290,7 @@ public sealed class AdminHandlerTests
         var objectId = Guid.NewGuid();
         var tenant = new FakeWorkforceTenantBindingStore();
         var handler = new CreateScopedHandler(
-            admins, audit, new FakeProfileLookup(), tenant, new FakeUnitOfWork(), new FixedClock());
+            admins, audit, tenant, new FakeUnitOfWork(), new FixedClock());
 
         var result = await handler.Handle(new CreateScopedCommand(
             objectId, "scoped@org.com", "approval-1", actingSuper, "http-corr"), default);
@@ -320,7 +320,7 @@ public sealed class AdminHandlerTests
                 User.CreateScopedMicrosoft(tenant.TenantId, objectId, "scoped@org.com", Now)),
         };
         var handler = new CreateScopedHandler(
-            admins, new FakePlatformUserAuditWriter(), new FakeProfileLookup(), tenant,
+            admins, new FakePlatformUserAuditWriter(), tenant,
             new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ConflictException>(async () =>

@@ -20,8 +20,6 @@ public static class AuditAction
     public const string SessionRevoke = "session-revoke";
     // rls-to-query-filter REQ-4.11 invalidation-matrix source "Tier".
     public const string TierChanged = "tier-changed";
-    // admin-account-management: org-profile edit (Position/Office/Level/Division FKs), targets an admin.
-    public const string UpdateProfile = "update-profile";
 
     // Role RBAC events (admin-role-rbac REQ-10.1). Role CRUD targets a role (TargetRoleId); assign/unassign
     // targets an admin (TargetAdminId).

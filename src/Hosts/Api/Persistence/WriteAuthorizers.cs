@@ -16,10 +16,6 @@ using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
 using Iam.Domain.ApiClients;
-using Divisions.Domain;
-using Levels.Domain;
-using Offices.Domain;
-using Positions.Domain;
 using Governance.Domain;
 using Notifications.Domain;
 using Merchants.Domain;
@@ -280,7 +276,6 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         typeof(AdminUser), typeof(MerchantAccess), typeof(AdminAudit), typeof(AdminSession), typeof(AdminAuthAudit),
         typeof(AdminRoleAssignment),
         typeof(Role), typeof(RolePermission), typeof(PermissionGroup), typeof(Permission),
-        typeof(Position), typeof(Office), typeof(Level), typeof(Division),
         typeof(ApiClient), typeof(OneTimeSecretTicket),
         typeof(WebhookEndpoint), typeof(WebhookDelivery), typeof(NotificationRule),
         typeof(NotificationDelivery), typeof(DeliverySecretVersion),

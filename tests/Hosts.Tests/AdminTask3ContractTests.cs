@@ -33,7 +33,6 @@ public sealed class AdminTask3ContractTests
         var paths = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("paths");
 
         AssertEtag(AssertOperation(paths, "/api/v1/admins/{id}", "get", "GetAdmin"), "200");
-        AssertIfMatch(AssertOperation(paths, "/api/v1/admins/{id}/profile", "put", "UpdateAdminProfile"));
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/{id}/tier", "post", "ChangeAdminTier"));
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/{id}/suspend", "post", "SuspendAdmin"));
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/{id}/reactivate", "post", "ReactivateAdmin"));
@@ -45,21 +44,6 @@ public sealed class AdminTask3ContractTests
         AssertEtag(AssertOperation(paths, "/api/v1/admins/roles/{code}", "get", "GetRole"), "200");
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/roles/{code}", "put", "UpdateRole"));
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/roles/{code}", "delete", "DeleteRole"));
-
-        foreach (var segment in new[] { "offices", "divisions", "positions", "levels" })
-        {
-            var list = AssertOperation(paths, $"/api/v1/{segment}", "get", $"List{segment}");
-            var queryNames = list.GetProperty("parameters").EnumerateArray()
-                .Where(x => x.GetProperty("in").GetString() == "query")
-                .Select(x => x.GetProperty("name").GetString()).ToHashSet();
-            Assert.Contains("page", queryNames);
-            Assert.Contains("limit", queryNames);
-            Assert.Contains("search", queryNames);
-
-            AssertEtag(AssertOperation(paths, $"/api/v1/{segment}/{{id}}", "get", $"Get{segment}"), "200");
-            AssertIfMatch(AssertOperation(paths, $"/api/v1/{segment}/{{id}}", "put", $"Update{segment}"));
-            AssertIfMatch(AssertOperation(paths, $"/api/v1/{segment}/{{id}}", "delete", $"Deactivate{segment}"));
-        }
 
         var revoke = AssertOperation(
             paths, "/api/v1/admins/{id}/sessions/{sessionId}", "delete", "RevokePlatformUserSession");

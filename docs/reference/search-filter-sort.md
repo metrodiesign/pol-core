@@ -88,11 +88,6 @@ GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD69000
 `GET /api/v1/payments/sessions` ใช้ `page`/`limit` สูงสุด `100`, filters `status:eq/in`, `method:eq/in`,
 `psp:eq/in` และ sort `createdAt`/`updatedAt`. Default sort คือ `createdAt DESC, id ASC`.
 
-### Master data
-
-`GET /api/v1/positions`, `/offices`, `/levels`, `/divisions` ใช้ query parameter `q` สำหรับ search ชื่อหรือ code
-และใช้ `page`/`limit` ของ route. ไม่ใช่ generic `filters`/`sort` surface.
-
 ### Products
 
 `GET /api/v1/products` ใช้ `page`, `limit` และ typed `productFilters` ตาม Products contract. ไม่ใช้ generic
