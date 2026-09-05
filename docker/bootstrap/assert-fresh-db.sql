@@ -47,9 +47,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260823132337_Tier0WorkforceEmailIdentity'),
     (N'20260830172117_Tier0EmployeeProfile'),
     (N'20260902133906_Tier0MicrosoftTenantAwareIdentity'),
-    (N'20260905104644_DropOrgReferenceMasterData');
+    (N'20260905104644_DropOrgReferenceMasterData'),
+    (N'20260905140218_DropRetiredProviderDefaults');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 24
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 25
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -58,7 +59,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 24
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 24 expected migrations through DropOrgReferenceMasterData; ';
+    SET @fail += N'migration history must contain exactly 25 expected migrations through DropRetiredProviderDefaults; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

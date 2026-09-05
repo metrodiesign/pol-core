@@ -65,7 +65,7 @@ role ต้องมี owner.
 
 ### Merchants
 
-Merchant user ใช้ OIDC BFF providers Google/Microsoft Entra, opaque `__Host-mch_session` cookie และ CSRF
+Merchant user ใช้ OIDC BFF provider Microsoft Entra (CIAM), opaque `__Host-mch_session` cookie และ CSRF
 double-submit. Commerce actor ได้ `MerchantId`, `SaleCode` และ Active-only IAM permission จาก server.
 
 KYC photo:

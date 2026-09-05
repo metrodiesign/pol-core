@@ -11,9 +11,10 @@
 > `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
 > config `MerchantAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
 >
-> **Admin workforce OIDC:** Admin รับเฉพาะ `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section
-> `AdminAuth:Providers:Microsoft`). Google Admin login/callback ไม่ register และคืน `404`. Merchant user ยังคง
-> รองรับ provider ของตัวเองแยกขาดผ่าน `MerchantAuth`.
+> **Microsoft-only OIDC:** ทั้งสอง plane รับเฉพาะ `microsoft` — Admin ใช้ workforce tenant (scheme `AdminMicrosoft`,
+> config `AdminAuth:Providers:Microsoft`), merchant-user ใช้ CIAM tenant (scheme `MerchantUserMicrosoft`, config
+> `MerchantAuth:Providers:Microsoft`). Google ถูก retire 2026-09-05: login/callback ของ google ไม่ register และคืน
+> `404` ทั้งสอง plane, provider ที่ไม่ใช่ Microsoft ที่ยังมี ClientId จะทำให้ boot guard throw นอก Development.
 
 **Ports (dev):** API `https://localhost:5001` · Customer SPA `https://localhost:3000` · Admin Console
 `https://localhost:3001` · Merchant-user Console `https://localhost:3002` (`Cors:AdminOrigins` /
@@ -197,7 +198,7 @@ Scoped ยิงโดน 403.
 | Method | Path | Tier | CSRF | Body | Success | Note |
 |---|---|---|---|---|---|---|
 | GET | `/api/v1/admins/auth/microsoft/login` | — (anon) | — | — | 302 | redirect ไป Microsoft workforce; `?returnTo=<allowlisted path>`; rate-limited (ดูล่าง) -> 429 ถ้าเกิน |
-| GET | `/api/v1/admins/auth/google/login` | — | — | — | 404 | Admin Google ไม่รองรับ |
+| GET | `/api/v1/admins/auth/google/login` | — | — | — | 404 | Google ถูก retire ทั้งระบบ |
 | POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
 | POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |

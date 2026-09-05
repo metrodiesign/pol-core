@@ -31,7 +31,7 @@ internal sealed class UserCallbackResolver(IMediator mediator) : IUserCallbackRe
 }
 
 /// <summary>
-/// Callback-time state branch for the merchant-user BFF (REQ-9.4). On a verified Google identity it resolves the
+/// Callback-time state branch for the merchant-user BFF (REQ-9.4). On a verified identity it resolves the
 /// MerchantUser and branches FOUR ways: <b>Active</b> → start a server session (session + login-success audit in ONE
 /// keyed pol_admin tx) + cookies + redirect to the allowlisted returnTo; <b>NotFound</b> → mint a stateless
 /// Registration ticket (signed+time-limited wire token, no server row) + redirect to the SPA register page;

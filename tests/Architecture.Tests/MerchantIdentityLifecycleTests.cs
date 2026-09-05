@@ -212,7 +212,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         await SeedViaSubmitAsync("lc-pending");
 
         using var scope = SelfServiceScope();
-        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-pending")), CancellationToken.None);
+        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("microsoft", "lc-pending")), CancellationToken.None);
 
         Assert.Equal(LoginOutcome.PendingApproval, result.Outcome);
     }
@@ -224,7 +224,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         await MutateSeededAsync("lc-rejected", a => a.Reject(DateTime.UtcNow));
 
         using var scope = SelfServiceScope();
-        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-rejected")), CancellationToken.None);
+        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("microsoft", "lc-rejected")), CancellationToken.None);
 
         Assert.Equal(LoginOutcome.Rejected, result.Outcome);
     }
@@ -322,7 +322,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.PendingApproval,
-                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None)).Outcome);
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("microsoft", "lc-full")), CancellationToken.None)).Outcome);
 
         using (var s = AdminPlaneScope())
             await s.RejectHandler().Handle(
@@ -331,14 +331,14 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.Rejected,
-                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None)).Outcome);
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("microsoft", "lc-full")), CancellationToken.None)).Outcome);
 
         using (var s = SelfServiceScope())
             await s.SubmitHandler().Handle(Submission("lc-full", TicketPurpose.Correction), CancellationToken.None);
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.PendingApproval,
-                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None)).Outcome);
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("microsoft", "lc-full")), CancellationToken.None)).Outcome);
 
         using (var s = AdminPlaneScope())
             await s.ApproveHandler().Handle(
@@ -347,7 +347,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using (var s = SelfServiceScope())
         {
-            var final = await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None);
+            var final = await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("microsoft", "lc-full")), CancellationToken.None);
             Assert.Equal(LoginOutcome.Active, final.Outcome);
             Assert.Equal(MerchantB, final.Resolution!.MerchantId);
         }
@@ -414,7 +414,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         var raceRejectId = await SeedViaSubmitAsync("lc-race-reject");
 
         using var staleScope = AdminPlaneScope();
-        var stale = await staleScope.Store.FindByIdentityAsync(new ProviderIdentity("google", "lc-race-reject"), CancellationToken.None);
+        var stale = await staleScope.Store.FindByIdentityAsync(new ProviderIdentity("microsoft", "lc-race-reject"), CancellationToken.None);
 
         using (var winner = AdminPlaneScope())
             await winner.ApproveHandler().Handle(
@@ -442,7 +442,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         var raceApproveId = await SeedViaSubmitAsync("lc-race-approve");
 
         using var staleScope = AdminPlaneScope();
-        var stale = await staleScope.Store.FindByIdentityAsync(new ProviderIdentity("google", "lc-race-approve"), CancellationToken.None);
+        var stale = await staleScope.Store.FindByIdentityAsync(new ProviderIdentity("microsoft", "lc-race-approve"), CancellationToken.None);
 
         using (var winner = AdminPlaneScope())
             await winner.ApproveHandler().Handle(

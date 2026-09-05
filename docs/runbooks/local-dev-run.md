@@ -1,6 +1,6 @@
 # คู่มือรันระบบ Local Development
 
-คู่มือนี้ครอบคลุมการตั้งค่าเครื่องครั้งแรก, SQL Server, migration, HTTPS, API, SPA, Google/Microsoft OIDC,
+คู่มือนี้ครอบคลุมการตั้งค่าเครื่องครั้งแรก, SQL Server, migration, HTTPS, API, SPA, Microsoft Entra OIDC,
 การทดสอบ และการแก้ปัญหาที่พบบ่อย. รันคำสั่งจาก root ของ repository เท่านั้น.
 
 ## 1. ผลลัพธ์ที่ต้องได้
@@ -258,16 +258,12 @@ unset AdminAuth__Providers__Microsoft__ClientSecret
 `Run user flow` ใน Portal พิสูจน์ tenant UX เท่านั้น. การทดสอบ backend end-to-end ต้องเริ่มจาก application login path
 เพื่อให้ browser มี state, nonce และ correlation cookie ที่ backend สร้างไว้.
 
-### 7.4 ตั้งค่า Google OIDC สำหรับ Merchant
+### 7.4 Google ถูก retire แล้ว
 
-Google ยังใช้ได้เฉพาะ Merchant user. Admin Google login/callback ไม่ register และต้องตอบ `404`.
-
-| Configuration prefix | Login path | Google Web redirect URI |
-|---|---|---|
-| `MerchantAuth__Providers__Google__` | `/api/v1/merchants/auth/google/login` | `https://localhost:5001/api/v1/merchants/auth/google/callback` |
-
-Google callback ต้องมี verified `email`. ถ้าตั้ง `HostedDomain`, callback จะรับเฉพาะ claim `hd` ที่ตรงกัน. Merchant
-invitation start ใช้ provider-verified email เพื่อ bind invitation อย่างปลอดภัย.
+Microsoft Entra เป็น provider เดียวของทั้งสอง plane ตั้งแต่ 2026-09-05. `google` ไม่ register scheme ทั้ง
+`/api/v1/admins/auth/google/**` และ `/api/v1/merchants/auth/google/**` จึงตอบ `404` เสมอ. ถ้ายังตั้งค่า
+`AdminAuth__Providers__Google__ClientId` หรือ `MerchantAuth__Providers__Google__ClientId` ไว้ boot guard นอก
+Development จะ throw ตอน start; ให้ลบค่านั้นหรือปล่อยว่าง.
 
 ## 8. รัน API
 
@@ -359,8 +355,10 @@ OIDC callback ลงที่ API origin `5001`; backend จึง redirect ผ�
 | `Suspended` | `/login-error?reason=suspended` |
 | `Active` | allowlisted return path เช่น `/dashboard` พร้อม session |
 
-Microsoft invitation start ยังไม่รองรับเพราะ Entra email เป็น mutable/unverified claim. Endpoint invitation รับ Google
-เท่านั้น; Microsoft self-service ต้องเริ่มจาก login path แล้วเข้าสู่ registration flow.
+`POST /api/v1/merchants/auth/invitations/start` ถูกลบพร้อม Google เพราะ endpoint นั้นรับ google เท่านั้น (การ bind
+invitation เทียบ verified email ซึ่ง Entra ให้เป็น mutable claim ไม่ได้). ผู้ถูกเชิญต้องเริ่มจาก login path ปกติแล้วเข้า
+registration flow; การเชิญฝั่ง Admin ยังสร้าง invitation ได้แต่ลิงก์ในอีเมลไม่มี SSO entry point จนกว่าจะมี spec
+pre-bind `(provider, subject)`.
 
 ### 10.2 Tier 0: Admin
 

@@ -21,7 +21,7 @@ public sealed record RegistrationForm(
 
 /// <summary>
 /// Submits (Registration) or resubmits (Correction) a merchant-user registration (REQ-4/5/7). Identity fields are the
-/// ticket's verified values, captured at the callback from the Google id_token — the host unprotects the wire
+/// ticket's verified values, captured at the callback from the verified id_token — the host unprotects the wire
 /// ticket and passes them here; the form body cannot override them (REQ-4.2). The photo, if any, has already been
 /// type/magic-byte/size validated at the host (REQ-7.3/7.4) and arrives as raw bytes + the canonical content-type.
 /// NOT <c>IMerchantScoped</c>: registration runs merchant-less on the pol_admin connection (REQ-19.2).
@@ -35,7 +35,7 @@ public sealed record SubmitRegistrationCommand(
     byte[]? PhotoBytes,
     string? PhotoContentType,
     string CorrelationId,
-    string Provider = ExternalLogin.Google,
+    string Provider = ExternalLogin.Microsoft,
     byte[]? KycPhotoBytes = null,
     string? KycPhotoContentType = null,
     Guid KycOperationId = default,

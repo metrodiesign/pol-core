@@ -35,7 +35,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.ToTable("Users", SchemaNames.Admin, table => table.HasCheckConstraint(
             "CK_Users_TenantId_MicrosoftProvider", "[TenantId] IS NULL OR [Provider] = 'microsoft'"));
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired();
         builder.Property(x => x.TenantId);
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Email).HasMaxLength(AdminContactEmail.MaxLength);

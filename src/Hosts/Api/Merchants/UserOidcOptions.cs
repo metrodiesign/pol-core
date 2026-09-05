@@ -2,10 +2,11 @@ namespace Api.Merchants;
 
 /// <summary>
 /// The confidential OIDC clients for the merchant-user BFF login (REQ-8/9/14), one <see cref="OidcProviderOptions"/>
-/// per provider keyed by name ("Google"/"Microsoft"). Fully isolated from the Admin <c>AdminAuth</c> clients: distinct
+/// per provider keyed by name ("Microsoft" — the only supported one). Fully isolated from the Admin
+/// <c>AdminAuth</c> clients: distinct
 /// scheme names, callback paths, and cookie names (REQ-14.4) — and, because the framework derives the
 /// correlation/nonce Data Protection purposes from the scheme name, a distinct DP purpose automatically (the scheme
-/// "MerchantUserGoogle" never shares a purpose chain with Admin's "AdminGoogle"). The shared key ring
+/// "MerchantUserMicrosoft" never shares a purpose chain with Admin's "AdminMicrosoft"). The shared key ring
 /// (<see cref="AdminDataProtection"/>) is fine: isolation comes from the purpose, not a second app name. Secrets are
 /// injected via <c>MerchantAuth__Providers__{Provider}__ClientSecret</c>, never committed/logged (REQ-14.1/14.3).
 /// </summary>

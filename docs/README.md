@@ -37,7 +37,7 @@ cost tracking และ retrospective. อ่านตามลำดับส�
 ## คู่มือรันและ Deploy
 
 - [Local Development](runbooks/local-dev-run.md) — ตั้งค่า DB, migration, HTTPS, API/SPA,
-  Google/Microsoft Entra OIDC, live login, test และ troubleshooting
+  Microsoft Entra OIDC, live login, test และ troubleshooting
 - [Self-host Deployment](runbooks/deploy-self-host.md) — staging, backup, migration, Entra preflight,
   production deploy, smoke test และ rollback
 
