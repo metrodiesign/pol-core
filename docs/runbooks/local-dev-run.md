@@ -153,6 +153,11 @@ Environment ไม่ข้าม terminal. เปิด shell ใหม่ต�
 ใช้ `VCentralPay` ที่ถูกต้องและสำรอง local data ที่ต้องเก็บก่อน. Fresh baseline จะปฏิเสธ target ที่มี application
 object หรือ migration history ที่ไม่ตรงก่อนเริ่ม DDL.
 
+อัปเดต DB ที่มีข้อมูลอยู่แล้วด้วย `dotnet ef database update` เท่านั้น. `docker/migrations/schema.sql` ใช้ได้เฉพาะ
+DB ว่าง (CI, deploy, scratch database) — script รวมทุก migration ไว้ในไฟล์เดียวโดยมี guard ต่อ migration แต่
+SQL Server compile ทั้ง batch ก่อนประเมิน guard. batch ของ migration เก่าที่อ้างคอลัมน์ซึ่ง migration ถัดมาลบไปแล้ว
+จึงล้มด้วย `Invalid column name` ทันทีบน DB ที่ apply มาถึงกลางประวัติ และไม่มี DDL ใดถูก apply เลย.
+
 ```bash
 dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
@@ -168,10 +173,10 @@ dotnet ef migrations list --context PolDbContext \
   --startup-project src/Hosts/Api
 ```
 
-ปัจจุบันต้องมี 23 migrations และตัวสุดท้ายต้องเป็น:
+ปัจจุบันต้องมี 25 migrations และตัวสุดท้ายต้องเป็น:
 
 ```text
-20260902133906_Tier0MicrosoftTenantAwareIdentity
+20260906025013_SwitchProviderDefaultToMicrosoft
 ```
 
 ตรวจ static migration guard โดยไม่ต้องมี `sqlcmd` บน host:
