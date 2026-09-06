@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "feature": "merchant-psp-settings",
+  "repo": "metrodiesign/pol-core",
+  "epic": {
+    "issue": 223,
+    "nodeId": "I_kwDOTAp-Ws8AAAABP82H6w",
+    "dbId": 5365401579,
+    "bodyHash": "sha256:08f50a1cf6059e306a9a5d12eeb7427a00fa4df40ebeb0eb3e3ca1fb8eba7dfe"
+  },
+  "tasks": {
+    "1": {
+      "issue": 224,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82I1A",
+      "dbId": 5365401812,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:41fe4a19c968481d27dc4c3a37fd56583d2fb298f944de9f9f48683134ad4949",
+      "state": "closed"
+    },
+    "2": {
+      "issue": 225,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82LIA",
+      "dbId": 5365402400,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:1aaa7720fdfbaab41ab81ca07eade87632451316956beb0641d0944df8860fbe",
+      "state": "closed"
+    },
+    "3": {
+      "issue": 226,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82Mkg",
+      "dbId": 5365402770,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:00a205becc01ac4f5816216955a1b7566b243f6b9268f000285118569f1396d8",
+      "state": "closed"
+    },
+    "4": {
+      "issue": 227,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82OUg",
+      "dbId": 5365403218,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:ee81a59e509760683f136481cf08a40da3d3852eae1c3586d8280e2a0d120514",
+      "state": "open"
+    },
+    "5": {
+      "issue": 228,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82PVA",
+      "dbId": 5365403476,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:5ab1dba2d2c964a834b30069c0fd657f75d3027cd4372876559ffb85bb1b8b88",
+      "state": "open"
+    },
+    "6": {
+      "issue": 229,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82Qmg",
+      "dbId": 5365403802,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:9a675fe3cb952d1e7b9e342554e8d8a9cdeda2bbcd9940a570f0d94168ae78c1",
+      "state": "open"
+    },
+    "7": {
+      "issue": 230,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82Riw",
+      "dbId": 5365404043,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:9975c6d70234b96d244492e34c9ceb93368ac714b2293c3fc907bdc5a91aad6c",
+      "state": "open"
+    },
+    "8": {
+      "issue": 231,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82TFw",
+      "dbId": 5365404439,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:3847427c057ffe3340768fd63e93365f8ed3197b91a8e6f4c147ae5726d9ab28",
+      "state": "open"
+    },
+    "9": {
+      "issue": 232,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82UCA",
+      "dbId": 5365404680,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:7ed59c1c9c800f1a6bd16cb442e8f8f0d995fa050f61f7ac97ac39314fe8a3d6",
+      "state": "open"
+    },
+    "10": {
+      "issue": 233,
+      "nodeId": "I_kwDOTAp-Ws8AAAABP82VBg",
+      "dbId": 5365404934,
+      "subIssueLinked": true,
+      "bodyHash": "sha256:9b99a77a14ca111dc2f53dfa7f4a97c09e82832ad615af74848546e1642578ad",
+      "state": "open"
+    }
+  },
+  "lastSync": "2026-09-06T14:00:07+00:00",
+  "labelsEnsured": [
+    "spec:merchant-psp-settings",
+    "spec-epic",
+    "spec-task",
+    "req-spine"
+  ]
+}
