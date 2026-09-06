@@ -23,7 +23,7 @@ public sealed class MerchantUserRegistrationTicketsTests
 
     private static readonly UserTicketPayload Payload = new(
         "g-sub-1", "p@org.com", "org.com", TicketPurpose.Registration,
-        ExternalLogin.Google, Guid.Parse("0198a1e8-93aa-7000-8000-000000000001"));
+        ExternalLogin.Microsoft, Guid.Parse("0198a1e8-93aa-7000-8000-000000000001"));
 
     [Fact]
     public void A_ticket_roundtrips_carrying_the_verified_identity()

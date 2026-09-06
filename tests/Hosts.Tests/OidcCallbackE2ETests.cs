@@ -42,7 +42,6 @@ file static class TestOidc
     public const string CiamTenant = "2a6d4554-88f1-4089-a995-0bf31c622493";
     public const string WorkforceIssuer = $"https://login.microsoftonline.com/{WorkforceTenant}/v2.0";
     public const string CiamIssuer = $"https://vcpexternaldev.ciamlogin.com/{CiamTenant}/v2.0";
-    public const string GoogleIssuer = "https://accounts.google.com";
 
     public static string CreateIdToken(string issuer, string audience, string nonce,
         params (string Type, string Value)[] claims) =>
@@ -162,7 +161,6 @@ file sealed class RecordingUserResolver : ApiHost::Api.Merchants.IUserCallbackRe
 file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
 {
     public const string AdminMicrosoftClient = "admin-microsoft-client";
-    public const string MerchantGoogleClient = "merchant-google-client";
     public const string MerchantMicrosoftClient = "merchant-microsoft-client";
 
     public FakeBackchannel Backchannel { get; } = new();
@@ -193,9 +191,6 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback");
         builder.UseSetting("AdminAuth:GraphBaseUrl", GraphTestOidc.GraphOrigin);
-        builder.UseSetting("MerchantAuth:Providers:Google:ClientId", MerchantGoogleClient);
-        builder.UseSetting("MerchantAuth:Providers:Google:ClientSecret", "test-secret");
-        builder.UseSetting("MerchantAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
         builder.UseSetting("MerchantAuth:Providers:Microsoft:Authority", TestOidc.CiamIssuer);
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", MerchantMicrosoftClient);
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientSecret", "test-secret");
@@ -229,9 +224,8 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
                 .ConfigurePrimaryHttpMessageHandler(() => Graph);
 
             // Static metadata per scheme: the ISSUER here is the literal the framework-default validation
-            // compares the token's iss against (M5) — workforce for admin, CIAM for merchant, Google for merchant.
+            // compares the token's iss against (M5) — workforce for admin, CIAM for merchant.
             Configure(services, ApiHost::Api.Admins.OidcAuthentication.SchemePrefix + "Microsoft", TestOidc.WorkforceIssuer);
-            Configure(services, ApiHost::Api.Merchants.UserOidcAuthentication.SchemePrefix + "Google", TestOidc.GoogleIssuer);
             Configure(services, ApiHost::Api.Merchants.UserOidcAuthentication.SchemePrefix + "Microsoft", TestOidc.CiamIssuer);
         });
     }
@@ -287,22 +281,6 @@ public sealed class OidcCallbackE2ETests
     // ---- callback happy-path per provider x plane (REQ-6.1) ----
 
     [Fact]
-    public async Task Merchant_google_callback_maps_sub_and_redirects_an_unknown_user_to_register()
-    {
-        using var factory = new OidcE2EFactory();
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var challenge = await StartAsync(client, "/api/v1/merchants/auth/google/login", "/api/v1/merchants/auth/google/callback");
-        factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.GoogleIssuer, OidcE2EFactory.MerchantGoogleClient,
-            challenge.Nonce, ("sub", "google-sub-e2e"), ("email", "somchai@example.com"), ("email_verified", "true"));
-
-        var response = await CallbackAsync(client, challenge);
-
-        Assert.Equal(("google", "google-sub-e2e"), factory.UserResolver.Resolved);
-        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
-        Assert.Contains("/register?ticket=", response.Headers.Location!.ToString()); // NotFound -> registration ticket
-    }
-
-    [Fact]
     public async Task Merchant_microsoft_callback_through_the_ciam_issuer_maps_oid_never_sub()
     {
         using var factory = new OidcE2EFactory();
@@ -349,16 +327,20 @@ public sealed class OidcCallbackE2ETests
         Assert.DoesNotContain("client_secret", query.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task Admin_google_login_and_callback_are_not_registered()
+    // Google is retired on BOTH planes: no scheme is registered for it, so neither the login nor the callback
+    // route resolves, whatever MerchantAuth/AdminAuth still carry in configuration.
+    [Theory]
+    [InlineData("admins")]
+    [InlineData("merchants")]
+    public async Task Google_login_and_callback_are_not_registered(string plane)
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         Assert.Equal(HttpStatusCode.NotFound,
-            (await client.GetAsync("/api/v1/admins/auth/google/login")).StatusCode);
+            (await client.GetAsync($"/api/v1/{plane}/auth/google/login")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound,
-            (await client.GetAsync("/api/v1/admins/auth/google/callback")).StatusCode);
+            (await client.GetAsync($"/api/v1/{plane}/auth/google/callback")).StatusCode);
     }
 
     [Fact]

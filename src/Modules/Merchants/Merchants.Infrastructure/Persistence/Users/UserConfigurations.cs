@@ -19,9 +19,10 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
             table.HasCheckConstraint("CK_Users_ActorMerchant",
                 "[Status] NOT IN (2, 4) OR ([MerchantId] IS NOT NULL AND [MerchantId] <> '00000000-0000-0000-0000-000000000000')"));
         builder.HasKey(x => x.Id);
-        // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
-        // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Google);
+        // Provider slug: identity is the PAIR (Provider, Subject). DEFAULT 'microsoft' — the only slug that can
+        // be minted today; it also covers a raw insert that omits the column. Historical rows keep the slug they
+        // were written with (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Microsoft);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();

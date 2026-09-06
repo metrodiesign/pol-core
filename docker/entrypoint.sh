@@ -72,11 +72,6 @@ if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
 fi
 unset DB_PW
 
-# Merchant-user Google BFF uses its own confidential client. A blank ClientId skips the scheme.
-if [ -n "${MERCHANT_USER_OIDC_CLIENT_SECRET_FILE:-}" ]; then
-    export MerchantAuth__Providers__Google__ClientSecret="$(cat "$MERCHANT_USER_OIDC_CLIENT_SECRET_FILE")"
-fi
-
 # Microsoft Entra clients use one mounted secret per plane; Admin is required in Production, Merchant is optional.
 if [ -n "${ADMIN_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
     export AdminAuth__Providers__Microsoft__ClientSecret="$(cat "$ADMIN_ENTRA_CLIENT_SECRET_FILE")"

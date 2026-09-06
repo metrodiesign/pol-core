@@ -27,7 +27,7 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         await database.ExecuteBatchesAsync(script);
 
         await using var verify = await database.OpenAsync();
-        Assert.Equal(24, Convert.ToInt32(await ScalarAsync(
+        Assert.Equal(25, Convert.ToInt32(await ScalarAsync(
             verify, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
         Assert.NotEqual(DBNull.Value, await ScalarAsync(
             verify, "SELECT OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U');"));

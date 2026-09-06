@@ -29,9 +29,10 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
             "CK_Users_TenantId_MicrosoftProvider",
             "[TenantId] IS NULL OR [Provider] COLLATE Latin1_General_100_BIN2 = N'microsoft'"));
         builder.HasKey(x => x.Id);
-        // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
-        // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
+        // Provider slug: identity is the PAIR (Provider, Subject). DEFAULT 'microsoft' — the only slug that can
+        // be minted today; it also covers a raw insert that omits the column. Historical rows keep the slug they
+        // were written with (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.MicrosoftProvider);
         builder.Property(x => x.TenantId);
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Email).HasMaxLength(AdminContactEmail.MaxLength);

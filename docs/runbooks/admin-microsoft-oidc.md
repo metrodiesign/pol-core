@@ -31,8 +31,8 @@ Authority ต้องมีรูปแบบ:
 https://login.microsoftonline.com/<workforce-tenant-id>/v2.0
 ```
 
-ห้ามใช้ `/common`, `/organizations` หรือ `/consumers` Admin Google login/callback ไม่ register Merchant
-Google/Microsoft ใช้ configuration, scheme, cookie และ behavior ของ Merchant แยกต่างหาก
+ห้ามใช้ `/common`, `/organizations` หรือ `/consumers` Google ถูก retire ทั้งระบบ: login/callback ของ google
+ไม่ register ทั้งสอง plane Merchant Microsoft ใช้ configuration, scheme, cookie และ behavior แยกต่างหาก
 
 ## 2. Configuration
 

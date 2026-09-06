@@ -5,7 +5,7 @@
 
 ## Identity and session
 
-- OIDC BFF providers: Google and Microsoft Entra
+- OIDC BFF provider: Microsoft Entra (CIAM) only
 - Browser holds opaque `__Host-mch_session` cookie; no bearer/id token in SPA
 - CSRF double-submit on merchant-user mutations
 - session family rotation, reuse detection, revoke one/all and bounded pruning

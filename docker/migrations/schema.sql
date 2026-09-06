@@ -5306,3 +5306,48 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906025013_SwitchProviderDefaultToMicrosoft'
+)
+BEGIN
+    DECLARE @var11 nvarchar(max);
+    SELECT @var11 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[merch].[Users]') AND [c].[name] = N'Provider');
+    IF @var11 IS NOT NULL EXEC(N'ALTER TABLE [merch].[Users] DROP CONSTRAINT ' + @var11 + ';');
+    ALTER TABLE [merch].[Users] ADD DEFAULT N'microsoft' FOR [Provider];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906025013_SwitchProviderDefaultToMicrosoft'
+)
+BEGIN
+    DECLARE @var12 nvarchar(max);
+    SELECT @var12 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[admin].[Users]') AND [c].[name] = N'Provider');
+    IF @var12 IS NOT NULL EXEC(N'ALTER TABLE [admin].[Users] DROP CONSTRAINT ' + @var12 + ';');
+    ALTER TABLE [admin].[Users] ADD DEFAULT N'microsoft' FOR [Provider];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906025013_SwitchProviderDefaultToMicrosoft'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260906025013_SwitchProviderDefaultToMicrosoft', N'10.0.8');
+END;
+
+COMMIT;
+GO
+

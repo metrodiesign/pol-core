@@ -81,13 +81,13 @@ public sealed class UserRegistrationOptions
 /// <summary>The verified identity a registration ticket carries (REQ-3.1), captured ONLY from the verified id_token at
 /// the callback and returned by the client at submission. The form body can never override these. Stateless — the
 /// signed+time-limited token is self-contained (no server-side row); replay/duplicate safety is the account's unique
-/// (Subject) index at submit time. <c>Provider</c> is the issuing IdP slug ("google"/"microsoft").</summary>
+/// (Subject) index at submit time. <c>Provider</c> is the issuing IdP slug ("microsoft").</summary>
 public sealed record UserTicketPayload(
     string Subject,
     string Email,
     string? HostedDomain,
     TicketPurpose Purpose,
-    string Provider = ExternalLogin.Google,
+    string Provider = ExternalLogin.Microsoft,
     Guid OperationId = default,
     Guid? InvitationId = null);
 

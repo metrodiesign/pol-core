@@ -35,7 +35,7 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 
 ## การรัน (Local Dev)
 
-คู่มือฉบับเต็ม (DB, HTTPS, Google/Microsoft Entra OIDC, live login, testing และ troubleshooting):
+คู่มือฉบับเต็ม (DB, HTTPS, Microsoft Entra OIDC, live login, testing และ troubleshooting):
 [`docs/runbooks/local-dev-run.md`](docs/runbooks/local-dev-run.md).
 ด้านล่างคือทางลัดให้รันได้เร็ว.
 
@@ -118,7 +118,7 @@ dotnet watch --project src/Hosts/Api/Api.csproj run       # API https://localhos
 
 > config change (`appsettings.*.json`) / DI ต้อง **restart เต็ม** (hot reload ไม่จับ).
 > รัน API ค้างใน terminal ของคุณเอง — อย่ารันผ่าน agent background (ถูก kill).
-> Google/Microsoft Entra OIDC, local secret injection, Azure redirect URI และ live login ดู runbook §7-§11.
+> Microsoft Entra OIDC, local secret injection, Azure redirect URI และ live login ดู runbook §7-§11.
 
 ### เทส
 

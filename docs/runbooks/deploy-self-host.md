@@ -106,16 +106,17 @@ fresh environment-specific evidence URI; repository evidence is not substitute.
 
 ## 5. Microsoft Entra rollout preflight
 
-Production compose requires Microsoft workforce OIDC for Admin and Google OIDC for Merchant user. Merchant Microsoft
-remains opt-in. Each plane uses separate client, secret, callback, scheme and cookie.
+Production compose requires Microsoft workforce OIDC for Admin. Merchant Microsoft (CIAM) remains opt-in and is
+the only Merchant provider — Google is retired on both planes, and a configured non-Microsoft provider fails the
+boot guard. Each plane uses separate client, secret, callback, scheme and cookie.
 
 ### 5.1 Identity and frontend contract
 
 Complete these checks before changing production:
 
 1. Admin SPA approval, rejection and registration-history routes send internal `merchantUserId` GUID.
-2. Admin SPA does not send Entra `oid`, Google `sub` or raw `Subject` as `{merchantUserId}`.
-3. Existing Google identities remain Google identities; migration backfills `Provider=google`.
+2. Admin SPA does not send Entra `oid` or a raw `Subject` as `{merchantUserId}`.
+3. Existing rows keep their historical `Provider` value, but a `google` identity can no longer sign in — no Google scheme is registered.
 4. Tier 0 requires exactly one validated `tid` and `oid`; runtime identity is exact
    `(microsoft, TenantId, canonical oid)` and does not read `roles` for authorization.
 5. Email is optional, non-unique contact data. Tier 0 never resolves, binds, recovers or admits with Email, UPN,

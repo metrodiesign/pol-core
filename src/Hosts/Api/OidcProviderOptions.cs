@@ -4,8 +4,8 @@ namespace Api;
 
 /// <summary>
 /// One confidential OIDC client registration (provider × app). Both BFF sides (AdminAuth / MerchantAuth) bind a
-/// <c>Providers</c> dictionary of these. AdminAuth accepts Microsoft only; MerchantAuth accepts Google or Microsoft.
-/// The dictionary key selects the side's provider-specific wiring. <c>ClientSecret</c> is a real secret — injected via
+/// <c>Providers</c> dictionary of these. Microsoft is the ONLY supported provider on either side; any other key is
+/// skipped at registration and rejected by the boot guard. <c>ClientSecret</c> is a real secret — injected via
 /// <c>{Side}__Providers__{Provider}__ClientSecret</c>, never committed, never logged. A blank <c>ClientId</c>
 /// disables the provider (its scheme is skipped) instead of faulting the host.
 /// </summary>
@@ -15,15 +15,13 @@ internal sealed class OidcProviderOptions
     public string ClientId { get; init; } = "";
     public string ClientSecret { get; init; } = "";
     public string CallbackPath { get; init; } = "";
-    /// <summary>Google-only: hosted-domain (<c>hd</c>) guard; blank = any verified Google account.</summary>
-    public string HostedDomain { get; init; } = "";
     /// <summary>Microsoft-only: OPTIONAL extra <c>tid</c> allowlist layered on top of the tenant-pinned Authority;
     /// empty = no tid gate (tenant isolation already comes from issuer == discovery metadata issuer).</summary>
     public string[] AllowedTenants { get; init; } = [];
 }
 
 /// <summary>
-/// The Microsoft Entra ID (v2.0) deltas from the Google wiring, shared by both BFF sides:
+/// The Microsoft Entra ID (v2.0) specifics, shared by both BFF sides:
 /// <list type="bullet">
 /// <item><b>Issuer</b>: framework default — the handler compares the token's <c>iss</c> against the issuer in the
 /// Authority's discovery metadata. The Authority MUST be tenant-pinned (workforce

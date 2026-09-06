@@ -77,7 +77,6 @@ using RejectCommand = Merchants.Application.Users.RejectCommand;
 using SubmitRegistrationCommand = Merchants.Application.Users.SubmitRegistrationCommand;
 using GetRegistrationHistoryQuery = Merchants.Application.Users.GetRegistrationHistoryQuery;
 using RegistrationHistoryResult = Merchants.Application.Users.RegistrationHistoryResult;
-using ResolveInvitationTokenQuery = Merchants.Application.Users.ResolveInvitationTokenQuery;
 using ResolveInvitationByIdQuery = Merchants.Application.Users.ResolveInvitationByIdQuery;
 using ListMerchantUsersQuery = Merchants.Application.Users.ListMerchantUsersQuery;
 using MerchantUserListItem = Merchants.Application.Users.MerchantUserListItem;
@@ -200,8 +199,8 @@ builder.Services.AddMerchantsModule();
 if (!builder.Environment.IsDevelopment())
 {
     ProvisioningGuards.RequireInjectedCredential(appConnString, "App");
-    // Admin is Microsoft workforce-only. Production rejects missing/invalid Microsoft settings and any enabled
-    // Google provider before OIDC registration; Development/Staging may run with login disabled for local tests.
+    // Admin is Microsoft workforce-only. Production rejects missing/invalid Microsoft settings and any other
+    // enabled provider before OIDC registration; Development/Staging may run with login disabled for local tests.
     if (builder.Environment.IsProduction())
         ProvisioningGuards.RequireWorkforceAdminProvider(builder.Configuration);
 
@@ -492,7 +491,7 @@ Action<OpenApiOptions> configureOpenApi = options =>
                 // see the cookie they actually have.
                 Name = SessionCookies.SessionCookieNameDevHttp,
                 Description = "คุกกี้ session ของ Admin Console ที่ browser ได้รับอัตโนมัติหลังเข้าสู่ระบบผ่าน "
-                    + "GET /api/v1/admins/auth/{provider}/login โดย provider คือ google หรือ microsoft; "
+                    + "GET /api/v1/admins/auth/{provider}/login โดย provider คือ microsoft; "
                     + "บน production (HTTPS) ใช้ชื่อ `__Host-adm_session`",
             };
         if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, "MerchantUserSession"))
@@ -502,7 +501,7 @@ Action<OpenApiOptions> configureOpenApi = options =>
                 In = ParameterLocation.Cookie,
                 Name = UserSessionCookies.SessionCookieNameDevHttp,
                 Description = "คุกกี้ session ของ Merchant Console ที่ browser ได้รับอัตโนมัติหลังเข้าสู่ระบบผ่าน "
-                    + "GET /api/v1/merchants/auth/{provider}/login โดย provider คือ google หรือ microsoft; "
+                    + "GET /api/v1/merchants/auth/{provider}/login โดย provider คือ microsoft; "
                     + "บน production (HTTPS) ใช้ชื่อ `__Host-mch_session`",
             };
 
@@ -634,11 +633,11 @@ if (!app.Environment.IsDevelopment())
 
 // Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
 // browser-facing host/scheme, not this process's. The admin SPA dev server proxies /api/v1/admins/* here, so the OIDC
-// redirect_uri must be the SPA origin (e.g. https://localhost:3001) to match the registered Google redirect URI; the
+// redirect_uri must be the SPA origin (e.g. https://localhost:3001) to match the registered Entra redirect URI; the
 // same applies to a TLS-terminating reverse proxy in prod (scheme must read https). Default trust = loopback
 // only, which covers the localhost dev proxy. A containerized prod proxy connects from the (non-loopback)
 // docker/private network, and .NET only honours forwarded headers from a TRUSTED peer — otherwise it silently
-// ignores X-Forwarded-* and the redirect_uri keeps this process's internal host (Google then rejects login with
+// ignores X-Forwarded-* and the redirect_uri keeps this process's internal host (Entra then rejects login with
 // redirect_uri_mismatch). Trust the real proxy ADDITIVELY from config so the localhost dev proxy keeps working:
 // ForwardedHeaders:KnownNetworks = CIDRs (e.g. the docker subnet "172.18.0.0/16"), KnownProxies = single IPs.
 // Both empty (the default) = loopback only.
@@ -1983,38 +1982,8 @@ merchantAuthAnon.MapGet("/{provider}/login", (
     .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserLogin")
     .WithSummary("เริ่มเข้าสู่ระบบผู้ใช้ร้านค้า")
-    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง provider (google/microsoft; OIDC Authorization Code + PKCE) callback จะสร้าง session cookie ให้ merchant-user ที่ Active หรือ redirect ผู้สมัครไป /register พร้อม ticket ที่เซ็นแล้ว หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
+    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง provider (microsoft; OIDC Authorization Code + PKCE) callback จะสร้าง session cookie ให้ merchant-user ที่ Active หรือ redirect ผู้สมัครไป /register พร้อม ticket ที่เซ็นแล้ว หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
     .Produces(StatusCodes.Status302Found)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status429TooManyRequests);
-
-merchantAuthAnon.MapPost("/invitations/start", async (
-    HttpRequest request, UserOidcProviders providers, IMediator mediator, CancellationToken ct) =>
-{
-    if (!request.HasFormContentType)
-        return Results.NotFound();
-    var form = await request.ReadFormAsync(ct);
-    // ponytail: verified-email allowlist ตอนนี้มี google ตัวเดียว — Microsoft เข้าได้เมื่อมีกลไก pre-bind
-    // (provider, subject) เป็น spec แยก (B3: Entra email เป็น mutable claim จับคู่ invitation ไม่ได้)
-    var slug = form["provider"].ToString() is { Length: > 0 } requested
-        ? requested.ToLowerInvariant()
-        : Merchants.Domain.Users.ExternalLogin.Google;
-    if (slug is not Merchants.Domain.Users.ExternalLogin.Google || !providers.TryGetValue(slug, out var scheme))
-        return Results.NotFound();
-    var invitation = await mediator.Send(new ResolveInvitationTokenQuery(form["token"].ToString()), ct);
-    if (invitation is null)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invitation is invalid or expired.",
-            extensions: new Dictionary<string, object?> { ["code"] = "invitation-invalid" });
-    var properties = new AuthenticationProperties { RedirectUri = "/dashboard" };
-    properties.Items["merchant_invitation_id"] = invitation.InvitationId.ToString("D");
-    return Results.Challenge(properties, [scheme]);
-}).AllowAnonymous().DisableAntiforgery().RequireRateLimiting(UserAuthRateLimiting.PolicyName)
-    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
-    .WithName("StartMerchantUserInvitation")
-    .WithSummary("เริ่ม SSO จาก invitation token")
-    .WithDescription("รับ invitation token แบบ form พร้อม provider (ไม่ระบุ = google; รับเฉพาะ provider ที่ email verified — ปัจจุบัน google ตัวเดียว, provider อื่นหรือยังไม่ได้ตั้งค่า -> 404), ตรวจว่า invitation ยังใช้ได้ แล้วเริ่ม OIDC โดยผูก invitationId ใน authentication state หาก token ไม่ถูกต้องหรือหมดอายุ -> 400")
-    .Produces(StatusCodes.Status302Found)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
@@ -3505,8 +3474,8 @@ internal static class ProvisioningGuards
                 "Set Psp__PublicBaseUrl.");
     }
 
-    /// <summary>Production guard for the fixed Microsoft workforce Admin provider. Google is not a supported
-    /// Admin provider, so enabling it is a deployment error rather than a fallback.</summary>
+    /// <summary>Production guard for the fixed Microsoft workforce Admin provider. Microsoft is the only
+    /// supported provider, so enabling any other one is a deployment error rather than a fallback.</summary>
     public static void RequireWorkforceAdminProvider(IConfiguration configuration)
     {
         var graphBaseUrl = configuration["AdminAuth:GraphBaseUrl"] ?? "https://graph.microsoft.com";
@@ -3515,12 +3484,13 @@ internal static class ProvisioningGuards
                 "AdminAuth:GraphBaseUrl must be https://graph.microsoft.com in Production.");
 
         var providers = configuration.GetSection("AdminAuth:Providers").GetChildren().ToArray();
-        var google = providers.FirstOrDefault(provider =>
-            string.Equals(provider.Key, "Google", StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(google?["ClientId"]))
+        var unsupported = providers.FirstOrDefault(provider =>
+            !string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(provider["ClientId"]));
+        if (unsupported is not null)
             throw new InvalidOperationException(
-                "AdminAuth:Providers:Google is not supported. Disable the Admin Google provider and configure "
-                + "the Microsoft workforce provider.");
+                $"AdminAuth:Providers:{unsupported.Key} is not supported. Microsoft is the only Admin provider — "
+                + "leave the other provider's ClientId blank and configure the Microsoft workforce provider.");
 
         var microsoft = providers.Where(provider =>
             string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -3577,6 +3547,13 @@ internal static class ProvisioningGuards
             var clientId = provider["ClientId"];
             if (string.IsNullOrWhiteSpace(clientId))
                 continue;
+            // Microsoft is the only supported provider on either side (Google was retired). A configured
+            // non-Microsoft provider would register no scheme, so its login would 404 at runtime — fail at boot
+            // instead, where the misconfiguration is visible.
+            if (!string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"{sectionName}:Providers:{provider.Key} is not a supported provider — Microsoft is the only " +
+                    $"one. Leave {sectionName}__Providers__{provider.Key}__ClientId blank or remove the provider.");
             if (clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"{sectionName}:Providers:{provider.Key}:ClientId is a placeholder. Map a real client id via " +
@@ -3619,7 +3596,7 @@ internal static class ProvisioningGuards
         if (requireAtLeastOne && !anyConfigured)
             throw new InvalidOperationException(
                 $"{sectionName}:Providers requires at least one provider with a configured ClientId — the login " +
-                $"cannot build an authorization request without one. Set {sectionName}__Providers__Google__ClientId (or Microsoft).");
+                $"cannot build an authorization request without one. Set {sectionName}__Providers__Microsoft__ClientId.");
     }
 }
 

@@ -77,10 +77,10 @@ public sealed class Tier0EmployeeProfileMigrationTests
             var a = Guid.NewGuid();
             var b = Guid.NewGuid();
             await IntegrationDb.ExecAsync(verify, $"""
-                INSERT admin.Users (Id, Subject, Email, Tier, Status, AuthorizationVersion, Version, CreatedAt, EmployeeId)
-                VALUES ('{a}', N'a', N'a@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), N'ZTEST1'),
-                       ('{b}', N'b', N'b@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL),
-                       ('{Guid.NewGuid()}', N'c', N'c@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL);
+                INSERT admin.Users (Id, Provider, Subject, Email, Tier, Status, AuthorizationVersion, Version, CreatedAt, EmployeeId)
+                VALUES ('{a}', N'microsoft', N'a', N'a@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), N'ZTEST1'),
+                       ('{b}', N'microsoft', N'b', N'b@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL),
+                       ('{Guid.NewGuid()}', N'microsoft', N'c', N'c@example.com', 1, 1, 0, 1, SYSUTCDATETIME(), NULL);
                 """);
             var dup = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => IntegrationDb.ExecAsync(verify,
                 $"UPDATE admin.Users SET EmployeeId = N'ZTEST1' WHERE Id = '{b}';"));

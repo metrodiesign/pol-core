@@ -189,7 +189,7 @@ fork or weaken these checks per harness.
   `docs/reference/db-connection-and-rls.md`.
 - **แยก authz scope Admin ↔ Tenant ให้ขาด.** endpoint อำนาจสูง (cross-tenant / approve / config / vault) ต้องเรียกผ่าน
   session ของ Merchant Console **ไม่ได้**. การแยกเป็น 2 แอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ backend authorization.
-  Identity: verify Google id_token (sig/`iss`/`aud`/exp/`email_verified`) → `hd` guard → lookup ตาราง identity ของ console นั้น → scope `MerchantId`.
+  Identity: verify Microsoft Entra id_token (sig/`iss` = tenant-pinned metadata issuer/`aud`/exp/nonce) → optional `tid` allowlist → lookup ตาราง identity ของ console นั้น → scope `MerchantId`.
   **Admin cross-merchant action** ไม่ผ่าน DB principal แยกอีกต่อไป (ไม่มีแล้ว) — ผ่าน **narrow escape-hatch port ที่ตั้งชื่อไว้**
   เท่านั้น (`ConnectionRepository.ListByTenantAsync`, allowlisted), บวก **authorization lease** (`AuthorizationLease.
   VerifyAsync` — recheck `AuthorizationVersion` ในทรานแซกชันเดียวกับ business write กัน revoke-then-still-commit) และ
