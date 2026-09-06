@@ -50,7 +50,8 @@ governance, webhook/notification delivery และ reporting. รายละ�
 Current admin routes อยู่ใต้ `/api/v1/admins...`. Authorization ใช้ policy `admin`, permission key และ CSRF
 สำหรับ mutations.
 
-Role resolution ใช้เฉพาะ role/group/permission ที่ `Active`. Shared role ใช้ `MerchantId = NULL`; custom merchant
+`Scope` มี 3 ค่า: Platform (Tier 0), Merchant (Tier 1) และ Shared (`payment.*` — role ใช้ร่วมกันสองระดับ, seed `merchant_staff`).
+Role resolution ใช้เฉพาะ role/group/permission ที่ `Active`. Seed role ใช้ `MerchantId = NULL`; custom merchant
 role ต้องมี owner.
 
 ### Reference master data
@@ -66,7 +67,9 @@ role ต้องมี owner.
 ### Merchants
 
 Merchant user ใช้ OIDC BFF provider Microsoft Entra (CIAM), opaque `__Host-mch_session` cookie และ CSRF
-double-submit. Commerce actor ได้ `MerchantId`, `SaleCode` และ Active-only IAM permission จาก server.
+double-submit. Commerce actor ได้ `MerchantId`, `SaleCode` และ Active-only IAM permission จาก server. Order read paths
+(list/detail/resend/cancel/reconciliation/payment session) กรองเพิ่มด้วย `InitiatingMerchantUserId == user` — ตัวแทน
+(Tier 1) เห็นเฉพาะคำสั่งซื้อของลูกค้าตัวเอง; admin (Tier 0) เห็นทั้ง merchant ที่ accessible.
 
 KYC photo:
 

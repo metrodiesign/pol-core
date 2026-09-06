@@ -24,12 +24,30 @@ adapter ดึงจาก SP ต้นทางยังเป็นงาน�
 ระบบคือ scope เดียวกัน มี 5 โมดูล (Products · Cart · Checkout · Orders · Payments) คุยกันผ่าน
 **Mediator (martinothamar/Mediator)** แบบ modular ไม่อ้างถึงกันตรง — โมดูลที่ build out มากสุดคือ Payments
 
-## Target Users
+## Target Users — actor model (canon 2026-09-06)
 
-- **Producer (Merchant Console)** — ตัวแทนประกันภัย / นายหน้าประกันภัย ในสังกัดบริษัทในเครือ:
-  เลือกแผน/กรมธรรม์ → ตะกร้า → checkout → สร้าง Order เห็นเฉพาะข้อมูล tenant ตน (scope ด้วย `TenantId`)
-- **ลูกค้า** — เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น) ผ่าน redirect ไปหน้า PSP
-- **ทีมกลาง (Admin Console)** — internal-only: provision tenant, เก็บ PSP credential/config, ตั้ง routing, monitor, audit
+ระบบแบ่งเป็น 2 ชื่อเรียกที่ใช้คนละความหมาย:
+
+| ชื่อ | คืออะไร | ในโค้ด |
+|---|---|---|
+| **Payment Orchestration** | ตัวกลางชำระเงินไปยัง PSP (2C2P / Omise) — session, routing, webhook, credential vault, monitor, audit | pol-core backend + Admin Console (`pol-admin`) |
+| **vCentralPay** | ระบบของตัวแทน/นายหน้าประกันภัย สร้างคำสั่งซื้อประกันแล้วส่งลิงก์ให้ลูกค้าจ่าย โดยใช้ Payment Orchestration กำหนดการชำระเงิน | Merchant Console (`pol-tenant`) + โมดูล Products → Carts → Orders |
+
+Actor 3 ฝ่าย + tier การยืนยันตัวตน 2 ระดับ:
+
+| Actor | หน้าที่ | Tier / login | มองเห็นข้อมูล |
+|---|---|---|---|
+| **ตัวแทน / นายหน้าประกันภัย** (`Merchants.Domain.Users.User`, มี `SaleCode` + `LicenseNumber`) | สร้างคำสั่งซื้อจาก vCentralPay ให้ลูกค้าจ่าย | **Tier 1** — Microsoft Entra External ID (CIAM), scheme `MerchantUserMicrosoft` / cookie `__Host-mch_session` | **เฉพาะลูกค้า/คำสั่งซื้อที่ตัวเองสร้าง** — query filter ของ `Order` กรอง `MerchantId` และ `InitiatingMerchantUserId == user` ทุก read path (list/detail/resend/cancel/reconciliation/payment session) |
+| **ลูกค้า** | จ่ายเงินตามคำสั่งซื้อที่สร้างไว้แล้วเท่านั้น | ไม่มี login — opaque summary token ในลิงก์ (TTL 72 ชม.) คือ capability, anonymous + rate-limit | เฉพาะ order ของ token นั้น ไม่เห็น merchant/session |
+| **พนักงานภายใน / แอดมิน** (`Admins.Domain.Users.User`) | ผู้ใช้และผู้ดูแล Payment Orchestration: provision merchant, PSP credential/routing, monitor, audit — และสร้างคำสั่งซื้อแทน originator ได้ (`InitiatingAudience = PlatformAdmin`) | **Tier 0** — Microsoft Entra ID workforce (tenant-pinned, JIT), scheme `AdminMicrosoft` / cookie `__Host-adm_session` | ทุก merchant ที่ accessible (`Super` = ทั้งหมด, `Scoped` = ที่ assign) |
+
+**Role ใช้ร่วมกันระหว่าง Tier 0 และ Tier 1** เพราะสองระดับเรียกฟีเจอร์ commerce ชุดเดียวกัน: catalog `iam.*` มี
+`Scope` 3 ค่า — `Platform` (control plane, Tier 0), `Merchant` (จัดการผู้ใช้/บทบาทในร้าน, Tier 1) และ **`Shared`**
+(group `payment` = `payment.view/create/redirect`) — endpoint commerce ทั้ง 15 จุด (cart → order → payment session,
+policy `dual-console`) gate ด้วย key `payment.*` เดียวไม่ว่าจะเข้ามาจาก session ระดับใด; role scope `Shared`
+(seed `merchant_staff`) assign ได้ทั้ง `admin.RoleAssignments` และ `merch.RoleAssignments`; role ฝั่ง Platform/Merchant
+ถือ key ของฝั่งตนรวม `Shared` ได้ แต่ข้ามฝั่งกันยังคง fail-closed. แกน role (action) กับ tier/visibility (เห็นอะไร)
+ยัง orthogonal: role บอกว่าทำอะไรได้ ส่วน tier + query filter บอกว่าเห็นแถวไหน
 
 ## Problem It Solves
 

@@ -22,6 +22,8 @@ Order owns customer/contact scalars, SaleCode, nullable `OriginatorId`, amount, 
 summary capability and item snapshots. Item fields:
 `ProductCode`, `VariantCode`, `VariantName`, quantity, unit price, zero discount and typed PII-free metadata.
 Generic summary/listไม่คืน metadataหรือ customer PII. Merchant detail reveal audited and fail-closed.
+Merchant-user reads are scoped twice by the runtime query filter: `MerchantId` and `InitiatingMerchantUserId == user`
+(an agent sees only the Orders it initiated; admin/ambient scopes keep the merchant-wide read).
 
 Status: `Pending`, `Paid`, `Failed`, `Expired`, `Refunded`, `Cancelled`.
 
