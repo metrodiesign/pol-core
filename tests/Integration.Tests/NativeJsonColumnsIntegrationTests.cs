@@ -167,10 +167,6 @@ public sealed class NativeJsonColumnsIntegrationTests
             typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
             typeof(Admins.Infrastructure.AdminModuleRegistration).Assembly,
             typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
-            typeof(Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-            typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
-            typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-            typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
             typeof(Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
             typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);

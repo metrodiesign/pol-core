@@ -27,7 +27,7 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         await database.ExecuteBatchesAsync(script);
 
         await using var verify = await database.OpenAsync();
-        Assert.Equal(23, Convert.ToInt32(await ScalarAsync(
+        Assert.Equal(24, Convert.ToInt32(await ScalarAsync(
             verify, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
         Assert.NotEqual(DBNull.Value, await ScalarAsync(
             verify, "SELECT OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U');"));
@@ -549,10 +549,6 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
             typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
             typeof(Admins.Infrastructure.AdminModuleRegistration).Assembly,
             typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
-            typeof(Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-            typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
-            typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-            typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
             typeof(Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
             typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);

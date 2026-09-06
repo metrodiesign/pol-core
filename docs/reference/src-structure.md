@@ -12,7 +12,6 @@ src/
   Hosts/Api/                         composition, BFF, routes, Order coordinator
   Modules/
     Admins/ Iam/ Governance/ Notifications/ Reporting/
-    Positions/ Offices/ Levels/ Divisions/
     Merchants/ Products/ Carts/ Orders/ Payments/
   Persistence/
     Persistence.ControlPlane/

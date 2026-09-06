@@ -22,10 +22,6 @@ public sealed class NativeJsonConfigurationTests
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
         typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
-        typeof(global::Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-        typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
-        typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-        typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
     ]);
 
     private const string Connection =

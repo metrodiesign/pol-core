@@ -28,7 +28,7 @@
 |---|---|---|
 | `admin` | platform users, sessions, access, role assignments, governance, audit, operation ledger, webhook/notification delivery | `ControlPlaneDbContext` |
 | `iam` | permission groups, permissions, roles, grants, API clients, one-time secret tickets | `ControlPlaneDbContext` |
-| `cfg` | positions, offices, levels, divisions | `ControlPlaneDbContext` |
+| `cfg` | payment capability catalog (methods, providers, options) | `ControlPlaneDbContext` |
 | `merch` | merchants, merchant users, invitations, originators, registration, vault, admin operation ledger, user outbox | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
 | `shop` | carts, cart items, orders, order items, reveal audit | `MerchantRuntimeDbContext` |
 | `txn` | payment sessions, PSP connections, routing, inbound webhooks, admin operation ledger, idempotency, outbox | `MerchantRuntimeDbContext` |
@@ -124,10 +124,6 @@
 | `AuthorizationVersion` | `bigint` | NN | invalidation version |
 | `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
 | `UpdatedAt` | `datetime2` | NULL | เวลาแก้ไขล่าสุด |
-| `PositionId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Positions.Id` |
-| `OfficeId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Offices.Id` |
-| `LevelId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Levels.Id` |
-| `DivisionId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Divisions.Id` |
 | `Version` | `bigint` | NN | application-managed optimistic concurrency |
 
 ### `admin.ApprovalRequests`
@@ -404,44 +400,9 @@ Check constraint: `CK_Roles_ScopeMerchant` บังคับ `Scope=1` ต้�
 
 ## `cfg` schema
 
-`cfg.Positions`, `cfg.Offices`, `cfg.Levels` และ `cfg.Divisions` มี field shape เดียวกัน และมี
-`Version` (`bigint`, NN) สำหรับ optimistic concurrency เพิ่มจากตารางด้านล่าง.
-
-### `cfg.Positions`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | reference row id |
-| `Code` | `nvarchar(64)` | NN | code; unique ต่อ table |
-| `Name` | `nvarchar(200)` | NN | display name |
-| `Status` | `int` | NN | `Active=1`, `Inactive=2` |
-
-### `cfg.Offices`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | reference row id |
-| `Code` | `nvarchar(64)` | NN | code; unique ต่อ table |
-| `Name` | `nvarchar(200)` | NN | display name |
-| `Status` | `int` | NN | `Active=1`, `Inactive=2` |
-
-### `cfg.Levels`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | reference row id |
-| `Code` | `nvarchar(64)` | NN | code; unique ต่อ table |
-| `Name` | `nvarchar(200)` | NN | display name |
-| `Status` | `int` | NN | `Active=1`, `Inactive=2` |
-
-### `cfg.Divisions`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | reference row id |
-| `Code` | `nvarchar(64)` | NN | code; unique ต่อ table |
-| `Name` | `nvarchar(200)` | NN | display name |
-| `Status` | `int` | NN | `Active=1`, `Inactive=2` |
+org reference tables (`cfg.Positions`/`cfg.Offices`/`cfg.Levels`/`cfg.Divisions`) ถูกลบเมื่อ 2026-09-05 —
+ข้อมูลองค์กรของพนักงานอ่านตรงจาก HR mirror (`dbo.VibEmp`, `dbo.branch`). schema `cfg` ยังใช้อยู่สำหรับ
+payment capability catalog.
 
 ## `merch` schema
 
@@ -980,10 +941,6 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `FK_CartItems_Carts_CartId_MerchantId` | `shop.CartItems (CartId, MerchantId)` | `shop.Carts (Id, MerchantId)` | `CASCADE` |
 | `FK_OrderItems_Orders_OrderId_MerchantId` | `shop.OrderItems (OrderId, MerchantId)` | `shop.Orders (Id, MerchantId)` | `CASCADE` |
 | `FK_Permissions_PermissionGroups_GroupKey` | `iam.Permissions.GroupKey` | `iam.PermissionGroups.Key` | `RESTRICT` |
-| `FK_Users_Divisions_DivisionId` | `admin.Users.DivisionId` | `cfg.Divisions.Id` | `RESTRICT` |
-| `FK_Users_Levels_LevelId` | `admin.Users.LevelId` | `cfg.Levels.Id` | `RESTRICT` |
-| `FK_Users_Offices_OfficeId` | `admin.Users.OfficeId` | `cfg.Offices.Id` | `RESTRICT` |
-| `FK_Users_Positions_PositionId` | `admin.Users.PositionId` | `cfg.Positions.Id` | `RESTRICT` |
 | `FK_RoleAssignments_Roles_RoleId` | `admin.RoleAssignments.RoleId` | `iam.Roles.Id` | `RESTRICT` |
 | `FK_RoleAssignments_Roles_RoleId` | `merch.RoleAssignments.RoleId` | `iam.Roles.Id` | `RESTRICT` |
 | `FK_RegistrationAttempts_Users_UserId` | `merch.RegistrationAttempts.UserId` | `merch.Users.Id` | `RESTRICT` |
@@ -1012,10 +969,6 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `admin.Sessions` | `IX_Sessions_TokenHash` | `TokenHash` unique |
 | `admin.Users` | `IX_Users_Email` | `Email` unique |
 | `admin.Users` | `IX_Users_Subject` | `Subject` unique, filter `Subject IS NOT NULL` |
-| `cfg.Divisions` | `IX_Divisions_Code` | `Code` unique |
-| `cfg.Levels` | `IX_Levels_Code` | `Code` unique |
-| `cfg.Offices` | `IX_Offices_Code` | `Code` unique |
-| `cfg.Positions` | `IX_Positions_Code` | `Code` unique |
 | `iam.RolePermissions` | `IX_RolePermissions_RoleId_PermissionKey` | `(RoleId, PermissionKey)` unique |
 | `iam.Roles` | `IX_Roles_MerchantId_Code` | `(MerchantId, Code)` unique |
 | `merch.ExternalLogins` | `IX_ExternalLogins_Provider_Subject` | `(Provider, Subject)` unique |

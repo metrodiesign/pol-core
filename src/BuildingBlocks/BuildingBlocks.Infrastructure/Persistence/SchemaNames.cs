@@ -33,10 +33,10 @@ public static class SchemaNames
     /// <summary>Framework-owned; the ONE named exception to the schema guard (REQ-1.4): DataProtectionKeys.</summary>
     public const string Dbo = "dbo";
 
-    /// <summary>Config/reference data: Positions, Offices, Levels, Divisions — owned by the four standalone
-    /// reference modules Divisions/Levels/Offices/Positions (masterdata-split, 2026-07-19; they replace the
-    /// retired single master-data module that first occupied this schema). rf3 will add
-    /// Provider/RoutingRule/GatewayConfig/FeeStructure to this same schema.
+    /// <summary>Config/reference data: the payment capability catalog (PaymentMethods, PaymentProviders and
+    /// their option/mapping tables). The org reference lists (Positions/Offices/Levels/Divisions) that once
+    /// lived here were retired — that data is read straight from the HR mirror (<c>dbo.VibEmp</c>,
+    /// <c>dbo.branch</c>) instead of being duplicated here.
     /// Control-plane, no RLS predicate (same rule as <see cref="Iam"/>).</summary>
     public const string Cfg = "cfg";
 }

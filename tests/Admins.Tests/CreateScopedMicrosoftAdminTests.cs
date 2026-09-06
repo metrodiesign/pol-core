@@ -186,7 +186,7 @@ public sealed class CreateScopedMicrosoftAdminTests
 
         var page = await new ListAdminsHandler(admins).Handle(new ListAdminsQuery(), default);
         var detail = await new GetAdminByIdHandler(
-            admins, new FakeAdminRoleRepository(), new FakeProfileLookup())
+            admins, new FakeAdminRoleRepository())
             .Handle(new GetAdminByIdQuery(account.Id), default);
 
         Assert.Null(Assert.Single(page.Items).Email);
@@ -230,7 +230,7 @@ public sealed class CreateScopedMicrosoftAdminTests
         FakePlatformUserAuditWriter audit,
         FakeWorkforceTenantBindingStore tenant,
         FakeUnitOfWork unitOfWork) =>
-        new(admins, audit, new FakeProfileLookup(), tenant, unitOfWork, new FixedClock { UtcNow = Now });
+        new(admins, audit, tenant, unitOfWork, new FixedClock { UtcNow = Now });
 
     private static CreateScopedCommand Command(
         Guid? objectId = null,

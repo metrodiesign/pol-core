@@ -1,16 +1,12 @@
 using BuildingBlocks.Application;
 using Admins.Domain.Users;
-using Divisions.Domain;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
-using Levels.Domain;
 using Merchants.Domain;
 using Merchants.Domain.Users;
-using Offices.Domain;
 using Orders.Domain;
 using Payments.Domain;
 using Payments.Domain.Psp;
-using Positions.Domain;
 
 namespace Architecture.Tests;
 
@@ -36,15 +32,6 @@ public sealed class OneBasedEnumContractTests
         Assert.Equal(2, (int)PermissionStatus.Inactive);
         Assert.Equal(1, (int)RoleStatus.Active);
         Assert.Equal(2, (int)RoleStatus.Inactive);
-
-        Assert.Equal(1, (int)PositionStatus.Active);
-        Assert.Equal(2, (int)PositionStatus.Inactive);
-        Assert.Equal(1, (int)OfficeStatus.Active);
-        Assert.Equal(2, (int)OfficeStatus.Inactive);
-        Assert.Equal(1, (int)LevelStatus.Active);
-        Assert.Equal(2, (int)LevelStatus.Inactive);
-        Assert.Equal(1, (int)DivisionStatus.Active);
-        Assert.Equal(2, (int)DivisionStatus.Inactive);
     }
 
     [Fact]

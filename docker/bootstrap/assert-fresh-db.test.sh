@@ -45,7 +45,7 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 23 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 24 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
 grep -qE 'iam\.Permissions expected 26 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"

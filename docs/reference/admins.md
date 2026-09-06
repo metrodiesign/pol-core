@@ -84,12 +84,6 @@ module.exports = {
       { source: '/api/v1/api-clients/:path*', destination: 'https://localhost:5001/api/v1/api-clients/:path*' },
       { source: '/api/v1/webhooks/:path*', destination: 'https://localhost:5001/api/v1/webhooks/:path*' },
       { source: '/api/v1/notifications/:path*', destination: 'https://localhost:5001/api/v1/notifications/:path*' },
-      // master-data reference lists (profile FK ของ admin) เป็น top-level area แยกของตัวเอง ไม่อยู่ใต้ /admins —
-      // ไม่ proxy ด้วยจะโดน 404 จาก frontend server แทนที่จะถึง API (ดู Dev / CORS)
-      { source: '/api/v1/positions/:path*', destination: 'https://localhost:5001/api/v1/positions/:path*' },
-      { source: '/api/v1/offices/:path*', destination: 'https://localhost:5001/api/v1/offices/:path*' },
-      { source: '/api/v1/levels/:path*', destination: 'https://localhost:5001/api/v1/levels/:path*' },
-      { source: '/api/v1/divisions/:path*', destination: 'https://localhost:5001/api/v1/divisions/:path*' },
     ]
   },
 }
@@ -360,10 +354,10 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
   merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `https://localhost:3001`), merchant-user =
   `Cors__MerchantOrigins` (dev `https://localhost:3002`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
-  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ `/api/v1/positions`, `/offices`,
-  `/levels`, `/divisions` ด้วย (4 master-data reference list ที่ profile FK อ้างถึง — ย้ายออกจาก `/admins`
-  group เป็น top-level area ของตัวเองตั้งแต่ 2026-07-20, gate `user.manage` ทั้งหมด; บทบาทของแต่ละตาราง ดู
-  [`entity-fields.md`](entity-fields.md)) ไม่ใช่แค่ `/admins`/`/merchants`. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
+  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ admin-plane area อื่นด้วย
+  (`/approvals`, `/audits`, `/originators`, `/products/documents`, `/orders/export`, `/api-clients`,
+  `/notifications`, `/reports`) ไม่ใช่แค่
+  `/admins`/`/merchants`. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
 - XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
   ได้เหมือนกัน

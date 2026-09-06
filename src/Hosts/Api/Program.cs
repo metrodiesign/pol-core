@@ -19,14 +19,6 @@ using Admins.Infrastructure;
 using Carts.Application;
 using Carts.Infrastructure;
 using Mediator;
-using Divisions.Application;
-using Divisions.Domain;
-using Levels.Application;
-using Levels.Domain;
-using Offices.Application;
-using Offices.Domain;
-using Positions.Application;
-using Positions.Domain;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -2675,8 +2667,7 @@ api.MapPost("/admins", async (
     CreateAdminRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new CreateScopedCommand(
-        body.ObjectId, body.Email, body.IdentityApprovalReference, scope.Current.AdminId, http.TraceIdentifier,
-        body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
+        body.ObjectId, body.Email, body.IdentityApprovalReference, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
 }).RequireCsrf().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("ผู้ดูแลระบบ")
@@ -2708,7 +2699,6 @@ static string SessionStatusToWire(SessionStatus s) => s switch
 };
 static AdminListItemResponse AdminToWire(UserListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound, a.Version);
-static MasterRefResponse? MasterRefToWire(ProfileRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
 static PlatformUserSessionResponse SessionToWire(SessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
         v.IpAddress, v.UserAgent, v.IsLive);
@@ -2768,9 +2758,7 @@ admin.MapGet("/{id:guid}", async (
 
     var response = new AdminDetailResponse(
         detail.AdminId, detail.Email, TierToWire(detail.Tier), AccountStatusToWire(detail.Status),
-        detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes,
-        MasterRefToWire(detail.Position), MasterRefToWire(detail.Office),
-        MasterRefToWire(detail.Level), MasterRefToWire(detail.Division), detail.Version);
+        detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes, detail.Version);
     VersionEtags.Set(http, detail.Version);
     return Results.Ok(response);
 }).RequireAuthorization("admin").RequirePermission(Keys.UserView)
@@ -2909,176 +2897,6 @@ admin.MapPost("/{id:guid}/tier", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Edit an admin's org-profile FKs (Position/Office/Level/Division). Full replace (a null field clears it);
-// each non-null FK must reference an existing, active master -> 400 otherwise. Unknown admin -> 404. Gated
-// user.manage — the write counterpart to the user.view read gate.
-admin.MapPut("/{id:guid}/profile", async (
-    Guid id, UpdateAdminProfileRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new UpdateProfileCommand(
-        id, body.PositionId, body.OfficeId, body.LevelId, body.DivisionId,
-        scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-    .WithMetadata(new IfMatchMutationMarker("204"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("UpdateAdminProfile")
-    .WithSummary("แก้ไขข้อมูลองค์กรของผู้ดูแลระบบ")
-    .WithDescription("ต้องมีสิทธิ์ user.manage ตั้งค่า Position/Office/Level/Division ด้วย master id (null คือล้างค่า) หากไม่พบผู้ดูแลระบบ -> 404; master ไม่รู้จักหรือไม่ active -> 400")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// --- Reference master data (Position/Office/Level/Division) ---
-// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Each is its own top-level API
-// area (/api/v1/{positions|offices|levels|divisions}, 2026-07-20) — moved OUT of the /admins group entirely,
-// mirroring D9's ProvisionMerchant/GetMerchant move above: every verb re-attaches CsrfFilter explicitly instead
-// of inheriting it from the /admins group, and the credentialed admin CORS policy is re-attached via
-// CorsExtensions.cs's IsAdminPlane (not here). All 5 verbs gated user.manage. DELETE is a soft-deactivate
-// (IsActive=false) — masters are never hard-deleted (the AdminAccount FK is Restrict). One generic registration
-// per list (delegate-parameterized since masterdata-split — the four modules share no base type; the host
-// merely notices the shapes rhyme).
-MapMasterCrud<IPositionStore, PositionItem>(api, "positions", "ตำแหน่ง",
-    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
-    (s, id, ct) => s.GetByIdAsync(id, ct),
-    (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (PositionStatus)a, v, ct),
-    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
-MapMasterCrud<IOfficeStore, OfficeItem>(api, "offices", "สำนักงาน",
-    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
-    (s, id, ct) => s.GetByIdAsync(id, ct),
-    (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (OfficeStatus)a, v, ct),
-    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
-MapMasterCrud<ILevelStore, LevelItem>(api, "levels", "ระดับ",
-    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
-    (s, id, ct) => s.GetByIdAsync(id, ct),
-    (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (LevelStatus)a, v, ct),
-    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
-MapMasterCrud<IDivisionStore, DivisionItem>(api, "divisions", "แผนก",
-    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
-    (s, id, ct) => s.GetByIdAsync(id, ct),
-    (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (DivisionStatus)a, v, ct),
-    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
-
-static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segment, string thaiLabel,
-    Func<TStore, int, int, string?, CancellationToken, Task<PagedResult<TItem>>> list,
-    Func<TStore, Guid, CancellationToken, Task<TItem>> getById,
-    Func<TStore, string, string, CancellationToken, Task<TItem>> create,
-    Func<TStore, Guid, string, int, long, CancellationToken, Task<TItem>> update,
-    Func<TStore, Guid, long, CancellationToken, Task<TItem>> deactivate,
-    Func<TItem, MasterResponse> toWire) where TStore : class
-{
-    // Each of the 4 standalone modules (masterdata-split) gets its own Scalar group — its own Thai noun, no
-    // "ผู้ดูแลระบบ" suffix (these are reference lists, not admin-account operations) — instead of one shared
-    // "Admin Master Data" bucket, so the split is visible in the API surface too.
-    var tag = thaiLabel;
-
-    // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
-    // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
-    parent.MapGet($"/{segment}", async (HttpContext http, TStore store, CancellationToken ct) =>
-    {
-        var p = SfsQueryParser.Parse(http.Request.Query);
-        var result = await list(store, p.Page, p.Limit, p.Search?.Query, ct);
-        return Results.Ok(new PagedResult<MasterResponse>(
-            [.. result.Items.Select(toWire)],
-            result.Page, result.Limit, result.Total));
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserView)
-        .WithMetadata(new SfsQueryParamsMarker())
-        .WithTags(tag)
-        .WithName($"List{segment}")
-        .WithSummary($"รายการ{thaiLabel}ทั้งหมด")
-        .WithDescription($"คืนรายการ{thaiLabel}แบบแบ่งหน้า รองรับ page, limit และ search; ต้องมีสิทธิ์ user.view")
-        .Produces<PagedResult<MasterResponse>>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden);
-
-    parent.MapGet($"/{segment}/{{id:guid}}", async (Guid id, HttpContext http, TStore store, CancellationToken ct) =>
-    {
-        var item = await getById(store, id, ct);
-        var wire = toWire(item);
-        VersionEtags.Set(http, wire.Version);
-        return Results.Ok(wire);
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserView)
-        .WithMetadata(new EtagResponseMarker("200"))
-        .WithTags(tag)
-        .WithName($"Get{segment}")
-        .WithSummary($"อ่านข้อมูล{thaiLabel}ตาม id")
-        .WithDescription("ต้องมีสิทธิ์ user.view หากไม่พบ id -> 404")
-        .Produces<MasterResponse>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden);
-
-    parent.MapPost($"/{segment}", async (MasterWriteRequest body, HttpContext http, TStore store, CancellationToken ct) =>
-    {
-        var item = await create(store, body.Code ?? "", body.Name ?? "", ct);
-        var wire = toWire(item);
-        VersionEtags.Set(http, wire.Version);
-        return Results.Created($"/api/v1/{segment}/{wire.Id}", wire);
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-        .WithMetadata(new EtagResponseMarker("201"))
-        .WithTags(tag)
-        .WithName($"Create{segment}")
-        .WithSummary($"สร้าง{thaiLabel}ใหม่")
-        .WithDescription("ต้องมีสิทธิ์ user.manage รหัสซ้ำ -> 409; รหัสต้องตรงกับ ^[a-z0-9_]+$ -> 400")
-        .Produces<MasterResponse>(StatusCodes.Status201Created)
-        .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status409Conflict)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden);
-
-    parent.MapPut($"/{segment}/{{id:guid}}", async (
-        Guid id, MasterUpdateRequest body, HttpContext http, TStore store, CancellationToken ct) =>
-    {
-        if (body.Status is not 1 and not 2)
-            throw new ArgumentException("Status must be Active=1 or Inactive=2.", nameof(body.Status));
-        var item = await update(store, id, body.Name ?? "", body.Status, VersionEtags.Require(http), ct);
-        var wire = toWire(item);
-        VersionEtags.Set(http, wire.Version);
-        return Results.Ok(wire);
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-        .WithMetadata(new IfMatchMutationMarker("200"))
-        .WithTags(tag)
-        .WithName($"Update{segment}")
-        .WithSummary($"เปลี่ยนชื่อหรือเปิด/ปิดการใช้งาน{thaiLabel}")
-        .WithDescription("ต้องมีสิทธิ์ user.manage รหัส (code) แก้ไขไม่ได้ หากไม่พบ id -> 404")
-        .Produces<MasterResponse>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status409Conflict)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden);
-
-    parent.MapDelete($"/{segment}/{{id:guid}}", async (Guid id, HttpContext http, TStore store, CancellationToken ct) =>
-    {
-        var item = await deactivate(store, id, VersionEtags.Require(http), ct);
-        VersionEtags.Set(http, toWire(item).Version);
-        return Results.NoContent();
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-        .WithMetadata(new IfMatchMutationMarker("204"))
-        .WithTags(tag)
-        .WithName($"Deactivate{segment}")
-        .WithSummary($"ปิดการใช้งาน{thaiLabel}")
-        .WithDescription("ต้องมีสิทธิ์ user.manage เป็นการปิดการใช้งานแบบ soft เท่านั้น (ตั้ง isActive=false) ข้อมูลที่ถูกอ้างอิงอยู่ (FK Restrict) ยังใช้ได้ ไม่ใช่การลบถาวร หากไม่พบ id -> 404")
-        .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status409Conflict)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden);
-}
 
 // List an admin's sessions (REQ-4). Super-gated. Unknown admin -> 404; a real admin with none -> 200 + []. Token
 // hashes never leave the store. isLive is evaluated at read time.
@@ -3808,17 +3626,9 @@ internal static class ProvisioningGuards
 // Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
 // the host sets them from the resolved IAdminScope + the authenticated request.
 internal sealed record CreateAdminRequest(
-    Guid ObjectId, string IdentityApprovalReference, string? Email = null,
-    Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
+    Guid ObjectId, string IdentityApprovalReference, string? Email = null);
 internal sealed record AssignMerchantRequest(Guid MerchantId);
 internal sealed record ChangeAdminTierRequest(string Tier);
-// Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
-// immutable thereafter; update only renames / toggles active.
-internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);
-internal sealed record MasterWriteRequest(string? Code, string? Name);
-internal sealed record MasterUpdateRequest(string? Name, int Status);
-internal sealed record MasterResponse(Guid Id, string Code, string Name, int Status, long Version);
-internal sealed record MasterRefResponse(Guid Id, string Code, string Name);
 
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
 
@@ -3908,9 +3718,7 @@ internal sealed record AdminListItemResponse(
 // GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
 internal sealed record AdminDetailResponse(
     Guid AdminId, string? Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
-    AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes,
-    MasterRefResponse? Position, MasterRefResponse? Office, MasterRefResponse? Level, MasterRefResponse? Division,
-    long Version);
+    AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes, long Version);
 // admin-account-management REQ-4.2: one session row; status is a lowercase wire string; NO token material.
 internal sealed record PlatformUserSessionResponse(
     Guid SessionId, Guid FamilyId, string Status, DateTime IssuedAt, DateTime IdleExpiresAt,

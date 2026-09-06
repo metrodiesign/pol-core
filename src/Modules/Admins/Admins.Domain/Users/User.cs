@@ -54,18 +54,6 @@ public sealed class User : AggregateRoot<Guid>
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
-    /// <summary>ตำแหน่ง — FK to <see cref="Position"/>. NULL until set via invite or the profile edit.</summary>
-    public Guid? PositionId { get; private set; }
-
-    /// <summary>สถานที่ปฏิบัติงาน — FK to <see cref="Office"/>.</summary>
-    public Guid? OfficeId { get; private set; }
-
-    /// <summary>ระดับ — FK to <see cref="Level"/>.</summary>
-    public Guid? LevelId { get; private set; }
-
-    /// <summary>ฝ่าย/ภาค — FK to <see cref="Division"/>.</summary>
-    public Guid? DivisionId { get; private set; }
-
     /// <summary>Normalised Graph <c>employeeId</c> (tier0-graph-employee-profile REQ-2). A mutable HR profile
     /// attribute, NOT an identity key; <see cref="ApplyEmployeeProfile"/> is its only writer
     /// (static gate in Tier0WorkforceArchitectureTests).</summary>
@@ -80,8 +68,8 @@ public sealed class User : AggregateRoot<Guid>
     private User() { }
 
     private User(
-        Guid id, string provider, Guid? tenantId, string? subject, string? email, Tier tier, DateTime createdAt,
-        Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId) : base(id)
+        Guid id, string provider, Guid? tenantId, string? subject, string? email, Tier tier, DateTime createdAt)
+        : base(id)
     {
         Provider = provider;
         TenantId = tenantId;
@@ -90,10 +78,6 @@ public sealed class User : AggregateRoot<Guid>
         Tier = tier;
         Status = UserStatus.Active;
         CreatedAt = createdAt;
-        PositionId = positionId;
-        OfficeId = officeId;
-        LevelId = levelId;
-        DivisionId = divisionId;
         Version = 1;
     }
 
@@ -109,50 +93,29 @@ public sealed class User : AggregateRoot<Guid>
         if (!AdminContactEmail.TryNormalize(email, out var normalizedEmail) || normalizedEmail is null)
             throw new ArgumentException("A valid contact email is required.", nameof(email));
         return new User(Guid.NewGuid(), provider.Trim(), tenantId: null, subject.Trim(), normalizedEmail,
-            Tier.Super, createdAt, positionId: null, officeId: null, levelId: null, divisionId: null);
+            Tier.Super, createdAt);
     }
 
     /// <summary>A Scoped admin invited by a Super (REQ-3.4): keyed by verified email, with an unbound
-    /// <see cref="Subject"/> until the invitee's first login. Profile FKs are optional at invite time (an
-    /// invited account may have no known position yet); the caller validates each FK exists and is active.</summary>
-    public static User CreateScoped(
-        string email, DateTime createdAt,
-        Guid? positionId = null, Guid? officeId = null, Guid? levelId = null, Guid? divisionId = null)
+    /// <see cref="Subject"/> until the invitee's first login.</summary>
+    public static User CreateScoped(string email, DateTime createdAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         if (!AdminContactEmail.TryNormalize(email, out var normalizedEmail) || normalizedEmail is null)
             throw new ArgumentException("A valid contact email is required.", nameof(email));
         return new User(Guid.NewGuid(), provider: GoogleProvider, tenantId: null, subject: null, normalizedEmail,
-            Tier.Scoped, createdAt, positionId, officeId, levelId, divisionId);
+            Tier.Scoped, createdAt);
     }
 
     /// <summary>Creates a pre-bound least-privilege Microsoft account from an approved immutable tuple.</summary>
-    public static User CreateScopedMicrosoft(
-        Guid tenantId,
-        Guid objectId,
-        string? email,
-        DateTime createdAt,
-        Guid? positionId = null,
-        Guid? officeId = null,
-        Guid? levelId = null,
-        Guid? divisionId = null) =>
-        NewMicrosoft(tenantId, objectId, email, createdAt, positionId, officeId, levelId, divisionId);
+    public static User CreateScopedMicrosoft(Guid tenantId, Guid objectId, string? email, DateTime createdAt) =>
+        NewMicrosoft(tenantId, objectId, email, createdAt);
 
     /// <summary>Creates a roleless, merchant-access-free JIT account from the validated immutable tuple.</summary>
     public static User JitProvisionMicrosoft(Guid tenantId, Guid objectId, string? email, DateTime createdAt) =>
-        NewMicrosoft(
-            tenantId, objectId, email, createdAt,
-            positionId: null, officeId: null, levelId: null, divisionId: null);
+        NewMicrosoft(tenantId, objectId, email, createdAt);
 
-    private static User NewMicrosoft(
-        Guid tenantId,
-        Guid objectId,
-        string? email,
-        DateTime createdAt,
-        Guid? positionId,
-        Guid? officeId,
-        Guid? levelId,
-        Guid? divisionId)
+    private static User NewMicrosoft(Guid tenantId, Guid objectId, string? email, DateTime createdAt)
     {
         if (tenantId == Guid.Empty)
             throw new ArgumentException("Workforce tenant ID cannot be empty.", nameof(tenantId));
@@ -160,8 +123,7 @@ public sealed class User : AggregateRoot<Guid>
             throw new ArgumentException("Microsoft object ID cannot be empty.", nameof(objectId));
 
         return new User(
-            Guid.NewGuid(), MicrosoftProvider, tenantId, objectId.ToString("D"), email, Tier.Scoped, createdAt,
-            positionId, officeId, levelId, divisionId);
+            Guid.NewGuid(), MicrosoftProvider, tenantId, objectId.ToString("D"), email, Tier.Scoped, createdAt);
     }
 
     /// <summary>Binds the provider identity to an invited account on its first login (REQ-3.5). Idempotent
@@ -229,19 +191,6 @@ public sealed class User : AggregateRoot<Guid>
     public void BumpAuthorizationVersion() => AuthorizationVersion++;
 
     public void BumpResourceVersion() => Version++;
-
-    /// <summary>Full replace of the org-profile FKs (a NULL clears that dimension). The caller validates that
-    /// each non-null FK references an existing, active master before calling — the aggregate only stores ids.</summary>
-    public void UpdateProfile(Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId)
-    {
-        if (PositionId == positionId && OfficeId == officeId && LevelId == levelId && DivisionId == divisionId)
-            return;
-        PositionId = positionId;
-        OfficeId = officeId;
-        LevelId = levelId;
-        DivisionId = divisionId;
-        BumpResourceVersion();
-    }
 
     /// <summary>Replaces the resolved three-field employee profile on login.
     /// Org-profile fields and <see cref="AuthorizationVersion"/> are never touched.</summary>

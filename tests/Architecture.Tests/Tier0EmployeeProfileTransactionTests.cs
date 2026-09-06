@@ -26,10 +26,6 @@ public sealed class Tier0EmployeeProfileTransactionTests
     private static readonly Guid ObjectId = Guid.Parse("22222222-2222-4222-8222-222222222222");
     private static readonly DateTime FirstLogin = new(2026, 8, 30, 8, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SecondLogin = new(2026, 8, 31, 8, 0, 0, DateTimeKind.Utc);
-    private static readonly Guid PositionId = Guid.Parse("a1000000-0000-4000-8000-000000000001");
-    private static readonly Guid OfficeId = Guid.Parse("b2000000-0000-4000-8000-000000000001");
-    private static readonly Guid LevelId = Guid.Parse("c3000000-0000-4000-8000-000000000001");
-    private static readonly Guid DivisionId = Guid.Parse("d4000000-0000-4000-8000-000000000002");
 
     [Fact]
     public async Task Email_less_jit_and_profile_commit_together_then_refresh_without_authorization_change()
@@ -107,17 +103,13 @@ public sealed class Tier0EmployeeProfileTransactionTests
         var merchantId = Guid.Parse("eeeeeeee-0000-4000-8000-000000000001");
         await database.ExecuteAsync(
             """
-            UPDATE admin.Users
-            SET PositionId = @positionId, OfficeId = @officeId, LevelId = @levelId, DivisionId = @divisionId
-            WHERE Id = @adminId;
             DECLARE @roleId uniqueidentifier = (SELECT TOP (1) Id FROM iam.Roles ORDER BY Id);
             INSERT admin.RoleAssignments (Id, AdminUserId, RoleId, AssignedById, AssignedAt)
             VALUES (NEWID(), @adminId, @roleId, @adminId, @assignedAt);
             INSERT admin.MerchantAccess (Id, AdminUserId, MerchantId, AssignedByAdminId, AssignedAt)
             VALUES (NEWID(), @adminId, @merchantId, @adminId, @assignedAt);
             """,
-            ("@positionId", PositionId), ("@officeId", OfficeId), ("@levelId", LevelId),
-            ("@divisionId", DivisionId), ("@adminId", adminId), ("@merchantId", merchantId),
+            ("@adminId", adminId), ("@merchantId", merchantId),
             ("@assignedAt", FirstLogin));
 
         string? preservedBefore;
@@ -378,10 +370,6 @@ public sealed class Tier0EmployeeProfileTransactionTests
             """
             SELECT CONCAT(
                 u.Id, '|', u.Tier, '|', u.AuthorizationVersion, '|',
-                LOWER(CONVERT(nvarchar(36), u.PositionId)), '|',
-                LOWER(CONVERT(nvarchar(36), u.OfficeId)), '|',
-                LOWER(CONVERT(nvarchar(36), u.LevelId)), '|',
-                LOWER(CONVERT(nvarchar(36), u.DivisionId)), '|',
                 (SELECT COUNT(*) FROM admin.RoleAssignments r WHERE r.AdminUserId = u.Id), '|',
                 (SELECT COUNT(*) FROM admin.MerchantAccess m WHERE m.AdminUserId = u.Id))
             FROM admin.Users u WHERE u.Id = @id;
@@ -668,10 +656,6 @@ public sealed class Tier0EmployeeProfileTransactionTests
             typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
             typeof(Admins.Infrastructure.AdminModuleRegistration).Assembly,
             typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
-            typeof(Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-            typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
-            typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-            typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
             typeof(Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
             typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);

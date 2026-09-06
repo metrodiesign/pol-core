@@ -157,20 +157,6 @@ public sealed class PlatformUserTests
     }
 
     [Fact]
-    public void Resource_version_is_monotonic_and_profile_edits_do_not_change_authorization_version()
-    {
-        var admin = User.CreateScoped("scoped@org.com", Now);
-        Assert.Equal(1, admin.Version);
-
-        admin.UpdateProfile(Guid.NewGuid(), null, null, null);
-
-        Assert.Equal(2, admin.Version);
-        Assert.Equal(0, admin.AuthorizationVersion);
-        Assert.Throws<InvalidOperationException>(() => admin.Suspend(admin.Id));
-        Assert.Equal(2, admin.Version);
-    }
-
-    [Fact]
     public void ChangeTier_rejects_changing_ones_own_tier()
     {
         var admin = User.SelfProvision("google", "g-sub-1", "ops@org.com", Now);

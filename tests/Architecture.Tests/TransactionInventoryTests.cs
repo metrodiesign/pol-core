@@ -24,8 +24,8 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class TransactionInventoryTests
 {
-    // design.md rows 1-13 + 16-23 (one call site each), rows 17-18 (two call sites in one file), and
-    // rows 14-15+24 (three call sites in one file, the four reference master-data stores).
+    // design.md rows 1-13 + 16-23 (one call site each) and rows 17-18 (two call sites in one file). Rows
+    // 14-15+24 (the four reference master-data stores) are gone with those modules.
     private static readonly Dictionary<string, int> ExpectedExecuteInTransactionAsyncSites = new()
     {
         ["src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs"] = 1, // row 21
@@ -50,7 +50,6 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Admins/Admins.Application/Users/ReactivateAdmin.cs"] = 1,                        // row 4
         ["src/Modules/Admins/Admins.Application/Users/RevokeAdminSession.cs"] = 1,                     // row 5
         ["src/Modules/Admins/Admins.Application/Users/SelfProvisionSuperAdmin.cs"] = 1,                // row 6
-        ["src/Modules/Admins/Admins.Application/Users/UpdateAdminProfile.cs"] = 1,                     // row 10
         ["src/Modules/Admins/Admins.Application/Users/CreateScopedAdmin.cs"] = 1,                      // row 3
         ["src/Modules/Admins/Admins.Application/Users/BindInvitedAdmin.cs"] = 1,                       // row 2
         ["src/Modules/Admins/Admins.Application/Users/SuspendAdmin.cs"] = 1,                           // row 8
@@ -66,10 +65,6 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Iam/Iam.Application/Roles/DeleteRole.cs"] = 1,                                   // row 12
         ["src/Modules/Iam/Iam.Application/Roles/CreateRole.cs"] = 1,                                   // row 11
         ["src/Hosts/Api/Orders/OrderCreationCoordinator.cs"] = 1,                                    // direct Cart-to-Order shared MerchantRuntime transaction
-        ["src/Persistence/Persistence.ControlPlane/Divisions/DivisionStore.cs"] = 3,                   // rows 14+15+24 (masterdata-split typed split + masterdata-full-crud DeactivateAsync)
-        ["src/Persistence/Persistence.ControlPlane/Levels/LevelStore.cs"] = 3,                         // rows 14+15+24
-        ["src/Persistence/Persistence.ControlPlane/Offices/OfficeStore.cs"] = 3,                       // rows 14+15+24
-        ["src/Persistence/Persistence.ControlPlane/Positions/PositionStore.cs"] = 3,                   // rows 14+15+24
         ["src/Persistence/Persistence.ControlPlane/Governance/GovernanceStore.cs"] = 3,              // rows 29-31
         ["src/Persistence/Persistence.MerchantRuntime/Merchants/AdminMerchantControlStore.cs"] = 2, // rows 32-33
         ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 8,  // rows 34-37 + capability mutations

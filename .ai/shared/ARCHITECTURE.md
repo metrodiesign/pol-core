@@ -63,13 +63,13 @@ retrospectives/       # บันทึก retro รายเดือน
 > โค้ดปัจจุบันยังไม่ตาม target หลายจุด: ช่องว่างดู platform-modules.md "ช่องว่างเทียบเป้าหมาย" ข้อ 16-22
 >
 > **API path scheme (as-built, spec `api-route-scheme` 2026-07-05, amended 2026-07-20):** `/api/v1/{area}` —
-> version-first global (`v1` เดียวทั้ง API), segment ที่สอง = domain area (12 area plural: `products`/`carts`/
-> `orders`/`payments`/`webhooks`/`reports`/`admins`/`merchants`/`positions`/`offices`/`levels`/
-> `divisions`), audience บังคับ per-endpoint ผ่าน `RequireAuthorization` (ไม่อยู่ใน path). infra
+> version-first global (`v1` เดียวทั้ง API), segment ที่สอง = domain area (8 area plural: `products`/`carts`/
+> `orders`/`payments`/`webhooks`/`reports`/`admins`/`merchants`), audience บังคับ per-endpoint ผ่าน
+> `RequireAuthorization` (ไม่อยู่ใน path). infra
 > (`/health/live`,`/health/ready`,`/openapi/*`,`/scalar`) อยู่นอก `/api/v1`. big-bang — route flat เดิมถูกลบ
 > (ไม่ alias); supersede มาตรฐานเดิมแบบ surface-first (audience นำหน้า version). `merchant-users` (rf1) ถูก
-> hierarchical-naming rename เป็น `merchants` แล้ว; `positions`/`offices`/`levels`/`divisions` แยกออกจาก
-> `admins` sub-resource มาเป็น area ของตัวเอง (masterdata-split follow-up).
+> hierarchical-naming rename เป็น `merchants` แล้ว; area `positions`/`offices`/`levels`/`divisions` ถูก**ลบทิ้ง**
+> พร้อมโมดูล reference data (drop-org-reference-master-data, 2026-09-05).
 
 **รูปทรง:** Modular Monolith ตามแนว **Clean Architecture + CQRS** — 1 deployable backend, แยกเป็นโมดูล,
 dependency ชี้เข้า domain, command/query แยกผ่าน Mediator (`ICommand`/`IQuery`).
@@ -189,6 +189,12 @@ Orders → Paid. จบ ไม่มี issuance.
   (DDL identity พิสูจน์ด้วย temp migration ว่าง). Identifier เก่า (`MasterData*`, `IMasterDataStore`, `IMasterDataLookup`,
   `MasterItem`, `MasterRef`) เป็น retired token ใน rename gate แล้ว. Boundary บังคับด้วย
   `Architecture.Tests/RefModulesArchitectureTests.cs` (Theory ครอบ 4 โมดูล, fail-closed). รายละเอียด: `.ai/specs/masterdata-split/`
+- Org reference data ถูกเลิกใช้ — **2026-09-05 (supersede 2 bullet ก่อนหน้า)**: ตาราง `cfg.Positions`/`cfg.Offices`/
+  `cfg.Levels`/`cfg.Divisions`, โมดูล `Divisions`/`Levels`/`Offices`/`Positions` ทั้ง 12 project, area
+  `/api/v1/{positions|offices|levels|divisions}`, port `IProfileLookup` และคอลัมน์ FK
+  `admin.Users.PositionId/OfficeId/LevelId/DivisionId` ถูกลบทั้งหมด (migration `DropOrgReferenceMasterData`) —
+  ข้อมูลองค์กรของพนักงานอ่านตรงจาก HR mirror (`dbo.VibEmp`, `dbo.branch`) แทน ไม่เก็บซ้ำใน `cfg` อีก. schema `cfg`
+  ยังอยู่ (payment capability catalog ใช้ต่อ). Down ของ migration คืนได้แค่โครงตาราง ไม่คืนข้อมูล
 - Maker-checker (approve merchant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
 - Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ app floor** (supersede rf1 REQ-3.7's DB-policy BLOCK — RLS ถอดแล้ว; control
 ใหม่ = `ProvisioningCoordinator`, task 7: `WITH (UPDLOCK, HOLDLOCK)` recheck ว่า caller เป็น active Super ที่
@@ -259,20 +265,16 @@ parses เพื่อเทียบกับ filesystem/workflow จริง 
 |---|---|
 | `Admins` | admin identity, sessions, RBAC tier |
 | `Carts` | cart aggregate + checkout command |
-| `Divisions` | reference data (standalone) |
 | `Governance` | maker-checker approvals |
 | `Iam` | merchant-user identity plane |
-| `Levels` | reference data (standalone) |
 | `Merchants` | provisioning saga + vault |
 | `Notifications` | cross-module `INotification` host |
-| `Offices` | reference data (standalone) |
 | `Orders` | order lifecycle |
 | `Payments` | PSP adapter + webhook source of truth |
-| `Positions` | reference data (standalone) |
 | `Products` | product catalog |
 | `Reporting` | read-side reports |
 
-(Empty retired containers `Checkouts`/`MasterData` ไม่นับเป็น module)
+(Empty retired containers `Checkouts`/`MasterData`/`Divisions`/`Levels`/`Offices`/`Positions` ไม่นับเป็น module)
 
 ### Runtime DbContexts
 

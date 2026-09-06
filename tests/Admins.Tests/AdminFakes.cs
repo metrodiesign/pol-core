@@ -210,35 +210,6 @@ internal sealed class FakeAdminRoleRepository : IRoleRepository
     }
 }
 
-/// <summary>In-memory profile-lookup fake for handler tests — enum-keyed rows (id/code/name/active), no
-/// reference-module types at all (masterdata-split: Admins.Tests no longer names Division/Level/Office/
-/// Position, matching Admins.Application's own zero-module-reference boundary).</summary>
-internal sealed class FakeProfileLookup : IProfileLookup
-{
-    public sealed record Row(Guid Id, string Code, string Name, bool IsActive);
-
-    public readonly Dictionary<ProfileField, List<Row>> Items = [];
-
-    /// <summary>Seeds one row and returns its generated id (the FK the test hands to a command).</summary>
-    public Guid Add(ProfileField field, string code, string name, bool isActive = true)
-    {
-        var row = new Row(Guid.NewGuid(), code, name, isActive);
-        if (!Items.TryGetValue(field, out var list))
-            Items[field] = list = [];
-        list.Add(row);
-        return row.Id;
-    }
-
-    public Task<bool> ExistsActiveAsync(ProfileField field, Guid id, CancellationToken ct) =>
-        Task.FromResult(Rows(field).Any(r => r.Id == id && r.IsActive));
-
-    public Task<ProfileRef?> GetRefAsync(ProfileField field, Guid id, CancellationToken ct) =>
-        Task.FromResult<ProfileRef?>(Rows(field).Where(r => r.Id == id)
-            .Select(r => new ProfileRef(r.Id, r.Code, r.Name)).FirstOrDefault());
-
-    private IEnumerable<Row> Rows(ProfileField field) => Items.TryGetValue(field, out var list) ? list : [];
-}
-
 internal sealed class FakeAdminMerchantDirectory : IAdminMerchantDirectory
 {
     public bool ActiveResult = true;

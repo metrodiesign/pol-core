@@ -4,20 +4,12 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.DataProtection;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Provisioning;
-using Divisions.Domain;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
-using Levels.Domain;
 using Microsoft.EntityFrameworkCore;
-using Offices.Domain;
 using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.Iam;
-using Positions.Domain;
 using Governance.Domain;
-using Persistence.ControlPlane.Divisions;
-using Persistence.ControlPlane.Levels;
-using Persistence.ControlPlane.Offices;
-using Persistence.ControlPlane.Positions;
 using Persistence.ControlPlane.Governance;
 using Iam.Domain.ApiClients;
 using Notifications.Domain;
@@ -54,10 +46,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
     public DbSet<PermissionGroup> PermissionGroups => Set<PermissionGroup>();
     public DbSet<Permission> Permissions => Set<Permission>();
 
-    public DbSet<Position> Positions => Set<Position>();
-    public DbSet<Office> Offices => Set<Office>();
-    public DbSet<Level> Levels => Set<Level>();
-    public DbSet<Division> Divisions => Set<Division>();
 
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -101,11 +89,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new RolePermissionConfiguration());
         modelBuilder.ApplyConfiguration(new PermissionGroupConfiguration());
         modelBuilder.ApplyConfiguration(new PermissionConfiguration());
-
-        modelBuilder.ApplyConfiguration(new PositionConfiguration());
-        modelBuilder.ApplyConfiguration(new OfficeConfiguration());
-        modelBuilder.ApplyConfiguration(new LevelConfiguration());
-        modelBuilder.ApplyConfiguration(new DivisionConfiguration());
 
         modelBuilder.ApplyConfiguration(new DataProtectionKeyConfiguration());
         modelBuilder.ApplyConfiguration(new ProvisioningOperationConfiguration());

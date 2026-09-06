@@ -24,7 +24,7 @@ public sealed class PlatformUserQueryTests
     [Fact]
     public async Task GetAdminById_returns_null_for_unknown_id()
     {
-        var handler = new GetAdminByIdHandler(new FakePlatformUserRepository(), new FakeAdminRoleRepository(), new FakeProfileLookup());
+        var handler = new GetAdminByIdHandler(new FakePlatformUserRepository(), new FakeAdminRoleRepository());
         Assert.Null(await handler.Handle(new GetAdminByIdQuery(Guid.NewGuid()), default));
     }
 
@@ -42,7 +42,7 @@ public sealed class PlatformUserQueryTests
         roles.AddAssignment(RoleAssignment.Create(super.Id, active.Id, Actor, T0));
         roles.AddAssignment(RoleAssignment.Create(super.Id, inactive.Id, Actor, T0));
 
-        var detail = await new GetAdminByIdHandler(accounts, roles, new FakeProfileLookup()).Handle(new GetAdminByIdQuery(super.Id), default);
+        var detail = await new GetAdminByIdHandler(accounts, roles).Handle(new GetAdminByIdQuery(super.Id), default);
 
         Assert.NotNull(detail);
         Assert.True(detail!.SubjectBound);                 // Super's subject is bound
@@ -60,7 +60,7 @@ public sealed class PlatformUserQueryTests
         var merchant = Guid.NewGuid();
         accounts.AddAssignment(MerchantAccess.Create(scoped.Id, merchant, Actor, T0));
 
-        var detail = await new GetAdminByIdHandler(accounts, new FakeAdminRoleRepository(), new FakeProfileLookup())
+        var detail = await new GetAdminByIdHandler(accounts, new FakeAdminRoleRepository())
             .Handle(new GetAdminByIdQuery(scoped.Id), default);
 
         Assert.NotNull(detail);

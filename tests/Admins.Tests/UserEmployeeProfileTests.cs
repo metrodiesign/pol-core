@@ -5,20 +5,11 @@ namespace Admins.Tests;
 public sealed class UserEmployeeProfileTests
 {
     private static readonly DateTime Now = new(2026, 9, 3, 0, 0, 0, DateTimeKind.Utc);
-    private static readonly Guid Position = Guid.Parse("10000000-0000-4000-8000-000000000001");
-    private static readonly Guid Office = Guid.Parse("20000000-0000-4000-8000-000000000001");
-    private static readonly Guid Level = Guid.Parse("30000000-0000-4000-8000-000000000001");
-    private static readonly Guid Division = Guid.Parse("40000000-0000-4000-8000-000000000001");
-
     private static User NewMicrosoft() => User.CreateScopedMicrosoft(
         Guid.Parse("11111111-1111-4111-8111-111111111111"),
         Guid.Parse("22222222-2222-4222-8222-222222222222"),
         "synthetic@example.test",
-        Now,
-        Position,
-        Office,
-        Level,
-        Division);
+        Now);
 
     [Fact]
     public void First_apply_binds_three_fields_and_bumps_only_resource_version()
@@ -35,7 +26,6 @@ public sealed class UserEmployeeProfileTests
         Assert.Equal("นามสกุลทดสอบ", user.LastName);
         Assert.Equal(version + 1, user.Version);
         Assert.Equal(authz, user.AuthorizationVersion);
-        AssertOrgFields(user);
     }
 
     [Fact]
@@ -49,7 +39,6 @@ public sealed class UserEmployeeProfileTests
 
         Assert.Equal(new EmployeeProfileChange(false, false, false, false), change);
         Assert.Equal(version, user.Version);
-        AssertOrgFields(user);
     }
 
     [Fact]
@@ -67,7 +56,6 @@ public sealed class UserEmployeeProfileTests
         Assert.Equal("นามสกุลเดิม", user.LastName);
         Assert.Equal(version + 1, user.Version);
         Assert.Equal(authz, user.AuthorizationVersion);
-        AssertOrgFields(user);
     }
 
     [Fact]
@@ -86,7 +74,6 @@ public sealed class UserEmployeeProfileTests
         Assert.Equal("นามสกุลอื่น", user.LastName);
         Assert.Equal(version + 1, user.Version);
         Assert.Equal(authz, user.AuthorizationVersion);
-        AssertOrgFields(user);
     }
 
     [Theory]
@@ -100,11 +87,4 @@ public sealed class UserEmployeeProfileTests
             user.ApplyEmployeeProfile(employeeId, firstName, lastName));
     }
 
-    private static void AssertOrgFields(User user)
-    {
-        Assert.Equal(Position, user.PositionId);
-        Assert.Equal(Office, user.OfficeId);
-        Assert.Equal(Level, user.LevelId);
-        Assert.Equal(Division, user.DivisionId);
-    }
 }

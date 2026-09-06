@@ -9,9 +9,8 @@ namespace Persistence.ControlPlane.Admins;
 // exactly for column/index shape. The migration-owner (PolDbContext) keeps the canonical
 // IEntityTypeConfiguration; this copy is what ControlPlaneDbContext (the runtime chokepoint) actually
 // uses (design.md "Runtime EF config is scalar-only, separate from the migration-owner's relationship
-// config"). Position/Office/Level/Division stay plain scalar columns here — no HasOne — since a real FK
-// relationship isn't needed for ControlPlaneDbContext's own read/write paths and keeping every runtime
-// config scalar-only avoids re-deriving "same-cluster vs cross-cluster" per property.
+// config"). Keeping every runtime config scalar-only avoids re-deriving "same-cluster vs cross-cluster"
+// per property.
 
 public sealed class WorkforceTenantBindingConfiguration : IEntityTypeConfiguration<WorkforceTenantBinding>
 {
@@ -49,10 +48,6 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // exactly-one-row-or-throw for free — mirrors the tenant-key concurrency-token pattern from task 3.
         builder.Property(x => x.AuthorizationVersion).IsConcurrencyToken();
         builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
-        builder.Property(x => x.PositionId);
-        builder.Property(x => x.OfficeId);
-        builder.Property(x => x.LevelId);
-        builder.Property(x => x.DivisionId);
         builder.HasIndex(x => new { x.Provider, x.TenantId, x.Subject })
             .IsUnique()
             .HasFilter("[Subject] IS NOT NULL");

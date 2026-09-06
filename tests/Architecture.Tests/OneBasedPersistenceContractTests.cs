@@ -29,10 +29,6 @@ public sealed class OneBasedPersistenceContractTests : IDisposable
                 typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
                 typeof(Admins.Infrastructure.AdminModuleRegistration).Assembly,
                 typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
-                typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
-                typeof(Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
-                typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
-                typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
             ]));
         _controlPlane = new ControlPlaneDbContext(
             new DbContextOptionsBuilder<ControlPlaneDbContext>().UseSqlite(_controlPlaneConnection)
@@ -74,10 +70,6 @@ public sealed class OneBasedPersistenceContractTests : IDisposable
         [
             typeof(Admins.Domain.Users.User),
             typeof(Role),
-            typeof(Offices.Domain.Office),
-            typeof(Divisions.Domain.Division),
-            typeof(Positions.Domain.Position),
-            typeof(Levels.Domain.Level),
         ];
 
         foreach (var db in new DbContext[] { _owner, _controlPlane })
