@@ -1819,7 +1819,11 @@ admin.MapGet("/auth/{provider}/login", (
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-6.1). The
-// presented cookie identifies the family. CSRF protection remains mandatory for this authenticated mutation.
+// presented cookie identifies the family. AllowAnonymous on purpose: gating this on the "admin" policy made an
+// EXPIRED or already-revoked session 401 here, so the SPA could never reach a signed-out state and the user was
+// stuck until they cleared cookies by hand. The handler is idempotent — no cookie or no matching session simply
+// skips the revoke — and always clears the cookies, so "already signed out" is the same 204 as a real logout.
+// CSRF protection stays mandatory (REQ-7.2): a forced logout is still a cross-site nuisance.
 admin.MapPost("/auth/logout", async (
     HttpContext http, ISessionStore sessions, SessionCookies cookies,
     IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
@@ -1837,13 +1841,15 @@ admin.MapPost("/auth/logout", async (
     }
     cookies.Clear(http);
     return Results.NoContent();
-}).RequireAuthorization("admin")
+}).AllowAnonymous()
+    // Anonymous + cookie-driven DB lookup — exactly what the source-IP limiter exists for (AuthRateLimiting).
+    .RequireRateLimiting(AuthRateLimiting.PolicyName)
     .WithTags("การเข้าสู่ระบบ")
     .WithName("AdminLogout")
     .WithSummary("ออกจากระบบเครื่องนี้")
-    .WithDescription("เพิกถอน session family ปัจจุบัน (เฉพาะเครื่องนี้) แล้วล้างคุกกี้")
+    .WithDescription("เพิกถอน session family ปัจจุบัน (เฉพาะเครื่องนี้) แล้วล้างคุกกี้ เรียกได้แม้ session หมดอายุหรือถูกเพิกถอนไปแล้ว (idempotent -> 204 เสมอ) แต่ยังต้องผ่าน CSRF")
     .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
 admin.MapPost("/auth/logout-all", async (
@@ -2139,7 +2145,8 @@ var merchantUsers = api.MapGroup("/merchants/users")
     .AddEndpointFilter<BoundFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
-// presented cookie identifies the family.
+// presented cookie identifies the family. AllowAnonymous for the same reason as the admin logout above: an
+// expired session must still be able to reach a signed-out state. Idempotent handler, CSRF still enforced.
 merchantAuth.MapPost("/logout", async (
     HttpContext http, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
@@ -2157,13 +2164,15 @@ merchantAuth.MapPost("/logout", async (
     }
     cookies.Clear(http);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user")
+}).AllowAnonymous()
+    // Same reason as the admin logout: anonymous + cookie-driven DB lookup -> source-IP limiter.
+    .RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserLogout")
     .WithSummary("ออกจากระบบเครื่องนี้")
-    .WithDescription("เพิกถอน session family ปัจจุบันของผู้ใช้ร้านค้า (เฉพาะเครื่องนี้) แล้วล้างคุกกี้")
+    .WithDescription("เพิกถอน session family ปัจจุบันของผู้ใช้ร้านค้า (เฉพาะเครื่องนี้) แล้วล้างคุกกี้ เรียกได้แม้ session หมดอายุหรือถูกเพิกถอนไปแล้ว (idempotent -> 204 เสมอ) แต่ยังต้องผ่าน CSRF")
     .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Logout-all = revoke EVERY session of this merchant-user across all devices (REQ-12.2).
 merchantAuth.MapPost("/logout-all", async (
