@@ -64,8 +64,33 @@ file sealed class WorkforceLoginFactory : WebApplicationFactory<ApiHost::Program
 /// <summary>Admin OIDC is Microsoft workforce-only.</summary>
 public sealed class AdminAuthLoginRedirectTests
 {
+    // Logout is idempotent and anonymous-reachable: an expired or already-revoked session must still be able to
+    // reach a signed-out state, otherwise the SPA is stuck on "logout failed" forever (REQ-6.1).
     [Fact]
-    public async Task Logout_requires_authenticated_admin_session()
+    public async Task Logout_without_a_session_still_returns_204_and_clears_the_cookies()
+    {
+        using var factory = new WorkforceLoginFactory();
+        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+        });
+
+        const string csrf = "csrf-token-value";
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/admins/auth/logout");
+        request.Headers.Add("Cookie", $"adm_csrf={csrf}");
+        request.Headers.Add("X-CSRF-Token", csrf);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var setCookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToList() : [];
+        Assert.Contains(setCookies, c => c.StartsWith("adm_session=;", StringComparison.Ordinal));
+        Assert.Contains(setCookies, c => c.StartsWith("adm_csrf=;", StringComparison.Ordinal));
+    }
+
+    // CSRF stays mandatory on logout (REQ-7.2) — the SPA treats this 403 as "already signed out".
+    [Fact]
+    public async Task Logout_without_the_csrf_double_submit_is_rejected()
     {
         using var factory = new WorkforceLoginFactory();
         using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
@@ -74,7 +99,7 @@ public sealed class AdminAuthLoginRedirectTests
         });
 
         var response = await client.PostAsync("/api/v1/admins/auth/logout", content: null);
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
