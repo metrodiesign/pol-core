@@ -32,7 +32,12 @@ internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEn
         builder.Property(x => x.PaymentSessionId);
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(Order.MerchantId));
-        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        // Read floor, two tiers: merchant (deny-default) AND, when a merchant user (Tier 1 agent/broker) is bound,
+        // only the orders that user initiated — an agent sees its own customers only. Admin/ambient/unbound scopes
+        // carry no merchant user and keep the merchant-wide read. Every merchant-user read path (list, detail,
+        // resend, cancel, reconciliation, payment-session mint) routes through this one predicate.
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant
+            && (context.CurrentMerchantUser == null || x.InitiatingMerchantUserId == context.CurrentMerchantUser));
 
         builder.ComplexProperty(x => x.Amount, p =>
         {

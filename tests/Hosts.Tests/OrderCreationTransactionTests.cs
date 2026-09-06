@@ -45,7 +45,8 @@ public sealed class OrderCreationTransactionTests : IDisposable
         var existing = Order.Create(
             Merchant, Money.Of(1m, "THB"), Now,
             [new OrderItemInput(1, Money.Of(1m, "THB"), "OTHER", "VMI", null)],
-            "ORD6900000001");
+            "ORD6900000001", initiatingAudience: OrderInitiatingAudience.User,
+            initiatingMerchantUserId: Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
         await using (var seed = NewContext())
         {
             seed.AddRange(cart, existing);
