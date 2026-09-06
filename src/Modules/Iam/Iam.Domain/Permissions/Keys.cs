@@ -1,13 +1,16 @@
 namespace Iam.Domain.Permissions;
 
-/// <summary>Which console a permission group/role belongs to (REQ-1.1/2.1). Platform = admin console;
-/// Merchant = merchant-user console. Assign/grant across the wrong side is fail-closed by construction
-/// (REQ-3.4/3.5/6.6) rather than by convention, closing the cross-side grant hole the two duplicated
-/// catalogs had no way to detect.</summary>
+/// <summary>Which console a permission group/role belongs to (REQ-1.1/2.1). Platform = admin console (Tier 0,
+/// workforce); Merchant = merchant-user console (Tier 1, agent/broker); Shared = the commerce features BOTH
+/// tiers call (cart → order → payment session), gated by one key and carried by one role set that is
+/// assignable on either side. Assign/grant across the wrong side is still fail-closed by construction
+/// (REQ-3.4/3.5/6.6): a Platform role may hold Platform+Shared keys, a Merchant role Merchant+Shared, a
+/// Shared role Shared only.</summary>
 public enum Scope
 {
     Platform = 1,
     Merchant = 2,
+    Shared = 3,
 }
 
 /// <summary>
@@ -17,14 +20,16 @@ public enum Scope
 /// <c>iam.Permissions</c>/<c>iam.PermissionGroups</c> FROM this same vocabulary, and an integration test
 /// asserts the seeded rows equal <see cref="All"/> so code and DB never drift. The boot parity guard checks
 /// every gated key against <see cref="AllKeys"/> AND its <see cref="KeySide"/> against the endpoint's policy
-/// (REQ-5.1/5.4) without touching the database. 26 keys / 7 groups — the old admin-only
+/// (REQ-5.1/5.4) without touching the database. 25 keys / 7 groups — the old admin-only
 /// <c>invoice.view</c>/<c>invoice.manage</c>/<c>settlement.run</c> (group <c>finance</c>) are dropped
 /// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals). Policy groups/keys were retired
 /// with their API/data surfaces. <c>product.create</c>/<c>product.update</c> (group <c>catalog</c>) were retired
 /// once orphaned — <c>POST /api/v1/products</c> was removed (commit 152b692, the catalogue is read-only over
 /// HTTP for good) and no endpoint gated on them anymore; the now-empty <c>catalog</c> group was dropped too.
 /// registration-attempt-history (REQ-4.1) added <c>merchants.users.view</c> under the existing
-/// <c>merchants.users</c> group for the admin registration-history endpoint.
+/// <c>merchants.users</c> group for the admin registration-history endpoint. <c>txn.manage</c> (the admin-side
+/// twin of <c>payment.create</c> on the dual-console commerce sites) was retired when group <c>payment</c>
+/// became <see cref="Scope.Shared"/>: both tiers now pass the same <c>payment.*</c> key, so the twin gated nothing.
 /// </summary>
 public static class Keys
 {
@@ -41,7 +46,6 @@ public static class Keys
     public const string TxnView = "txn.view";
     public const string TxnRefund = "txn.refund";
     public const string TxnExport = "txn.export";
-    public const string TxnManage = "txn.manage";
     public const string MerchantView = "merchant.view";
     public const string MerchantManage = "merchant.manage";
     public const string UserView = "user.view";
@@ -76,7 +80,7 @@ public static class Keys
         [GroupUser] = Scope.Platform,
         [GroupSystem] = Scope.Platform,
         [GroupMerchantUsers] = Scope.Platform,
-        [GroupPayment] = Scope.Merchant,
+        [GroupPayment] = Scope.Shared,
         [GroupRoles] = Scope.Merchant,
     };
 
@@ -89,7 +93,7 @@ public static class Keys
     /// <summary>Every (key, group) pair in display order. The migration seed mirrors this exactly.</summary>
     public static readonly IReadOnlyList<(string Key, string GroupKey)> All =
     [
-        (TxnView, GroupTxn), (TxnRefund, GroupTxn), (TxnExport, GroupTxn), (TxnManage, GroupTxn),
+        (TxnView, GroupTxn), (TxnRefund, GroupTxn), (TxnExport, GroupTxn),
         (MerchantView, GroupMerchant), (MerchantManage, GroupMerchant),
         (UserView, GroupUser), (UserManage, GroupUser), (UserRoles, GroupUser),
         (AuditView, GroupSystem), (SettingsManage, GroupSystem), (ApiKeyManage, GroupSystem),

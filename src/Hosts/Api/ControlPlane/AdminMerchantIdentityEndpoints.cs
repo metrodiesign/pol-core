@@ -168,7 +168,7 @@ internal static class AdminMerchantIdentityEndpoints
         }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("ListAdminMerchantPermissions")
             .WithSummary("แคตตาล็อกสิทธิ์ฝั่งร้านค้า")
-            .WithDescription("คืน permission groups และ permission keys เฉพาะ Scope.Merchant สำหรับสร้าง role ของ merchant ที่ Active")
+            .WithDescription("คืน permission groups และ permission keys ของ Scope.Merchant รวม Scope.Shared (สิทธิ์ commerce ที่ใช้ร่วมกันสองระดับ) สำหรับสร้าง role ของ merchant ที่ Active")
             .Produces<AdminMerchantPermissionCatalogResponse>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
