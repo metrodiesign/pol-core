@@ -182,8 +182,8 @@ Orders → Paid. จบ ไม่มี issuance.
 - Per-agent visibility — **2026-09-06 (ปิด "rf6" ที่ค้าง)**: `MerchantRuntimeDbContext.CurrentMerchantUser` (จาก
   `IActorContext.UserId`) เข้า query filter ของ `Order` เป็นชั้นที่สอง — merchant user (Tier 1) เห็นเฉพาะ order ที่
   `InitiatingMerchantUserId == ตนเอง`; admin ambient scope / webhook / worker ไม่มี user จึงยังเห็นทั้ง merchant. seam
-  เดียวครอบ list/detail/resend/cancel/reconciliation/payment-session mint ทั้งหมด (`Architecture.Tests/
-  OrderVisibilityFloorTests`). order ที่ admin สร้างแทน originator (`InitiatingMerchantUserId` NULL) ตัวแทนไม่เห็น —
+  เดียวครอบ list/detail/resend/cancel/reconciliation/payment-session mint ทั้งหมด และ `Session` ใช้ predicate เดียวกัน
+  ผ่าน `Orders.Any(...)` (list/get session by id) (`Architecture.Tests/OrderVisibilityFloorTests`). order ที่ admin สร้างแทน originator (`InitiatingMerchantUserId` NULL) ตัวแทนไม่เห็น —
   ตั้งใจ; Cart ไม่มีข้อมูลลูกค้าจึงยังกรองระดับ merchant
 - MasterData — **2026-07-13, spec `masterdata-module`**: reference data ของโปรไฟล์พนักงาน (`Position`/`Office`/`Level`/`Division`,
   เดิมฝังอยู่ใต้ `Admins.Domain/Application/Infrastructure.MasterData`) แยกเป็น**โมดูลของตัวเอง `MasterData`** (3 project

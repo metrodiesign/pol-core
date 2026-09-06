@@ -68,7 +68,7 @@ role ต้องมี owner.
 
 Merchant user ใช้ OIDC BFF provider Microsoft Entra (CIAM), opaque `__Host-mch_session` cookie และ CSRF
 double-submit. Commerce actor ได้ `MerchantId`, `SaleCode` และ Active-only IAM permission จาก server. Order read paths
-(list/detail/resend/cancel/reconciliation/payment session) กรองเพิ่มด้วย `InitiatingMerchantUserId == user` — ตัวแทน
+(list/detail/resend/cancel/reconciliation) และ payment session (list/get) กรองเพิ่มด้วย `InitiatingMerchantUserId == user` — ตัวแทน
 (Tier 1) เห็นเฉพาะคำสั่งซื้อของลูกค้าตัวเอง; admin (Tier 0) เห็นทั้ง merchant ที่ accessible.
 
 KYC photo:

@@ -20,7 +20,11 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.OrderId).IsRequired();
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(Session.MerchantId));
-        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        // Second predicate mirrors OrderConfiguration: a bound merchant user (Tier 1 agent) reads only the
+        // sessions of orders it initiated; a merchant-bound scope with no user keeps the merchant-wide read.
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant
+            && (context.CurrentMerchantUser == null
+                || context.Orders.Any(o => o.Id == x.OrderId && o.InitiatingMerchantUserId == context.CurrentMerchantUser)));
 
         builder.ComplexProperty(x => x.Amount, p =>
         {

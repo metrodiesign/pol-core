@@ -3,9 +3,11 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
 using Orders.Domain.Items;
+using Payments.Domain.Psp;
 using Persistence.MerchantRuntime;
 using SharedKernel;
 using OrderAggregate = Orders.Domain.Order;
+using PaymentSession = Payments.Domain.Session;
 
 namespace Architecture.Tests;
 
@@ -33,6 +35,15 @@ public sealed class OrderVisibilityFloorTests : IDisposable
         _connection.Open();
         using var setup = NewContext(FakeActorContext.Unbound);
         setup.Database.EnsureCreated();
+        // SQLite has no rowversion generator and EF never sends a value for one on insert, so give the
+        // NOT NULL column a default; the open-session index is not under test here.
+        var ddl = setup.Database.SqlQueryRaw<string>(
+            "SELECT sql AS Value FROM sqlite_master WHERE name = 'PaymentSessions'").Single();
+        var withDefault = ddl.Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X'00'");
+        if (withDefault == ddl)
+            throw new InvalidOperationException($"RowVersion column shape changed: {ddl}");
+        setup.Database.ExecuteSqlRaw("DROP TABLE PaymentSessions");
+        setup.Database.ExecuteSqlRaw(withDefault);
     }
 
     private MerchantRuntimeDbContext NewContext(IActorContext actor) =>
@@ -100,6 +111,30 @@ public sealed class OrderVisibilityFloorTests : IDisposable
         Assert.Contains("@ef_filter__CurrentMerchant", whereLine);
         Assert.Contains("@ef_filter__CurrentMerchantUser", whereLine);
         Assert.DoesNotContain(AgentOne.ToString(), whereLine, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Merchant_user_reads_only_the_payment_sessions_of_the_orders_it_initiated()
+    {
+        var own = await SeedSessionAsync(MerchantA, await SeedAgentOrderAsync(MerchantA, AgentOne, "ORD6900000001"));
+        var other = await SeedSessionAsync(MerchantA, await SeedAgentOrderAsync(MerchantA, AgentTwo, "ORD6900000002"));
+
+        using var asAgentOne = NewContext(FakeActorContext.For(MerchantA, AgentOne));
+        using var asMerchantA = NewContext(FakeActorContext.For(MerchantA));
+
+        Assert.Equal([own], await asAgentOne.PaymentSessions.Select(s => s.Id).ToListAsync());
+        Assert.Null(await asAgentOne.PaymentSessions.FirstOrDefaultAsync(s => s.Id == other));
+        Assert.Equal(2, await asMerchantA.PaymentSessions.CountAsync());
+        Assert.Contains("@ef_filter__CurrentMerchantUser", asAgentOne.PaymentSessions.ToQueryString());
+    }
+
+    private async Task<Guid> SeedSessionAsync(Guid merchantId, Guid orderId)
+    {
+        var session = PaymentSession.Create(merchantId, orderId, Money.Of(15000m, "THB"), "card", Code.Omise, DateTime.UtcNow);
+        using var writer = NewContext(FakeActorContext.For(merchantId));
+        writer.Add(session);
+        await writer.SaveChangesAsync();
+        return session.Id;
     }
 
     private async Task<Guid> SeedAgentOrderAsync(Guid merchantId, Guid agentId, string orderNo)
