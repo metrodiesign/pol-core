@@ -220,6 +220,13 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             .Where(x => x.Id == versionId && x.MerchantId == merchantId)
             .Select(x => x.Hint).SingleOrDefaultAsync(ct), cancellationToken);
 
+    public async Task<DateTime?> StagedVersionExpiresAtAsync(
+        Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => x.Id == versionId && x.MerchantId == merchantId
+                && x.State == VaultSecretVersionState.Staged)
+            .Select(x => x.ExpiresAt).SingleOrDefaultAsync(ct), cancellationToken);
+
     private async Task<VaultSecretVersion> LoadVersionAsync(
         Guid merchantId, Guid versionId, CancellationToken cancellationToken)
     {

@@ -124,6 +124,17 @@ public sealed record RequestPspCredentialChangeIntent(
     string CorrelationId,
     AdminPaymentsAccess Access);
 
+/// <summary>Read-only probe of a staged candidate credential against its target environment (REQ-7.8-7.11).
+/// <c>ApprovalId</c> identifies the pending change; the result is only written when the pending candidate and
+/// version are unchanged after the probe (compare-after-probe, critical #18).</summary>
+public sealed record TestPspCandidateCredentialIntent(
+    Guid ConnectionId,
+    Guid MerchantId,
+    Guid ApprovalId,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    AdminPaymentsAccess Access);
+
 public sealed record PspConnectionMutationResult(PspConnectionView Connection, bool Replayed);
 public sealed record PspCredentialChangeResult(Guid ApprovalId, Guid CandidateVersionId, string Status, bool Replayed);
 
@@ -368,6 +379,7 @@ public interface IAdminPaymentsControlStore
     Task<PspConnectionMutationResult> UpdateConnectionAsync(UpdatePspConnectionIntent intent, CancellationToken cancellationToken);
     Task<PspConnectionMutationResult> TestConnectionAsync(TestPspConnectionIntent intent, CancellationToken cancellationToken);
     Task<PspCredentialChangeResult> RequestCredentialChangeAsync(RequestPspCredentialChangeIntent intent, CancellationToken cancellationToken);
+    Task<PspConnectionMutationResult> TestCandidateCredentialAsync(TestPspCandidateCredentialIntent intent, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<EffectivePaymentMethod>?> ListMerchantMethodsAsync(
         Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);

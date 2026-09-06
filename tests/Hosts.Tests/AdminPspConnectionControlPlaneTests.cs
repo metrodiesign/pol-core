@@ -258,6 +258,133 @@ public sealed class AdminPspConnectionControlPlaneTests : IDisposable
         Assert.Equal("routing_invalid", mismatch.Code);
     }
 
+    [Fact]
+    public async Task Candidate_test_probes_the_candidate_at_its_environment_without_touching_active_health()
+    {
+        await using var db = NewContext();
+        var adapters = new RecordingAdapterFactory();
+        var store = Store(db, adapters);
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+
+        // The active credential is Healthy before the candidate test.
+        var tested = (await store.TestConnectionAsync(new TestPspConnectionIntent(
+            created.PspConnectionId, MerchantId, created.Version, "active-test", Unrestricted), default)).Connection;
+        Assert.Equal("healthy", tested.Health);
+
+        var change = await store.RequestCredentialChangeAsync(new RequestPspCredentialChangeIntent(
+            created.PspConnectionId, MerchantId,
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" }, "MERCHANT-001",
+            tested.Version, "change", "corr", Unrestricted), default);
+        var staged = await store.GetConnectionAsync(created.PspConnectionId, MerchantId, Unrestricted, default);
+
+        var result = (await store.TestCandidateCredentialAsync(new TestPspCandidateCredentialIntent(
+            created.PspConnectionId, MerchantId, change.ApprovalId, staged!.Version, "candidate-test", Unrestricted), default)).Connection;
+
+        Assert.Equal("authenticated", result.PendingCredentialTest!.Result);   // AC-6.2 candidate result recorded
+        Assert.Contains("0002", adapters.Adapter.ProbedSecret);                 // probed the CANDIDATE, not the active secret
+        Assert.Equal(PspEnvironment.Sandbox, adapters.Adapter.ProbedEnvironment);
+        Assert.Equal("healthy", result.Health);                                 // AC-6.2/REQ-7.10 active health untouched
+        Assert.True(result.HasPendingCredentialChange);                          // candidate NOT activated
+    }
+
+    [Fact]
+    public async Task Candidate_test_result_is_not_written_when_the_connection_changed_during_the_probe()
+    {
+        Guid connectionId;
+        Guid approvalId;
+        long stagedVersion;
+        await using (var seed = NewContext())
+        {
+            var store = Store(seed, new RecordingAdapterFactory());
+            var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+                new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+            connectionId = created.PspConnectionId;
+            var change = await store.RequestCredentialChangeAsync(new RequestPspCredentialChangeIntent(
+                connectionId, MerchantId, new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" },
+                "MERCHANT-001", created.Version, "change", "corr", Unrestricted), default);
+            approvalId = change.ApprovalId;
+            stagedVersion = (await store.GetConnectionAsync(connectionId, MerchantId, Unrestricted, default))!.Version;
+        }
+
+        // A concurrent mutation lands DURING the probe (after the pre-probe version check passed): the in-transaction
+        // compare-after-probe (critical #18) must discard the stale result rather than write it.
+        var mutating = new ProbeCallbackAdapterFactory(() =>
+        {
+            using var concurrent = NewContext();
+            var row = concurrent.PspConnections.IgnoreQueryFilters().Single(x => x.Id == connectionId);
+            row.Update(row.EnabledMethods, row.Metadata, isEnabled: false);
+            concurrent.SaveChanges();
+        });
+        await using var db = NewContext();
+        var raced = Store(db, mutating);
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() => raced.TestCandidateCredentialAsync(
+            new TestPspCandidateCredentialIntent(connectionId, MerchantId, approvalId, stagedVersion, "candidate-test", Unrestricted), default));
+
+        await using var verify = NewContext();
+        var connection = await verify.PspConnections.IgnoreQueryFilters().SingleAsync(x => x.Id == connectionId);
+        Assert.Null(connection.PendingSecretTestResult);   // no stale write
+        Assert.NotNull(connection.PendingApprovalId);       // still pending
+    }
+
+    [Fact]
+    public async Task Candidate_test_failure_is_502_and_records_probe_failed()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new ThrowingAdapterFactory());
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+        var change = await store.RequestCredentialChangeAsync(new RequestPspCredentialChangeIntent(
+            created.PspConnectionId, MerchantId, new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" },
+            "MERCHANT-001", created.Version, "change", "corr", Unrestricted), default);
+        var staged = await store.GetConnectionAsync(created.PspConnectionId, MerchantId, Unrestricted, default);
+
+        var failed = await Assert.ThrowsAsync<PspConnectionTestFailedException>(() => store.TestCandidateCredentialAsync(
+            new TestPspCandidateCredentialIntent(created.PspConnectionId, MerchantId, change.ApprovalId, staged!.Version, "candidate-test", Unrestricted), default));
+        Assert.Equal("probe_failed", failed.Connection.PendingCredentialTest!.Result);
+        Assert.True(failed.Connection.HasPendingCredentialChange);   // failure does not reject the candidate (REQ-7.11)
+    }
+
+    [Fact]
+    public async Task A_second_credential_change_while_one_is_pending_is_approval_pending()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new RecordingAdapterFactory());
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+        await store.RequestCredentialChangeAsync(new RequestPspCredentialChangeIntent(
+            created.PspConnectionId, MerchantId, new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" },
+            "MERCHANT-001", created.Version, "change-1", "corr", Unrestricted), default);
+        var staged = await store.GetConnectionAsync(created.PspConnectionId, MerchantId, Unrestricted, default);
+
+        var conflict = await Assert.ThrowsAsync<ConflictException>(() => store.RequestCredentialChangeAsync(
+            new RequestPspCredentialChangeIntent(created.PspConnectionId, MerchantId,
+                new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0003" }, "MERCHANT-001",
+                staged!.Version, "change-2", "corr", Unrestricted), default));
+        Assert.Equal("approval_pending", conflict.Code);   // AC-6.1
+    }
+
+    [Fact]
+    public async Task A_credential_change_while_an_environment_change_is_pending_is_approval_pending()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new RecordingAdapterFactory());
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+
+        // A merchant-wide environment switch is pending (task 7 territory); a lone credential change must defer.
+        var merchant = await db.Merchants.IgnoreQueryFilters().SingleAsync(x => x.Id == MerchantId);
+        merchant.StagePaymentEnvironment(PspEnvironment.Live, Guid.NewGuid());
+        await db.SaveChangesAsync();
+        var refreshed = await store.GetConnectionAsync(created.PspConnectionId, MerchantId, Unrestricted, default);
+
+        var conflict = await Assert.ThrowsAsync<ConflictException>(() => store.RequestCredentialChangeAsync(
+            new RequestPspCredentialChangeIntent(created.PspConnectionId, MerchantId,
+                new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" }, "MERCHANT-001",
+                refreshed!.Version, "change", "corr", Unrestricted), default));
+        Assert.Equal("approval_pending", conflict.Code);   // AC-7.6 coupling guard
+    }
+
     private static RoutingRuleInput Rule(string method, Guid connectionId) =>
         new(1, method, null, null, null, connectionId, null, true);
 
@@ -313,6 +440,59 @@ public sealed class AdminPspConnectionControlPlaneTests : IDisposable
     {
         public RecordingAdapter Adapter { get; } = new(psp);
         public IPspAdapter For(Code requested) => Adapter;
+    }
+
+    private sealed class ProbeCallbackAdapterFactory(Action onProbe) : IPspAdapterFactory
+    {
+        private readonly ProbeCallbackAdapter _adapter = new(onProbe);
+        public IPspAdapter For(Code requested) => _adapter;
+    }
+
+    private sealed class ProbeCallbackAdapter(Action onProbe) : IPspAdapter
+    {
+        public Code Psp => Code.TwoCTwoP;
+        public IReadOnlySet<string> SupportedMethods { get; } = new HashSet<string> { PaymentMethods.Card, PaymentMethods.PromptPay };
+
+        public Task<PspProbeResult> TestConnectionAsync(string secret, PspEnvironment environment, CancellationToken ct)
+        {
+            onProbe();
+            return Task.FromResult(new PspProbeResult("authenticated", "ok"));
+        }
+
+        public string CallbackUrlFor(Guid pspConnectionId) => $"https://api.test/api/v1/webhooks/{pspConnectionId:D}";
+        public Task<PspCharge> CreateRedirectChargeAsync(
+            Session session, Guid pspConnectionId, string secret, PspEnvironment environment, CancellationToken ct) =>
+            throw new NotSupportedException();
+        public bool VerifyWebhook(string rawPayload, string signature, string secret) => throw new NotSupportedException();
+        public Task<PspChargeConfirmation> FetchChargeAsync(
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken ct) =>
+            throw new NotSupportedException();
+        public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingAdapterFactory : IPspAdapterFactory
+    {
+        private readonly ThrowingAdapter _adapter = new();
+        public IPspAdapter For(Code requested) => _adapter;
+    }
+
+    private sealed class ThrowingAdapter : IPspAdapter
+    {
+        public Code Psp => Code.TwoCTwoP;
+        public IReadOnlySet<string> SupportedMethods { get; } = new HashSet<string> { PaymentMethods.Card, PaymentMethods.PromptPay };
+
+        public Task<PspProbeResult> TestConnectionAsync(string secret, PspEnvironment environment, CancellationToken ct) =>
+            throw new InvalidOperationException("probe failed");
+
+        public string CallbackUrlFor(Guid pspConnectionId) => $"https://api.test/api/v1/webhooks/{pspConnectionId:D}";
+        public Task<PspCharge> CreateRedirectChargeAsync(
+            Session session, Guid pspConnectionId, string secret, PspEnvironment environment, CancellationToken ct) =>
+            throw new NotSupportedException();
+        public bool VerifyWebhook(string rawPayload, string signature, string secret) => throw new NotSupportedException();
+        public Task<PspChargeConfirmation> FetchChargeAsync(
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken ct) =>
+            throw new NotSupportedException();
+        public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }
 
     /// <summary>2C2P declares card + promptpay; Omise declares nothing — mirroring the real adapters'

@@ -127,9 +127,9 @@ public sealed class MerchantRuntimeAuthorizationLeaseTests : IDisposable
         var source = File.ReadAllText(Path.Combine(root,
             "src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"));
 
-        Assert.Equal(13, System.Text.RegularExpressions.Regex.Matches(
+        Assert.Equal(14, System.Text.RegularExpressions.Regex.Matches(
             source, @"\.ExecuteInTransactionAsync\(").Count);
-        Assert.Equal(13, System.Text.RegularExpressions.Regex.Matches(
+        Assert.Equal(14, System.Text.RegularExpressions.Regex.Matches(
             source, @"authorizationLease\.VerifyAsync\(").Count);
     }
 

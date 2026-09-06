@@ -654,6 +654,14 @@ internal sealed class AdminPaymentsControlStore(
                 "psp.credential-change", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return Replay<PspCredentialChangeResult>(prior);
+            // A single-connection rotation cannot start while another approval already owns this connection's
+            // credential (AC-6.1) or while a merchant-wide environment change is pending (AC-7.6 coupling): the
+            // environment switch stages every connection, so a lone credential change would race it. Guard state
+            // BEFORE the ETag check so a caller holding a fresh ETag still sees approval_pending, not state_conflict.
+            if (connection.PendingApprovalId is not null)
+                throw new ConflictException("A credential change is already pending for this connection.", "approval_pending");
+            if (merchant.PendingPaymentEnvironmentApprovalId is not null)
+                throw new ConflictException("A payment environment change is pending for this merchant.", "approval_pending");
             await authorizationLease.VerifyAsync(intent.Access, ct);
             EnsureVersion(connection.Version, intent.ExpectedVersion);
 
@@ -676,6 +684,68 @@ internal sealed class AdminPaymentsControlStore(
             await unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken);
+
+    public async Task<PspConnectionMutationResult> TestCandidateCredentialAsync(
+        TestPspCandidateCredentialIntent intent, CancellationToken cancellationToken)
+    {
+        EnsureAccess(intent.Access, intent.MerchantId);
+        var intentHash = Hash(new { intent.ConnectionId, intent.MerchantId, intent.ApprovalId, intent.ExpectedVersion });
+        var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+            "psp.credential-test", intent.IdempotencyKey, intentHash, cancellationToken);
+        if (prior is not null)
+        {
+            var replay = await ReplayConnectionAsync(prior, cancellationToken);
+            if (prior.HttpStatus == 502)
+                throw new PspConnectionTestFailedException(replay);
+            return new PspConnectionMutationResult(replay, true);
+        }
+
+        var snapshot = await PlatformReadGuard.ReadAsync(ct => db.PspConnections.IgnoreQueryFilters()
+            .AsNoTracking().SingleOrDefaultAsync(
+                x => x.Id == intent.ConnectionId && x.MerchantId == intent.MerchantId, ct), cancellationToken)
+            ?? throw new NotFoundException("PSP connection was not found.");
+        EnsureVersion(snapshot.Version, intent.ExpectedVersion);
+        if (snapshot.PendingApprovalId != intent.ApprovalId || snapshot.PendingSecretVersionId is not { } candidateId)
+            throw new NotFoundException("The credential change request was not found.");
+        var candidateEnvironment = snapshot.PendingSecretEnvironment ?? snapshot.ActiveSecretEnvironment;
+
+        // Probe the STAGED candidate against ITS target environment. Read-only: never activates and never
+        // touches the active credential's health (REQ-7.10). A thrown probe is the only failure signal (a
+        // failure-shaped result would read as authenticated), matching the active-test path.
+        var succeeded = false;
+        try
+        {
+            var secret = await vault.ReadVersionForServerAsync(intent.MerchantId, candidateId, cancellationToken);
+            await adapterFactory.For(snapshot.Psp).TestConnectionAsync(secret, candidateEnvironment, cancellationToken);
+            succeeded = true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            succeeded = false;
+        }
+
+        var view = await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            var current = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, ct);
+            // compare-after-probe (critical #18): any concurrent approve/reject/test bumps Version, so a stale
+            // probe result is discarded rather than written. The pending checks are a defensive echo of that.
+            EnsureVersion(current.Version, intent.ExpectedVersion);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            if (current.PendingApprovalId != intent.ApprovalId || current.PendingSecretVersionId != candidateId)
+                throw new ConcurrencyConflictException("The credential candidate changed during the test.");
+            current.RecordPendingSecretTest(succeeded, clock.UtcNow);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "psp.credential-test", intent.IdempotencyKey, intentHash);
+            var result = await ProjectConnectionAsync(current, ct);
+            operation.Succeed(succeeded ? 200 : 502, JsonSerializer.Serialize(result, Json), current.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return result;
+        }, cancellationToken);
+        if (!succeeded)
+            throw new PspConnectionTestFailedException(view);
+        return new PspConnectionMutationResult(view, false);
+    }
 
     public async Task<PagedResult<RoutingRulesetView>> ListRulesetsAsync(
         RoutingRulesetQuery query, CancellationToken cancellationToken)

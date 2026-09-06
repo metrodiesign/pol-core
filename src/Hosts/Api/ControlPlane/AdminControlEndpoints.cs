@@ -720,6 +720,33 @@ internal static class AdminControlEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+
+        api.MapPost("/payments/psp-connections/{connectionId:guid}/credential-change-requests/{approvalId:guid}/test", async (
+            Guid connectionId,
+            Guid approvalId,
+            MerchantStatusRequest body,
+            HttpContext http,
+            IAdminScope scope,
+            IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.TestCandidateCredentialAsync(new TestPspCandidateCredentialIntent(
+                connectionId, body.MerchantId, approvalId, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Connection.Version);
+            return Results.Ok(result.Connection);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("การเชื่อมต่อ PSP").WithName("TestPspCredentialCandidate")
+            .WithSummary("ทดสอบ candidate credential ที่รออนุมัติ")
+            .WithDescription("probe แบบ read-only ด้วย candidate credential ที่ staged ไว้ต่อ environment เป้าหมาย แล้วบันทึกผลที่ตัดข้อมูลอ่อนไหวเฉพาะเมื่อ pending/version ยังไม่เปลี่ยนหลัง probe; ไม่เปิดใช้ candidate และไม่แตะ health ของ credential ที่ใช้งานอยู่ ต้องส่ง merchantId, If-Match และ Idempotency-Key; upstream ล้มเหลว -> 502")
+            .Produces<PspConnectionView>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
     }
 
     /// <summary>Credential-bearing bodies are bounded to 16 KiB (REQ-4.12) and marked no-store (REQ-4.13).

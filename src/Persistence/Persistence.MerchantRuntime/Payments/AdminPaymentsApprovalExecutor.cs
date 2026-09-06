@@ -98,6 +98,7 @@ internal sealed class AdminPaymentsApprovalExecutor(
         ApprovalDecided decision, Guid merchantId, Guid connectionId, CancellationToken cancellationToken)
     {
         var probeSucceeded = false;
+        var candidateExpired = false;
         if (decision.Decision == "approved")
         {
             var snapshot = await PlatformReadGuard.ReadAsync(ct => db.PspConnections.AsNoTracking()
@@ -106,16 +107,23 @@ internal sealed class AdminPaymentsApprovalExecutor(
             EnsureApproval(snapshot.PendingApprovalId, snapshot.Version, decision);
             var candidateId = snapshot.PendingSecretVersionId
                 ?? throw new InvalidOperationException("PSP credential candidate is missing.");
-            try
+            // A candidate that outlived its 24h staging window is discarded with a distinct outcome rather than
+            // charged to the probe: the vault would refuse to read it anyway (critical #7, AC-6.6).
+            var expiry = await vault.StagedVersionExpiresAtAsync(merchantId, candidateId, cancellationToken);
+            candidateExpired = expiry is { } e && e <= clock.UtcNow;
+            if (!candidateExpired)
             {
-                var secret = await vault.ReadVersionForServerAsync(merchantId, candidateId, cancellationToken);
-                await adapterFactory.For(snapshot.Psp).TestConnectionAsync(secret,
-                    snapshot.PendingSecretEnvironment ?? snapshot.ActiveSecretEnvironment, cancellationToken);
-                probeSucceeded = true;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                probeSucceeded = false;
+                try
+                {
+                    var secret = await vault.ReadVersionForServerAsync(merchantId, candidateId, cancellationToken);
+                    await adapterFactory.For(snapshot.Psp).TestConnectionAsync(secret,
+                        snapshot.PendingSecretEnvironment ?? snapshot.ActiveSecretEnvironment, cancellationToken);
+                    probeSucceeded = true;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    probeSucceeded = false;
+                }
             }
         }
 
@@ -144,6 +152,14 @@ internal sealed class AdminPaymentsApprovalExecutor(
 
             var candidateId = connection.PendingSecretVersionId
                 ?? throw new InvalidOperationException("PSP credential candidate is missing.");
+            if (candidateExpired)
+            {
+                var expired = connection.RejectPendingSecretVersion();
+                await vault.DiscardVersionAsync(merchantId, expired, ct);
+                Complete(execution, decision, succeeded: false, "credential_candidate_expired", $"v{connection.Version}");
+                await unitOfWork.SaveChangesAsync(ct);
+                return true;
+            }
             if (!probeSucceeded)
             {
                 var rejected = connection.RejectPendingSecretVersion();
