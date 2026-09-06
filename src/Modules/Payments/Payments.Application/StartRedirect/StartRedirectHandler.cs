@@ -140,7 +140,7 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         try
         {
             charge = await _adapters.For(session.Psp)
-                .CreateRedirectChargeAsync(session, connection.Id, secret, cancellationToken)
+                .CreateRedirectChargeAsync(session, connection.Id, secret, connection.ActiveSecretEnvironment, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (PspRejectedException) when (!settlingClaim)

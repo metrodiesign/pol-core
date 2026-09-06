@@ -159,5 +159,6 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
             && methodRest.Value?.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 1)
         || path.StartsWithSegments("/api/v1/payments/transactions")
         || path.StartsWithSegments("/api/v1/payments/psp-connections")
+        || path.StartsWithSegments("/api/v1/payments/merchant-settings")
         || path.StartsWithSegments("/api/v1/payments/routing-rulesets");
 }

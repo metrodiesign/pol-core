@@ -41,15 +41,18 @@ public abstract class PspAdapterBase : IPspAdapter
     public abstract IReadOnlySet<string> SupportedMethods { get; }
 
     public abstract Task<PspProbeResult> TestConnectionAsync(
-        string secret, CancellationToken cancellationToken);
+        string secret, PspEnvironment environment, CancellationToken cancellationToken);
 
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken);
 
     public abstract bool VerifyWebhook(string rawPayload, string signature, string secret);
 
     public abstract Task<PspChargeConfirmation> FetchChargeAsync(
-        string externalChargeId, string secret, CancellationToken cancellationToken);
+        string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken);
+
+    public string CallbackUrlFor(Guid pspConnectionId) => WebhookUrlFor(pspConnectionId);
 
     public abstract WebhookEvent ParseWebhook(string rawPayload);
 

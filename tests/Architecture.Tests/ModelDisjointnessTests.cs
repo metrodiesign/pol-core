@@ -106,11 +106,14 @@ public sealed class ModelDisjointnessTests : IDisposable
         }
         Assert.True(duplicates.Count == 0, "Entity assigned to more than one runtime context: " + string.Join(", ", duplicates));
 
-        // Phantom: a runtime context maps something PolDbContext (the migration owner, which maps ALL tables)
-        // does not — would mean a runtime context invented a table with no migration behind it. Task 8.1
-        // closed PolDbContext's model catch-up (MerchantUserOutbox + ProvisioningOperation now mapped here
-        // too, ahead of task 8.2's migration), so no allowlist is needed anymore.
-        var phantoms = union.Except(polEntities).Select(t => t.FullName).OrderBy(n => n).ToList();
+        // The authorization lease is an intentional scalar-only second projection of existing admin.Users,
+        // not a new table owned by this CLR type. Every other runtime type must be migration-owned directly.
+        var sanctionedProjections = new HashSet<Type>
+        {
+            typeof(Persistence.MerchantRuntime.Payments.AdminAuthorizationLeaseRow),
+        };
+        var phantoms = union.Except(polEntities).Except(sanctionedProjections)
+            .Select(t => t.FullName).OrderBy(n => n).ToList();
         Assert.True(phantoms.Count == 0,
             "Entity mapped by a runtime context but not by PolDbContext (no migration owns it): " + string.Join(", ", phantoms));
     }

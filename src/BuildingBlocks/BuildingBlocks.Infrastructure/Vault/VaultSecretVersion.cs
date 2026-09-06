@@ -63,6 +63,7 @@ public sealed class VaultSecretVersion
         if (State != VaultSecretVersionState.Staged)
             throw new InvalidOperationException("Only a staged secret version can activate.");
         State = VaultSecretVersionState.Active;
+        ExpiresAt = null;
         ActivatedAt = now;
     }
 

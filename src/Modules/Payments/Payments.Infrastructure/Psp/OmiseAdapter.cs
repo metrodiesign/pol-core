@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Infrastructure.Psp;
 
@@ -40,10 +41,10 @@ public sealed class OmiseAdapter : PspAdapterBase
         new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
 
     public override async Task<PspProbeResult> TestConnectionAsync(
-        string secret, CancellationToken cancellationToken)
+        string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
-        GuardKeyEnvironment(creds.SecretKey);
+        GuardKeyEnvironment(creds.SecretKey, environment);
         var body = await SendWithRetryAsync(() =>
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"{Options.Omise.ApiBaseUrl}/account");
@@ -61,10 +62,11 @@ public sealed class OmiseAdapter : PspAdapterBase
     /// endpoint from the dashboard, not from the charge request, so the per-connection callback URL is an ops
     /// step in the deploy runbook rather than a request field (REQ-4.5).</summary>
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
-        GuardKeyEnvironment(creds.SecretKey);
+        GuardKeyEnvironment(creds.SecretKey, environment);
 
         var method = session.Method.Trim().ToLowerInvariant();
         return method switch
@@ -144,11 +146,11 @@ public sealed class OmiseAdapter : PspAdapterBase
     }
 
     public override async Task<PspChargeConfirmation> FetchChargeAsync(
-        string externalChargeId, string secret, CancellationToken cancellationToken)
+        string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(externalChargeId);
         var creds = ParseSecret(secret);
-        GuardKeyEnvironment(creds.SecretKey);
+        GuardKeyEnvironment(creds.SecretKey, environment);
 
         var body = await SendWithRetryAsync(() =>
         {
@@ -187,15 +189,15 @@ public sealed class OmiseAdapter : PspAdapterBase
         }
     }
 
-    /// <summary>Fails fast if the key's test/live prefix disagrees with UseSandbox — a sandbox config with
-    /// a live key (or vice versa) is a latent double-charge/auth bug. Names the mismatch, never the key.
-    /// Rejected, not ambiguous: it runs before the request goes out (REQ-7.5).</summary>
-    private void GuardKeyEnvironment(string secretKey)
+    /// <summary>Fails fast if the key's test/live prefix disagrees with the caller's pinned environment — a
+    /// sandbox merchant with a live key (or vice versa) is a latent double-charge/auth bug (REQ-2.5/4.8).
+    /// Names the mismatch, never the key. Rejected, not ambiguous: it runs before the request goes out.</summary>
+    private static void GuardKeyEnvironment(string secretKey, PspEnvironment environment)
     {
-        var isTestKey = secretKey.StartsWith("skey_test_", StringComparison.Ordinal);
-        if (isTestKey != Options.UseSandbox)
+        if (!OmiseSecretKeys.MatchesEnvironment(secretKey, environment))
             throw new PspRejectedException(
-                $"Omise key environment mismatch: UseSandbox={Options.UseSandbox} but the secret key is {(isTestKey ? "test" : "live")}.");
+                $"Omise key environment mismatch: environment is {environment.ToCode()} but the secret key is "
+                + $"{(OmiseSecretKeys.IsTestKey(secretKey) ? "test" : "live")}.");
     }
 
     private static AuthenticationHeaderValue BasicAuth(string secretKey) =>

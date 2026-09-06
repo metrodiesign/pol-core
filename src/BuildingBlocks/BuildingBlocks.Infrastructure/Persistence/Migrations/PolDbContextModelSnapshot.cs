@@ -1508,6 +1508,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<string>("Note")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("PaymentEnvironment")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("PaymentEnvironmentUpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("PendingPaymentEnvironment")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("PendingPaymentEnvironmentApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -1520,7 +1532,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Merchants", "merch");
+                    b.ToTable("Merchants", "merch", t =>
+                        {
+                            t.HasCheckConstraint("CK_Merchants_PendingPaymentEnvironment", "([PendingPaymentEnvironment] IS NULL AND [PendingPaymentEnvironmentApprovalId] IS NULL) OR ([PendingPaymentEnvironment] IS NOT NULL AND [PendingPaymentEnvironmentApprovalId] IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Merchants.Domain.Originator", b =>
@@ -2735,6 +2750,55 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Payments.Domain.ApprovalExecutionRecord", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("EventId");
+
+                    b.HasIndex("ApprovalId")
+                        .IsUnique();
+
+                    b.HasIndex("MerchantId", "CreatedAt");
+
+                    b.ToTable("ApprovalExecutionRecords", "txn");
+                });
+
             modelBuilder.Entity("Payments.Domain.Capabilities.MerchantPaymentMethod", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3442,6 +3506,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("ActiveSecretEnvironment")
+                        .HasColumnType("int");
+
                     b.Property<Guid?>("ActiveSecretVersionId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3478,6 +3545,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("PendingApprovalId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("PendingSecretEnvironment")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PendingSecretTestResult")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("PendingSecretTestedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<Guid?>("PendingSecretVersionId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3492,6 +3569,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("WebhookRegisteredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("WebhookRegisteredBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WebhookRegistrationHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
 
                     b.HasKey("Id");
 

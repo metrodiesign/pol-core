@@ -154,6 +154,7 @@ public sealed class PermissionGateSitesTests
         new("POST", "/api/v1/originators/{originatorId:guid}/enable", "admin", "merchant.manage"),
         new("POST", "/api/v1/originators/{originatorId:guid}/disable", "admin", "merchant.manage"),
         new("DELETE", "/api/v1/originators/{originatorId:guid}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/merchant-settings/{merchantId:guid}", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/psp-connections", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/psp-connections/{connectionId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/psp-connections", "admin", "settings.manage"),
@@ -255,7 +256,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_157_active_gate_sites_are_pinned() => Assert.Equal(157, Sites.Length);
+    public void Exactly_158_active_gate_sites_are_pinned() => Assert.Equal(158, Sites.Length);
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

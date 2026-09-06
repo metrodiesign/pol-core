@@ -32,8 +32,32 @@ public sealed class Connection : Entity<Guid>
     public DateTime CreatedAt { get; private set; }
 
     public Guid? ActiveSecretVersionId { get; private set; }
+
+    /// <summary>The endpoint family the active credential was issued for. Inherited from
+    /// <c>Merchant.PaymentEnvironment</c> at creation and kept equal to it by the control plane; the
+    /// runtime pins it per call so two merchants in different environments share one process (REQ-2.2/2.3).</summary>
+    public PspEnvironment ActiveSecretEnvironment { get; private set; }
+
     public Guid? PendingSecretVersionId { get; private set; }
+
+    /// <summary>The environment the staged candidate targets; null while nothing is pending.</summary>
+    public PspEnvironment? PendingSecretEnvironment { get; private set; }
+
     public Guid? PendingApprovalId { get; private set; }
+
+    /// <summary>"authenticated" / "probe_failed" from an optional read-only candidate test (REQ-7.8-7.11);
+    /// never the active credential's health.</summary>
+    public string? PendingSecretTestResult { get; private set; }
+
+    public DateTime? PendingSecretTestedAt { get; private set; }
+
+    /// <summary>SHA-256 (hex) of the callback URL an admin confirmed as registered at the PSP dashboard
+    /// (REQ-11.2). Null until acknowledged.</summary>
+    public string? WebhookRegistrationHash { get; private set; }
+
+    public DateTime? WebhookRegisteredAt { get; private set; }
+
+    public Guid? WebhookRegisteredBy { get; private set; }
     public PspConnectionHealth Health { get; private set; }
     public DateTime? LastTestedAt { get; private set; }
     public string? LastTestResult { get; private set; }
@@ -49,6 +73,7 @@ public sealed class Connection : Entity<Guid>
         string enabledMethods,
         string secretRefName,
         string? metadata,
+        PspEnvironment environment,
         DateTime createdAt)
         : base(id)
     {
@@ -60,12 +85,15 @@ public sealed class Connection : Entity<Guid>
         IsEnabled = true;
         CreatedAt = createdAt;
         Health = PspConnectionHealth.Unknown;
+        ActiveSecretEnvironment = environment;
         Version = 1;
     }
 
+    /// <summary><paramref name="enabledMethods"/> may be empty: a connection can exist with credentials only
+    /// so the provider can be tested before any capability is granted (REQ-3.3, design "zero-method").</summary>
     public void Update(string enabledMethods, string? metadata, bool isEnabled)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(enabledMethods);
+        ArgumentNullException.ThrowIfNull(enabledMethods);
         EnabledMethods = enabledMethods.Trim();
         Metadata = metadata;
         IsEnabled = isEnabled;
@@ -96,17 +124,18 @@ public sealed class Connection : Entity<Guid>
         Version++;
     }
 
-    public void SetInitialSecretVersion(Guid versionId)
+    public void SetInitialSecretVersion(Guid versionId, PspEnvironment environment)
     {
         if (versionId == Guid.Empty)
             throw new ArgumentException("Secret version is required.", nameof(versionId));
         if (ActiveSecretVersionId is not null)
             throw new InvalidOperationException("An active secret version already exists.");
         ActiveSecretVersionId = versionId;
+        ActiveSecretEnvironment = environment;
         Version++;
     }
 
-    public void StageSecretVersion(Guid versionId, Guid approvalId)
+    public void StageSecretVersion(Guid versionId, Guid approvalId, PspEnvironment environment)
     {
         if (versionId == Guid.Empty)
             throw new ArgumentException("Secret version is required.", nameof(versionId));
@@ -115,17 +144,37 @@ public sealed class Connection : Entity<Guid>
         if (PendingSecretVersionId is not null)
             throw new InvalidOperationException("A credential change is already pending.");
         PendingSecretVersionId = versionId;
+        PendingSecretEnvironment = environment;
         PendingApprovalId = approvalId;
+        PendingSecretTestResult = null;
+        PendingSecretTestedAt = null;
         Version++;
     }
 
+    /// <summary>Records an optional read-only probe of the staged candidate. Never touches the active
+    /// credential's health (REQ-7.10).</summary>
+    public void RecordPendingSecretTest(bool succeeded, DateTime testedAt)
+    {
+        if (PendingSecretVersionId is null)
+            throw new InvalidOperationException("No credential change is pending.");
+        PendingSecretTestResult = succeeded ? "authenticated" : "probe_failed";
+        PendingSecretTestedAt = testedAt;
+        Version++;
+    }
+
+    /// <summary>Promotes the candidate: it becomes the active version in ITS environment, and the active
+    /// health resets to <see cref="PspConnectionHealth.Unknown"/> — the candidate's test history is approval
+    /// evidence, not the new credential's health (design "Entity changes").</summary>
     public Guid ActivatePendingSecretVersion()
     {
         var candidate = PendingSecretVersionId
             ?? throw new InvalidOperationException("No credential change is pending.");
         ActiveSecretVersionId = candidate;
-        PendingSecretVersionId = null;
-        PendingApprovalId = null;
+        ActiveSecretEnvironment = PendingSecretEnvironment ?? ActiveSecretEnvironment;
+        ClearPending();
+        Health = PspConnectionHealth.Unknown;
+        LastTestedAt = null;
+        LastTestResult = null;
         Version++;
         return candidate;
     }
@@ -134,10 +183,31 @@ public sealed class Connection : Entity<Guid>
     {
         var candidate = PendingSecretVersionId
             ?? throw new InvalidOperationException("No credential change is pending.");
-        PendingSecretVersionId = null;
-        PendingApprovalId = null;
+        ClearPending();
         Version++;
         return candidate;
+    }
+
+    private void ClearPending()
+    {
+        PendingSecretVersionId = null;
+        PendingSecretEnvironment = null;
+        PendingApprovalId = null;
+        PendingSecretTestResult = null;
+        PendingSecretTestedAt = null;
+    }
+
+    /// <summary>Admin acknowledgement that <paramref name="callbackUrl"/> is registered at the PSP
+    /// dashboard (Omise live gate, REQ-11.2). Stores only a hash of the URL.</summary>
+    public void AcknowledgeWebhookRegistration(string callbackUrl, Guid actorId, DateTime at)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(callbackUrl);
+        WebhookRegistrationHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(callbackUrl.Trim())))
+            .ToLowerInvariant();
+        WebhookRegisteredAt = at;
+        WebhookRegisteredBy = actorId;
+        Version++;
     }
 
     public void RecordTest(bool succeeded, string result, DateTime testedAt)
@@ -149,22 +219,25 @@ public sealed class Connection : Entity<Guid>
         Version++;
     }
 
-    /// <summary>Creates an enabled PSP connection for a merchant.</summary>
+    /// <summary>Creates an enabled PSP connection for a merchant, inheriting <paramref name="environment"/>
+    /// from the merchant (REQ-2.2; defaults to sandbox so an unconfigured caller can never target live).
+    /// <paramref name="enabledMethods"/> may be empty (zero-method connection, REQ-3.3).</summary>
     public static Connection Create(
         Guid merchantId,
         Code psp,
         string enabledMethods,
         string secretRefName,
         DateTime createdAt,
-        string? metadata = null)
+        string? metadata = null,
+        PspEnvironment environment = PspEnvironment.Sandbox)
     {
         if (merchantId == Guid.Empty)
             throw new ArgumentException("MerchantId is required.", nameof(merchantId));
-        ArgumentException.ThrowIfNullOrWhiteSpace(enabledMethods);
+        ArgumentNullException.ThrowIfNull(enabledMethods);
         ArgumentException.ThrowIfNullOrWhiteSpace(secretRefName);
 
         return new Connection(
-            Guid.NewGuid(), merchantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAt);
+            Guid.NewGuid(), merchantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, environment, createdAt);
     }
 
     /// <summary>

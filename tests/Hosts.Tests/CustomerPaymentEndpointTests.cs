@@ -108,7 +108,8 @@ file sealed class FakeCustomerPspAdapter(PspChargeStatus fetchStatus, Money fetc
     public int Fetched { get; private set; }
 
     public Task<PspCharge> CreateRedirectChargeAsync(
-        PaymentSession session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+        PaymentSession session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken)
     {
         Charges++;
         return Task.FromResult(new PspCharge($"INV-{Charges}", $"https://2c2p.test/hosted/{Charges}"));
@@ -116,7 +117,7 @@ file sealed class FakeCustomerPspAdapter(PspChargeStatus fetchStatus, Money fetc
 
     public bool VerifyWebhook(string rawPayload, string signature, string secret) => throw new NotSupportedException();
 
-    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken)
+    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         Fetched++;
         return Task.FromResult(new PspChargeConfirmation(fetchStatus, fetchAmount));

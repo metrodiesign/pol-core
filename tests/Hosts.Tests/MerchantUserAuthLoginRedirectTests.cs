@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
@@ -55,13 +56,14 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
 
             // Static config -> the challenge builds the redirect without fetching the discovery document.
             services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Merchants.UserOidcAuthentication.SchemePrefix + "Microsoft", options =>
-                options.Configuration = new OpenIdConnectConfiguration
-                {
-                    Issuer = "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0",
-                    AuthorizationEndpoint = "https://viriyahexternal.ciamlogin.com/oauth2/v2.0/authorize",
-                    TokenEndpoint = "https://viriyahexternal.ciamlogin.com/oauth2/v2.0/token",
-                    JwksUri = "https://viriyahexternal.ciamlogin.com/discovery/v2.0/keys",
-                });
+                options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                    new OpenIdConnectConfiguration
+                    {
+                        Issuer = "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0",
+                        AuthorizationEndpoint = "https://viriyahexternal.ciamlogin.com/oauth2/v2.0/authorize",
+                        TokenEndpoint = "https://viriyahexternal.ciamlogin.com/oauth2/v2.0/token",
+                        JwksUri = "https://viriyahexternal.ciamlogin.com/discovery/v2.0/keys",
+                    }));
         });
     }
 }

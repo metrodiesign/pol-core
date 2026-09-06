@@ -76,6 +76,7 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<IPaymentAuthorizationLockManager>(sp =>
             sp.GetRequiredService<PaymentAuthorizationSqlLockManager>());
         services.AddScoped<AdminPaymentsControlStore>();
+        services.AddScoped<IMerchantRuntimeAuthorizationLease, MerchantRuntimeAuthorizationLease>();
         services.AddScoped<IAdminPaymentsControlStore>(sp => sp.GetRequiredService<AdminPaymentsControlStore>());
         services.AddScoped<IAccountPaymentCapabilityControlStore>(sp =>
             sp.GetRequiredService<AdminPaymentsControlStore>());

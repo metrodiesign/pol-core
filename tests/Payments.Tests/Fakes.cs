@@ -6,6 +6,7 @@ using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Tests;
 
@@ -152,7 +153,8 @@ internal sealed class FakePspAdapter : IPspAdapter
     public Guid ChargedConnectionId { get; private set; }
 
     public Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken)
     {
         ChargedConnectionId = pspConnectionId;
         return OnCreateCharge is null
@@ -173,7 +175,7 @@ internal sealed class FakePspAdapter : IPspAdapter
 
     public bool VerifyWebhook(string rawPayload, string signature, string secret) => WebhookVerifies;
 
-    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken) =>
+    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
         OnFetchCharge is null
             ? throw new NotSupportedException("This fake never fetches charges.")
             : Task.FromResult(OnFetchCharge(externalChargeId));

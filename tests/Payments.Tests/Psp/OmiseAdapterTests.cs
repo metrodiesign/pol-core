@@ -25,10 +25,10 @@ public sealed class OmiseAdapterTests
     private static readonly Guid ConnectionId = Guid.Parse("7c9e6679-7425-40de-944b-e07fc1f90ae7");
 
     private static (OmiseAdapter Adapter, StubHttpMessageHandler Handler) Build(
-        Func<HttpRequestMessage, string, HttpResponseMessage> responder, bool useSandbox = true)
+        Func<HttpRequestMessage, string, HttpResponseMessage> responder)
     {
         var handler = new StubHttpMessageHandler(responder);
-        var options = Options.Create(new PspOptions { UseSandbox = useSandbox });
+        var options = Options.Create(new PspOptions());
         return (new OmiseAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
@@ -51,7 +51,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) =>
             StubHttpMessageHandler.Json("""{"object":"account","id":"acct_test_1"}"""));
 
-        var result = await adapter.TestConnectionAsync(CardSecret, CancellationToken.None);
+        var result = await adapter.TestConnectionAsync(CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal("authenticated", result.Code);
         Assert.Single(handler.Calls);
@@ -67,7 +67,7 @@ public sealed class OmiseAdapterTests
             StubHttpMessageHandler.Json("""{"object":"charge","id":"chrg_test_1"}"""));
 
         await Assert.ThrowsAsync<PspRejectedException>(() =>
-            adapter.TestConnectionAsync(CardSecret, CancellationToken.None));
+            adapter.TestConnectionAsync(CardSecret, PspEnvironment.Sandbox, CancellationToken.None));
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
+        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal("chrg_test_1", charge.ExternalChargeId);
         Assert.Equal("https://omise.test/3ds", charge.RedirectUrl);
@@ -98,7 +98,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Contains(expected, handler.Calls[0].Body);
     }
@@ -113,7 +113,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.DoesNotContain(ConnectionId.ToString("D"), handler.Calls[0].Body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("webhooks", handler.Calls[0].Body, StringComparison.OrdinalIgnoreCase);
@@ -128,7 +128,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, PspEnvironment.Sandbox, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs before the non-idempotent POST
     }
 
@@ -140,7 +140,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, PspEnvironment.Sandbox, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -153,22 +153,38 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, PspEnvironment.Sandbox, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
     [Theory]
-    [InlineData("skey_live_xyz", true)]   // live key, sandbox config
-    [InlineData("skey_test_abc", false)]  // test key, production config
-    public async Task Charge_fails_fast_when_key_environment_mismatches_UseSandbox(string secretKey, bool useSandbox)
+    [InlineData("skey_live_xyz", PspEnvironment.Sandbox)]  // live key, sandbox merchant
+    [InlineData("skey_test_abc", PspEnvironment.Live)]     // test key, live merchant
+    public async Task Charge_fails_fast_when_key_environment_mismatches_pinned_environment(
+        string secretKey, PspEnvironment environment)
     {
         var session = MakeSession("card");
-        var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"), useSandbox);
+        var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
         var secret = $$"""{"secretKey":"{{secretKey}}"}""";
 
+        // merchant-psp-settings REQ-2.5/4.8: the mismatch is decided per call from the pinned environment,
+        // never from a process-wide flag, and BEFORE the non-idempotent POST.
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, secret, CancellationToken.None));
-        Assert.Equal(0, handler.CallCount); // guard runs BEFORE the non-idempotent POST
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, secret, environment, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task Live_key_is_accepted_for_a_live_merchant_in_the_same_process()
+    {
+        var (adapter, handler) = Build((_, _) =>
+            StubHttpMessageHandler.Json("""{"object":"account","id":"acct_live_1"}"""));
+
+        var result = await adapter.TestConnectionAsync(
+            """{"secretKey":"skey_live_xyz"}""", PspEnvironment.Live, CancellationToken.None);
+
+        Assert.Equal("authenticated", result.Code);
+        Assert.Single(handler.Calls);
     }
 
     [Theory]
@@ -182,7 +198,7 @@ public sealed class OmiseAdapterTests
     {
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json($$"""{"id":"chrg_test_1","status":"{{status}}"}"""));
 
-        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal(expected, confirmed.Status);
         Assert.EndsWith("/charges/chrg_test_1", handler.Calls[0].Uri!.AbsolutePath);
@@ -201,7 +217,7 @@ public sealed class OmiseAdapterTests
         var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json(
             $$"""{"id":"chrg_test_1","status":"successful","amount":{{minorUnits}},"currency":"{{currency}}"}"""));
 
-        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal(Money.Of((decimal)expected, currency), confirmed.Amount);
     }
@@ -219,7 +235,7 @@ public sealed class OmiseAdapterTests
         // contract must not be able to stop a real payment from being confirmed.
         var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json(body));
 
-        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Null(confirmed.Amount);
         Assert.Equal(PspChargeStatus.Paid, confirmed.Status);

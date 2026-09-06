@@ -6,6 +6,7 @@ namespace Payments.Application.AdminControlPlane;
 
 public sealed record AdminPaymentsAccess(
     Guid ActorId,
+    long AuthorizationVersion,
     bool IsUnrestricted,
     IReadOnlySet<Guid> MerchantIds)
 {
@@ -15,6 +16,11 @@ public sealed record AdminPaymentsAccess(
 public sealed class AdminPaymentsAccessDeniedException(string message) : Exception(message);
 public sealed class PaymentCapabilityUnavailableException(string message) : Exception(message);
 public sealed class PaymentAuthorizationBusyException(string message) : Exception(message);
+
+public interface IMerchantRuntimeAuthorizationLease
+{
+    Task VerifyAsync(AdminPaymentsAccess access, CancellationToken cancellationToken);
+}
 public sealed class PspConnectionTestFailedException(PspConnectionView connection) : Exception("PSP connection test failed.")
 {
     public PspConnectionView Connection { get; } = connection;
@@ -29,6 +35,15 @@ public sealed record PspConnectionQuery(
     string? Health,
     AdminPaymentsAccess Access);
 
+/// <summary>Result of an optional read-only probe of a staged candidate credential (REQ-7.8/7.9).</summary>
+public sealed record PspCredentialTestView(string Result, DateTime TestedAt);
+
+/// <summary>Whether an admin confirmed the connection's callback URL is registered at the PSP (REQ-11.2).</summary>
+public sealed record WebhookRegistrationView(bool Acknowledged, DateTime? AcknowledgedAt);
+
+/// <summary>Safe projection of a connection: masked hints only, never a secret or the vault envelope.
+/// <c>Environment</c> is the merchant's (inherited, REQ-2.2); <c>CredentialEnvironment</c> is what the active
+/// credential was issued for; <c>CallbackUrl</c> carries no secret (REQ-11.1).</summary>
 public sealed record PspConnectionView(
     Guid PspConnectionId,
     Guid MerchantId,
@@ -43,6 +58,21 @@ public sealed record PspConnectionView(
     IReadOnlyDictionary<string, bool> Capabilities,
     bool HasPendingCredentialChange,
     DateTime CreatedAt,
+    long Version,
+    string Environment,
+    string CredentialEnvironment,
+    string CallbackUrl,
+    PspCredentialTestView? PendingCredentialTest,
+    WebhookRegistrationView WebhookRegistration);
+
+/// <summary>The merchant-level payment environment (REQ-2.1) with its pending switch, if any. <c>Version</c>
+/// is <c>Merchant.Version</c> — the ETag an environment-change request must present.</summary>
+public sealed record MerchantPaymentSettingsView(
+    Guid MerchantId,
+    string Environment,
+    string? PendingEnvironment,
+    Guid? PendingApprovalId,
+    DateTime UpdatedAt,
     long Version);
 
 public sealed record CreatePspConnectionIntent(
@@ -267,6 +297,9 @@ public sealed record RoutingActivationResult(Guid ApprovalId, RoutingRulesetView
 
 public interface IAdminPaymentsControlStore
 {
+    /// <summary>Null when the merchant does not exist OR is outside the admin's scope (REQ-1.4: 404 either way).</summary>
+    Task<MerchantPaymentSettingsView?> GetMerchantPaymentSettingsAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);
     Task<PagedResult<PspConnectionView>> ListConnectionsAsync(PspConnectionQuery query, CancellationToken cancellationToken);
     Task<PspConnectionView?> GetConnectionAsync(Guid connectionId, Guid? merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);
     Task<PspConnectionMutationResult> CreateConnectionAsync(CreatePspConnectionIntent intent, CancellationToken cancellationToken);

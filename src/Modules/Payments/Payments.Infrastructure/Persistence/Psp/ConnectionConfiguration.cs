@@ -32,6 +32,13 @@ public sealed class ConnectionConfiguration : IEntityTypeConfiguration<Connectio
         builder.Property(x => x.Health).HasConversion<int>().IsRequired();
         builder.Property(x => x.LastTestResult).HasMaxLength(500);
         builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
+        builder.Property(x => x.ActiveSecretEnvironment).HasConversion<int>().IsRequired();
+        builder.Property(x => x.PendingSecretEnvironment).HasConversion<int?>();
+        builder.Property(x => x.PendingSecretTestResult).HasMaxLength(64);
+        builder.Property(x => x.PendingSecretTestedAt);
+        builder.Property(x => x.WebhookRegistrationHash).HasMaxLength(64).IsFixedLength();
+        builder.Property(x => x.WebhookRegisteredAt);
+        builder.Property(x => x.WebhookRegisteredBy);
 
         builder.HasIndex(x => new { x.MerchantId, x.Psp }).IsUnique();
         builder.HasIndex(x => new { x.MerchantId, x.PaymentProviderId }).IsUnique()

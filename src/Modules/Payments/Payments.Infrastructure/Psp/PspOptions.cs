@@ -13,7 +13,9 @@ public sealed class PspOptions
     /// <summary>Stable PSP code selected for customer payment links.</summary>
     public string DefaultCode { get; set; } = "2c2p";
 
-    /// <summary>When true, adapters target each PSP's sandbox/test surface. Default true (safe).</summary>
+    /// <summary>RETIRED at runtime (merchant-psp-settings task 2): adapters no longer read this — the endpoint
+    /// family comes from the merchant's <c>PaymentEnvironment</c> pinned per call (REQ-2.3/2.4). Kept bound
+    /// only so task 9 can bootstrap existing merchants from the old global value before the key is removed.</summary>
     public bool UseSandbox { get; set; } = true;
 
     /// <summary>This API's public origin (e.g. <c>https://api.example.com</c>), the base every
@@ -29,7 +31,7 @@ public sealed class PspOptions
     public OmiseOptions Omise { get; set; } = new();
 }
 
-/// <summary>2C2P has two distinct hosts; the active one is chosen by <see cref="PspOptions.UseSandbox"/>.</summary>
+/// <summary>2C2P has two distinct hosts; the active one is chosen per call by the pinned <c>PspEnvironment</c>.</summary>
 public sealed class TwoCTwoPOptions
 {
     public string SandboxBaseUrl { get; set; } = "https://sandbox-pgw.2c2p.com";

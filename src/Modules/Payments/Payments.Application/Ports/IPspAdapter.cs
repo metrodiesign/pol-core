@@ -1,5 +1,6 @@
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Application.Ports;
 
@@ -22,9 +23,17 @@ public interface IPspAdapter
     /// </summary>
     IReadOnlySet<string> SupportedMethods { get; }
 
-    /// <summary>Runs a read-only authenticated provider probe. No fake success and no charge creation.</summary>
-    Task<PspProbeResult> TestConnectionAsync(string secret, CancellationToken cancellationToken) =>
+    /// <summary>Runs a read-only authenticated provider probe against <paramref name="environment"/>'s
+    /// endpoint family. No fake success and no charge creation (REQ-7.1/7.2).</summary>
+    Task<PspProbeResult> TestConnectionAsync(
+        string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
         throw new NotSupportedException("This PSP adapter does not implement a connection probe.");
+
+    /// <summary>The per-connection backend-notification URL a PSP must call back on
+    /// (<c>{PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}</c>). Safe to display: carries no secret
+    /// (REQ-11.1). The default is the route alone (no origin) for adapters/doubles that do not know the
+    /// public base URL; the real adapters override it with the absolute URL.</summary>
+    string CallbackUrlFor(Guid pspConnectionId) => $"/api/v1/webhooks/{pspConnectionId:D}";
 
     /// <summary>
     /// Creates a hosted charge for the session and returns its external id + hosted redirect URL.
@@ -33,9 +42,12 @@ public interface IPspAdapter
     /// backend-notification URL a PSP calls back on must carry (<c>/api/v1/webhooks/{pspConnectionId}</c>),
     /// so a confirmation reaches the handler and stays isolated to that company. Only the id is passed —
     /// an adapter has no business seeing the connection's secret ref or enabled methods.
+    /// <paramref name="environment"/> selects the sandbox/live endpoint family PER CALL (never from host
+    /// config) so merchants in different environments share one runtime (REQ-2.3/2.4).
     /// </summary>
     Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken);
 
     /// <summary>Verifies a webhook signature against the raw payload using the connection's secret.</summary>
     bool VerifyWebhook(string rawPayload, string signature, string secret);
@@ -44,7 +56,8 @@ public interface IPspAdapter
     /// collected (fetch-to-confirm). Never trusts the webhook body alone. The amount is what lets the
     /// caller check the collection against the order that backs it — see
     /// <see cref="PspChargeConfirmation"/> for why it is nullable.</summary>
-    Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken);
+    Task<PspChargeConfirmation> FetchChargeAsync(
+        string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken);
 
     /// <summary>Parses a verified webhook payload into the normalized <see cref="WebhookEvent"/>.</summary>
     WebhookEvent ParseWebhook(string rawPayload);

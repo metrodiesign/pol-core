@@ -37,6 +37,20 @@ public sealed class Merchant : AggregateRoot<Guid>
     /// <summary>Allowlisted non-secret config as canonical JSON.</summary>
     public string Metadata { get; private set; } = default!;
 
+    /// <summary>The PSP endpoint family every connection of this merchant inherits (merchant-psp-settings
+    /// REQ-2.1/2.2): the single source of truth — connections never store their own copy of the target,
+    /// only the environment their ACTIVE credential was issued for, which the control plane keeps equal to
+    /// this. New merchants start in sandbox; going live is a maker-checker switch (task 7).</summary>
+    public PspEnvironment PaymentEnvironment { get; private set; }
+
+    /// <summary>The environment a pending switch targets; null when none is pending. Set/cleared together
+    /// with <see cref="PendingPaymentEnvironmentApprovalId"/> (DB CHECK).</summary>
+    public PspEnvironment? PendingPaymentEnvironment { get; private set; }
+
+    public Guid? PendingPaymentEnvironmentApprovalId { get; private set; }
+
+    public DateTime PaymentEnvironmentUpdatedAt { get; private set; }
+
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Merchant() { }
 
@@ -52,6 +66,8 @@ public sealed class Merchant : AggregateRoot<Guid>
         Metadata = MerchantMetadataCodec.Canonicalize(metadata);
         Status = MerchantStatus.Active;
         CreatedAt = createdAt;
+        PaymentEnvironment = PspEnvironment.Sandbox;
+        PaymentEnvironmentUpdatedAt = createdAt;
         Version = 1;
     }
 
@@ -119,6 +135,45 @@ public sealed class Merchant : AggregateRoot<Guid>
         if (string.Equals(EnabledChannels, projected, StringComparison.Ordinal))
             return;
         EnabledChannels = projected;
+        Version++;
+    }
+
+    /// <summary>Stages a maker-checker environment switch (REQ-2.11/2.12). One pending switch at a time.</summary>
+    public void StagePaymentEnvironment(PspEnvironment target, Guid approvalId)
+    {
+        if (approvalId == Guid.Empty)
+            throw new ArgumentException("ApprovalId is required.", nameof(approvalId));
+        if (PendingPaymentEnvironment is not null)
+            throw new InvalidOperationException("A payment environment change is already pending.");
+        if (target == PaymentEnvironment)
+            throw new InvalidOperationException("The merchant already uses the requested payment environment.");
+        PendingPaymentEnvironment = target;
+        PendingPaymentEnvironmentApprovalId = approvalId;
+        Version++;
+    }
+
+    /// <summary>Applies the pending switch (checker approved). Only the caller's transaction — which also
+    /// activates every connection's candidate credential — makes this atomic (REQ-2.14).</summary>
+    public PspEnvironment ActivatePendingPaymentEnvironment(DateTime activatedAt)
+    {
+        var target = PendingPaymentEnvironment
+            ?? throw new InvalidOperationException("No payment environment change is pending.");
+        PaymentEnvironment = target;
+        PaymentEnvironmentUpdatedAt = activatedAt;
+        PendingPaymentEnvironment = null;
+        PendingPaymentEnvironmentApprovalId = null;
+        Version++;
+        return target;
+    }
+
+    /// <summary>Drops the pending switch (checker rejected or candidates expired); the active environment
+    /// is untouched (REQ-2.15).</summary>
+    public void RejectPendingPaymentEnvironment()
+    {
+        if (PendingPaymentEnvironment is null)
+            throw new InvalidOperationException("No payment environment change is pending.");
+        PendingPaymentEnvironment = null;
+        PendingPaymentEnvironmentApprovalId = null;
         Version++;
     }
 

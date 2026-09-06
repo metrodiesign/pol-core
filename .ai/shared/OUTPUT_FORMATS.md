@@ -7,6 +7,10 @@ Use these shapes. Where a fillable template exists under [`../templates/`](../te
 start from it rather than re-deriving the structure. Keep prose concise and
 engineering-focused.
 
+ก่อนสร้างหรือแก้ผลลัพธ์ทุกชนิดในหน้านี้ ให้ใช้
+[นโยบายภาษาของผลลัพธ์](TASK_PROTOCOL.md#ภาษาของผลลัพธ์): เติม placeholder ที่เป็นข้อความอธิบาย
+ด้วยภาษาไทย คงหัวข้อบังคับ, schema keys, enum และรูปแบบที่เครื่องอ่านตาม template เดิม
+
 ## Implementation plan
 
 What you will build before you build it. See

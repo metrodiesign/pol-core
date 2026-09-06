@@ -11,6 +11,7 @@ using Payments.Domain.Psp;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Payments;
 using Persistence.MerchantRuntime.Payments.Capabilities;
+using SharedKernel;
 
 namespace Integration.Tests;
 
@@ -360,12 +361,13 @@ public sealed class EffectivePaymentCapabilityResolverIntegrationTests
         public Code Psp => psp;
         public IReadOnlySet<string> SupportedMethods { get; } = supported.ToHashSet(StringComparer.Ordinal);
         public Task<PspCharge> CreateRedirectChargeAsync(
-            Payments.Domain.Session session, Guid pspConnectionId, string secret, CancellationToken ct) =>
+            Payments.Domain.Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken ct) =>
             throw new NotSupportedException();
         public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
             throw new NotSupportedException();
         public Task<PspChargeConfirmation> FetchChargeAsync(
-            string externalChargeId, string secret, CancellationToken ct) => throw new NotSupportedException();
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken ct) => throw new NotSupportedException();
         public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }
 }

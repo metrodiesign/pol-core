@@ -173,7 +173,8 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             .SingleOrDefaultAsync(x => x.Id == versionId && x.MerchantId == merchantId, ct), cancellationToken)
             ?? throw new KeyNotFoundException("Vault secret version was not found.");
         if (version.State is VaultSecretVersionState.Discarded
-            || version.ExpiresAt is { } expiry && expiry <= _clock.UtcNow)
+            || version.State is VaultSecretVersionState.Staged
+                && version.ExpiresAt is { } expiry && expiry <= _clock.UtcNow)
             throw new InvalidOperationException("Vault secret version is not readable.");
 
         var masterKey = _keyring.ResolveOrNull(version.SecretKey)

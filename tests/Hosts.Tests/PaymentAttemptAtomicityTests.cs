@@ -136,10 +136,11 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
             public Code Psp => Code.TwoCTwoP;
             public IReadOnlySet<string> SupportedMethods { get; } = new HashSet<string> { PaymentMethods.Card };
             public Task<PspCharge> CreateRedirectChargeAsync(
-                Payments.Domain.Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken) =>
+                Payments.Domain.Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken) =>
                 throw new NotSupportedException();
             public Task<PspChargeConfirmation> FetchChargeAsync(
-                string externalChargeId, string secret, CancellationToken cancellationToken) =>
+                string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
                 throw new NotSupportedException();
             public bool VerifyWebhook(string rawPayload, string signature, string secret) => false;
             public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();

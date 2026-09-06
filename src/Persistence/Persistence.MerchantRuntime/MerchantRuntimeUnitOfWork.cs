@@ -26,6 +26,13 @@ internal sealed class MerchantRuntimeUnitOfWork : IUnitOfWork
         }
         catch (DbUpdateConcurrencyException ex)
         {
+            if (ex.Entries.Any(x => x.Entity is Payments.AdminAuthorizationLeaseRow))
+            {
+                Emit(DenialCategory.AdminRevalidationDenial,
+                    "Admin authorization changed before the Merchant Runtime transaction committed.");
+                throw new AccessDeniedException(
+                    "Admin authorization changed; refresh the session.", "authorization_stale");
+            }
             // Translate the provider-specific concurrency failure into an application-layer signal so
             // handlers can react without referencing EF Core.
             Emit(DenialCategory.ConcurrencyConflict, "A stale/forged concurrency token was rejected at commit.");

@@ -85,4 +85,45 @@ public sealed class MerchantTests
     public void Create_rejects_non_allowlisted_or_invalid_metadata(string metadata) =>
         Assert.ThrowsAny<Exception>(() => Merchant.Create(
             "vcommerce", "vCommerce", null, "TH", "THB", [], metadata, Now));
+
+    [Fact]
+    public void New_merchant_starts_in_sandbox_with_no_pending_environment_switch()
+    {
+        var m = CreateValid();
+
+        // merchant-psp-settings REQ-2.1: the merchant is the single source of truth and the safe default is sandbox.
+        Assert.Equal(SharedKernel.PspEnvironment.Sandbox, m.PaymentEnvironment);
+        Assert.Null(m.PendingPaymentEnvironment);
+        Assert.Null(m.PendingPaymentEnvironmentApprovalId);
+        Assert.Equal(Now, m.PaymentEnvironmentUpdatedAt);
+    }
+
+    [Fact]
+    public void Environment_switch_is_staged_then_activated_or_rejected_atomically_on_the_aggregate()
+    {
+        var m = CreateValid();
+        var approval = Guid.NewGuid();
+
+        m.StagePaymentEnvironment(SharedKernel.PspEnvironment.Live, approval);
+        Assert.Equal(SharedKernel.PspEnvironment.Sandbox, m.PaymentEnvironment);   // not yet applied
+        Assert.Equal(SharedKernel.PspEnvironment.Live, m.PendingPaymentEnvironment);
+        Assert.Equal(approval, m.PendingPaymentEnvironmentApprovalId);
+        Assert.Throws<InvalidOperationException>(() =>
+            m.StagePaymentEnvironment(SharedKernel.PspEnvironment.Live, Guid.NewGuid())); // one pending at a time
+
+        var activatedAt = Now.AddHours(1);
+        Assert.Equal(SharedKernel.PspEnvironment.Live, m.ActivatePendingPaymentEnvironment(activatedAt));
+        Assert.Equal(SharedKernel.PspEnvironment.Live, m.PaymentEnvironment);
+        Assert.Equal(activatedAt, m.PaymentEnvironmentUpdatedAt);
+        Assert.Null(m.PendingPaymentEnvironment);
+        Assert.Null(m.PendingPaymentEnvironmentApprovalId);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            m.StagePaymentEnvironment(SharedKernel.PspEnvironment.Live, Guid.NewGuid())); // already live
+
+        m.StagePaymentEnvironment(SharedKernel.PspEnvironment.Sandbox, Guid.NewGuid());
+        m.RejectPendingPaymentEnvironment();
+        Assert.Equal(SharedKernel.PspEnvironment.Live, m.PaymentEnvironment);        // REQ-2.15: unchanged
+        Assert.Null(m.PendingPaymentEnvironment);
+    }
 }

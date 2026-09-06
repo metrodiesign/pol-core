@@ -133,7 +133,7 @@ public sealed class PaymentConfirmationService
         access ??= await ResolveAccessAsync(session, cancellationToken).ConfigureAwait(false);
 
         var confirmed = await _adapters.For(session.Psp)
-            .FetchChargeAsync(chargeId, access.Secret, cancellationToken)
+            .FetchChargeAsync(chargeId, access.Secret, access.Connection.ActiveSecretEnvironment, cancellationToken)
             .ConfigureAwait(false);
 
         return confirmed.Status switch
