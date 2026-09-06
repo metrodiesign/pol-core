@@ -3,7 +3,6 @@ using Mediator;
 using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
 using Payments.Application.Ports;
-using Payments.Application.Ports.Psp;
 using Payments.Domain;
 using Payments.Domain.Psp;
 using SharedKernel;
@@ -12,12 +11,18 @@ namespace Payments.Application.CreateSession;
 
 /// <summary>
 /// Persists a new <see cref="Session"/> in the <see cref="SessionStatus.Created"/> state, priced from the
-/// order and only for a channel this merchant's connection AND our adapter can actually charge.
+/// order and routed to a PSP the server itself selects (REQ-6.8-6.18) — no caller supplies the connection.
 ///
 /// Every check lives here rather than at the endpoint because the endpoint is only today's single entry
 /// point, while "the amount is the order's own" is an invariant every caller must pass. The order of the
 /// checks is itself contract: it decides which status code a caller sees (400 malformed method, 404 unknown
 /// order, 409 for every server-state refusal), so it must not be rearranged.
+///
+/// Routing is selected LATE — inside the mint transaction, under the merchant shared lock, and only when a
+/// brand-new session is minted. A resume or a confirm re-uses the session already attached to the order and
+/// never re-routes, so a settings change between attempts can never turn a resumable session into a refusal
+/// (REQ-2.8-2.10). The selected connection, secret version and environment are pinned onto the session at
+/// <see cref="Session.Create"/> time.
 ///
 /// The one-open-session rule is released lazily rather than by a sweeper: an order whose previous attempt
 /// aged past <see cref="Session.OpenTtl"/> gets it retired HERE, at the only moment it blocks anyone
@@ -28,8 +33,6 @@ public sealed class CreateSessionHandler
     : ICommandHandler<CreateSessionCommand, CreateSessionResult>
 {
     private readonly IPayableOrderReader _orders;
-    private readonly IConnectionRepository _connections;
-    private readonly IPspAdapterFactory _adapters;
     private readonly ISessionRepository _sessions;
     private readonly PaymentConfirmationService _confirmation;
     private readonly IDocumentSaleProbe _documentSales;
@@ -37,22 +40,20 @@ public sealed class CreateSessionHandler
     private readonly IClock _clock;
     private readonly IPaymentAuthorizationLockManager _authorizationLocks;
     private readonly IEffectivePaymentCapabilityResolver _capabilities;
+    private readonly IPaymentRouteSelector _routeSelector;
 
     public CreateSessionHandler(
         IPayableOrderReader orders,
-        IConnectionRepository connections,
-        IPspAdapterFactory adapters,
         ISessionRepository sessions,
         PaymentConfirmationService confirmation,
         IDocumentSaleProbe documentSales,
         IUnitOfWork unitOfWork,
         IClock clock,
         IPaymentAuthorizationLockManager authorizationLocks,
-        IEffectivePaymentCapabilityResolver capabilities)
+        IEffectivePaymentCapabilityResolver capabilities,
+        IPaymentRouteSelector routeSelector)
     {
         _orders = orders;
-        _connections = connections;
-        _adapters = adapters;
         _sessions = sessions;
         _confirmation = confirmation;
         _documentSales = documentSales;
@@ -60,6 +61,7 @@ public sealed class CreateSessionHandler
         _clock = clock;
         _authorizationLocks = authorizationLocks;
         _capabilities = capabilities;
+        _routeSelector = routeSelector;
     }
 
     public async ValueTask<CreateSessionResult> Handle(
@@ -84,27 +86,6 @@ public sealed class CreateSessionHandler
 
         await EnsureNoDocumentSoldElsewhereAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
 
-        var connection = await _connections.GetAsync(command.MerchantId, command.Psp, cancellationToken).ConfigureAwait(false)
-            ?? throw new ConflictException(
-                $"No PSP connection for merchant {command.MerchantId} and PSP {command.Psp}.",
-                "psp-unavailable");
-
-        // The company's commercial arrangement (connection) and what our adapter can actually drive today
-        // are two different sets; a method has to clear both, or the customer gets sent down another channel.
-        try
-        {
-            connection.EnsureEligible(method);
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw new ConflictException(exception.Message, "psp-unavailable", exception);
-        }
-
-        if (!_adapters.For(command.Psp).SupportedMethods.Contains(method))
-            throw new ConflictException(
-                $"The {command.Psp} adapter cannot honour method '{method}'.",
-                "psp-unavailable");
-
         var open = await _sessions.GetOpenForOrderAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
 
         if (open is not null && open.IsExpiredAt(_clock.UtcNow))
@@ -124,8 +105,9 @@ public sealed class CreateSessionHandler
         if (open is not null)
         {
             // Same channel: hand back the existing session instead of minting a second chargeable one. A
-            // customer who abandoned the PSP page can then resume on the very same hosted charge.
-            if (string.Equals(open.Method, orderMethod, StringComparison.Ordinal) && open.Psp == command.Psp)
+            // customer who abandoned the PSP page can then resume on the very same hosted charge. The PSP is
+            // NOT compared — the session's route is pinned, so a routing change never blocks a resume.
+            if (string.Equals(open.Method, orderMethod, StringComparison.Ordinal))
             {
                 if (open.Status == SessionStatus.Redirected)
                     return new CreateSessionResult(open.Id);
@@ -175,6 +157,9 @@ public sealed class CreateSessionHandler
     /// refuses. Always called BEFORE the session row is added — both paths acquire the order row first,
     /// which is what makes them deadlock-free. Returns the locked row's amount so the mint prices from the
     /// same read that proved the order mintable.
+    /// <para>Route selection runs here, LATE and only for a brand-new mint, under the merchant shared lock
+    /// this method already holds (AC-4.1) — an environment activation (task 7) takes the same merchant lock
+    /// exclusively, so the two serialize (AC-4.8).</para>
     /// </summary>
     private async Task<MintResult> MintUnderOrderLockAsync(
         CreateSessionCommand command,
@@ -204,11 +189,11 @@ public sealed class CreateSessionHandler
 
             if (sessionToConfirm.Status is SessionStatus.Created or SessionStatus.Redirected)
             {
-                if (sessionToConfirm.Psp == command.Psp
-                    && string.Equals(sessionToConfirm.Method, orderMethod, StringComparison.Ordinal))
+                // Method-only: the attached session's route is pinned and must not be re-selected on resume.
+                if (string.Equals(sessionToConfirm.Method, orderMethod, StringComparison.Ordinal))
                 {
                     if (sessionToConfirm.Status == SessionStatus.Created)
-                        await EnsureAuthorizedAsync(locked, command.Psp, cancellationToken);
+                        await EnsureAuthorizedAsync(locked, sessionToConfirm.Psp, cancellationToken);
                     return new MintResult(sessionToConfirm.Id, null);
                 }
 
@@ -223,14 +208,22 @@ public sealed class CreateSessionHandler
                 return new MintResult(null, outcome);
         }
 
-        await EnsureAuthorizedAsync(locked, command.Psp, cancellationToken);
+        // Select the route now, under the lock, for this new attempt only. The selector refuses (409) when
+        // no eligible primary/fallback covers the method (REQ-6.18) — surfaced to the caller unchanged.
+        var selection = await _routeSelector
+            .SelectAsync(command.MerchantId, command.OrderId, orderMethod, cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureAuthorizedAsync(locked, selection.Psp, cancellationToken);
 
         var session = Session.Create(
             command.MerchantId,
             command.OrderId,
             locked.Amount,
             orderMethod,
-            command.Psp,
+            selection.Psp,
+            selection.PspConnectionId,
+            selection.SecretVersionId,
+            selection.Environment,
             _clock.UtcNow);
 
         await _orders.AttachAttemptAsync(
@@ -258,14 +251,14 @@ public sealed class CreateSessionHandler
         EnsureMethodMatches(method, RequireOrderMethod(locked));
 
         var session = await _sessions.GetByIdAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        // Method-only: a resume re-uses the session's pinned route, never re-selecting on current settings.
         if (session is null
             || session.Status != SessionStatus.Created
-            || session.Psp != command.Psp
             || !string.Equals(session.Method, method, StringComparison.Ordinal))
             throw new ConflictException(
                 $"Order {command.OrderId} no longer has the requested open payment session.");
 
-        await EnsureAuthorizedAsync(locked, command.Psp, cancellationToken).ConfigureAwait(false);
+        await EnsureAuthorizedAsync(locked, session.Psp, cancellationToken).ConfigureAwait(false);
         return new MintResult(session.Id, null);
     }
 

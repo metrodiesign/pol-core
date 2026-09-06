@@ -131,9 +131,29 @@ file sealed class FakeAdapterFactory(IPspAdapter adapter) : IPspAdapterFactory
     public IPspAdapter For(Code psp) => adapter;
 }
 
+// The server is the sole routing authority (REQ-6.8): mirrors the real selector's local eligibility over
+// the in-memory connection so these composition tests exercise the same create -> route -> pin -> redirect
+// path. Refuses (routing_unavailable) when no usable connection exists, exactly as the real selector does.
+file sealed class FakeCustomerRouteSelector(IConnectionRepository connections) : IPaymentRouteSelector
+{
+    public async Task<PspRouteSelection> SelectAsync(
+        Guid merchantId, Guid orderId, string method, CancellationToken cancellationToken)
+    {
+        var connection = await connections.GetAsync(merchantId, Code.TwoCTwoP, cancellationToken);
+        if (connection is null || !connection.IsEnabled || !connection.Supports(method))
+            throw new ConflictException("No active routing rule can serve this payment.", "routing_unavailable");
+        return new PspRouteSelection(
+            connection.Id, connection.Psp,
+            connection.ActiveSecretVersionId ?? Guid.NewGuid(), connection.ActiveSecretEnvironment);
+    }
+}
+
 file sealed class FakeVault : IVaultSecretStore
 {
     public Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
+        Task.FromResult("psp-test-secret");
+
+    public Task<string> ReadVersionForServerAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
         Task.FromResult("psp-test-secret");
 
     public Task StoreAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken) =>
@@ -234,6 +254,8 @@ file sealed class CustomerFactory(
             services.AddScoped<ISessionRepository>(_ => new FakePaymentSessions(sessions));
             services.AddScoped<IConnectionRepository>(_ => new FakeConnections(
                 summary?.MerchantId ?? Guid.Empty, enabledMethods));
+            services.AddScoped<IPaymentRouteSelector>(sp =>
+                new FakeCustomerRouteSelector(sp.GetRequiredService<IConnectionRepository>()));
             services.AddScoped<IPspAdapterFactory>(_ => new FakeAdapterFactory(adapter));
             services.AddScoped<IVaultSecretStore>(_ => new FakeVault());
             services.AddScoped<IIdempotencyStore>(_ => new FakeIdempotency());

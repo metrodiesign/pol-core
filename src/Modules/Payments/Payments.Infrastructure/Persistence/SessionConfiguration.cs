@@ -15,7 +15,12 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 {
     public void Configure(EntityTypeBuilder<Session> builder)
     {
-        builder.ToTable("PaymentSessions", SchemaNames.Txn);
+        // The routing snapshot CHECK is declared on the table: a version-1 row must carry every pinned field,
+        // and version 0 exists only for legacy rows (REQ-2.9, design 567). Kept identical in the runtime
+        // mirror; this owner copy is the one the migration emits.
+        builder.ToTable("PaymentSessions", SchemaNames.Txn, t => t.HasCheckConstraint(
+            "CK_PaymentSessions_RoutingSnapshotV1",
+            "[RoutingSnapshotVersion] <> 1 OR ([PspConnectionId] IS NOT NULL AND [SecretVersionId] IS NOT NULL AND [PspEnvironment] IS NOT NULL)"));
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.MerchantId).IsRequired();
@@ -29,6 +34,10 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 
         builder.Property(x => x.Method).HasMaxLength(32).IsRequired();
         builder.Property(x => x.Psp).IsRequired();
+        builder.Property(x => x.PspConnectionId);
+        builder.Property(x => x.SecretVersionId);
+        builder.Property(x => x.PspEnvironment);
+        builder.Property(x => x.RoutingSnapshotVersion).IsRequired();
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.PspExternalChargeId).HasMaxLength(256);
         builder.Property(x => x.RedirectUrl).HasMaxLength(2048);

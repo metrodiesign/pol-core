@@ -38,7 +38,7 @@ public sealed class PaymentConfirmationServiceTests
     /// <paramref name="withCharge"/> says the redirect never produced one.</summary>
     private static Session NewSession(bool withCharge = true)
     {
-        var session = Session.Create(MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP, Created);
+        var session = Session.Create(MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         session.BeginRedirect(Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Created);

@@ -110,22 +110,26 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         else
         {
             // Existing claim may already represent an external charge. Current authorization state cannot
-            // cancel it; load only routing material and settle under the same Session idempotency key.
-            connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken)
-                .ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
+            // cancel it; load only routing material (the pinned connection) and settle under the same Session
+            // idempotency key.
+            connection = await LoadPinnedConnectionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
         // Both failure paths below may only fail the session while `!settlingClaim`: on the settling path a
         // charge may already exist at the PSP, and a failed session lets the order open a replacement whose id
         // is a new idempotency key — a second charge (REQ-7.5).
+        // The secret and environment come from the SESSION SNAPSHOT (REQ-2.8-2.10): a rotation or environment
+        // switch after this attempt was created must not move it, so a version-1 session reads its pinned
+        // secret version, never the connection's current active one. A legacy version-0 session (null
+        // snapshot) falls back to the connection's active version / secret ref.
         string secret;
         try
         {
-            secret = connection.ActiveSecretVersionId is { } versionId
-                ? await _vault.ReadVersionForServerAsync(session.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
-                : await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+            secret = session.SecretVersionId is { } pinnedVersion
+                ? await _vault.ReadVersionForServerAsync(session.MerchantId, pinnedVersion, cancellationToken).ConfigureAwait(false)
+                : connection.ActiveSecretVersionId is { } versionId
+                    ? await _vault.ReadVersionForServerAsync(session.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
+                    : await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!settlingClaim)
         {
@@ -139,8 +143,9 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         PspCharge charge;
         try
         {
+            var environment = session.PspEnvironment ?? connection.ActiveSecretEnvironment;
             charge = await _adapters.For(session.Psp)
-                .CreateRedirectChargeAsync(session, connection.Id, secret, connection.ActiveSecretEnvironment, cancellationToken)
+                .CreateRedirectChargeAsync(session, connection.Id, secret, environment, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (PspRejectedException) when (!settlingClaim)
@@ -176,11 +181,18 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
             throw new ConflictException(
                 "Order cannot start a payment redirect from its current status.", "order_not_payable");
 
-        var connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
-                $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
-        connection.EnsureEligible(session.Method);
+        var connection = await LoadPinnedConnectionAsync(session, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // AC-4.6: the single emergency-kill recheck before the first claim — the pinned connection may
+            // have been disabled or re-scoped between create and this claim. A closed connection fails the
+            // claim (payment_capability_unavailable) rather than reaching the PSP (design 826).
+            connection.EnsureEligible(session.Method);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new ConflictException(exception.Message, "payment_capability_unavailable", exception);
+        }
 
         var subject = order.InitiatingAudience switch
         {
@@ -210,6 +222,21 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         session.BeginRedirect(_clock.UtcNow);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return connection;
+    }
+
+    /// <summary>
+    /// Loads the connection this attempt is PINNED to (REQ-2.8-2.10): a version-1 session routes on its own
+    /// <see cref="Session.PspConnectionId"/>, so a route change after creation cannot move it; a legacy
+    /// version-0 session (null snapshot) falls back to the merchant's current connection for that PSP.
+    /// </summary>
+    private async Task<Connection> LoadPinnedConnectionAsync(Session session, CancellationToken cancellationToken)
+    {
+        var connection = session.PspConnectionId is { } pinnedConnectionId
+            ? await _connections.GetByIdAsync(pinnedConnectionId, cancellationToken).ConfigureAwait(false)
+            : await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken).ConfigureAwait(false);
+        return connection
+            ?? throw new InvalidOperationException(
+                $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
     }
 
     /// <summary>

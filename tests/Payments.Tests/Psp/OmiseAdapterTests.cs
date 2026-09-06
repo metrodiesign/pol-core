@@ -33,7 +33,7 @@ public sealed class OmiseAdapterTests
     }
 
     private static Session MakeSession(string method, decimal amount = 20.00m, string currency = "THB") =>
-        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.Omise, DateTime.UtcNow);
+        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, DateTime.UtcNow);
 
     [Fact]
     public void SupportedMethods_is_empty_until_sandbox_evidence_exists()

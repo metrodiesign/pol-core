@@ -86,7 +86,7 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<AdminPaymentSessionReader>();
         services.AddScoped<IAdminPaymentSessionReader>(sp => sp.GetRequiredService<AdminPaymentSessionReader>());
-        services.AddScoped<IAdminPaymentRoutingSelector>(sp => sp.GetRequiredService<AdminPaymentSessionReader>());
+        services.AddScoped<IPaymentRouteSelector>(sp => sp.GetRequiredService<AdminPaymentSessionReader>());
         services.AddScoped<IAdminReportingReader, AdminReportingReader>();
         services.AddScoped<IPayableOrderReader, PayableOrderReader>();
         services.AddScoped<MerchantRepository>();

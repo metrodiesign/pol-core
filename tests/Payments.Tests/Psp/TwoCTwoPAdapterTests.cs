@@ -41,7 +41,7 @@ public sealed class TwoCTwoPAdapterTests
     }
 
     private static Session MakeSession(decimal amount = 250.09m, string currency = "THB", string method = "card") =>
-        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.TwoCTwoP, DateTime.UtcNow);
+        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, DateTime.UtcNow);
 
     private static HttpResponseMessage PaymentTokenOk(string webPaymentUrl) =>
         StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(

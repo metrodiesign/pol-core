@@ -46,6 +46,28 @@ internal sealed class FakeEffectivePaymentCapabilities(
         Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
 }
 
+/// <summary>Server-side route selector double: returns a fixed <see cref="PspRouteSelection"/>, or throws
+/// (e.g. a <c>routing_unavailable</c> conflict) so the handler's surfacing behaviour can be exercised
+/// without a DB. The routing eligibility matrix itself is proven against the real selector elsewhere.</summary>
+internal sealed class FakePaymentRouteSelector : IPaymentRouteSelector
+{
+    public Guid ConnectionId { get; set; } = Guid.NewGuid();
+    public Guid SecretVersionId { get; set; } = Guid.NewGuid();
+    public Code Psp { get; set; } = Code.TwoCTwoP;
+    public PspEnvironment Environment { get; set; } = PspEnvironment.Sandbox;
+    public Exception? Throws { get; set; }
+    public int Calls { get; private set; }
+
+    public Task<PspRouteSelection> SelectAsync(
+        Guid merchantId, Guid orderId, string method, CancellationToken cancellationToken)
+    {
+        Calls++;
+        if (Throws is not null)
+            throw Throws;
+        return Task.FromResult(new PspRouteSelection(ConnectionId, Psp, SecretVersionId, Environment));
+    }
+}
+
 /// <summary>
 /// First set of in-memory doubles for the Payments handlers (mirrors <c>tests/Carts.Tests/Fakes.cs</c> and
 /// <c>tests/Orders.Tests/Fakes.cs</c>). The adapter tests drive the REAL adapters over
@@ -282,6 +304,15 @@ internal sealed class FakeVaultSecretStore : IVaultSecretStore
     public Exception? RevealFails { get; init; }
 
     public Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
+    {
+        Reveals++;
+        return RevealFails is null ? Task.FromResult(_secret) : throw RevealFails;
+    }
+
+    /// <summary>Versioned server-side read (the path a version-1 Session snapshot takes): returns the same
+    /// secret as <see cref="RevealAsync"/> and honours <see cref="RevealFails"/>, and counts as a reveal so
+    /// the "nothing was read on a refusal" assertions stay meaningful.</summary>
+    public Task<string> ReadVersionForServerAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken)
     {
         Reveals++;
         return RevealFails is null ? Task.FromResult(_secret) : throw RevealFails;

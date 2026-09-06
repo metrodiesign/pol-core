@@ -84,7 +84,7 @@ public sealed class HandlePspWebhookHandlerTests
     {
         var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Now);
 
-        var session = Session.Create(MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP, Now);
+        var session = Session.Create(MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         session.BeginRedirect(Now);
         session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Now);
 

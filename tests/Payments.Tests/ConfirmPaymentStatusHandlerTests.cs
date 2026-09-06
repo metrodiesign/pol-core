@@ -38,7 +38,7 @@ public sealed class ConfirmPaymentStatusHandlerTests
     private static Session NewSession(bool withCharge = true, DateTime? createdAt = null)
     {
         var session = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, createdAt ?? Created);
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, createdAt ?? Created);
         session.BeginRedirect(createdAt ?? Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", createdAt ?? Created);

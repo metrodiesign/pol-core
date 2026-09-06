@@ -13,7 +13,12 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
 {
     public void Configure(EntityTypeBuilder<Session> builder)
     {
-        builder.ToTable("PaymentSessions", SchemaNames.Txn);
+        // Routing snapshot CHECK — MUST mirror Payments.Infrastructure.Persistence.SessionConfiguration
+        // exactly: only the owner copy reaches the DDL, only this copy validates runtime saves, and a
+        // divergence is invisible to the unit suite (REQ-2.9, design 567).
+        builder.ToTable("PaymentSessions", SchemaNames.Txn, t => t.HasCheckConstraint(
+            "CK_PaymentSessions_RoutingSnapshotV1",
+            "[RoutingSnapshotVersion] <> 1 OR ([PspConnectionId] IS NOT NULL AND [SecretVersionId] IS NOT NULL AND [PspEnvironment] IS NOT NULL)"));
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.MerchantId).IsRequired();
@@ -30,6 +35,10 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
 
         builder.Property(x => x.Method).HasMaxLength(32).IsRequired();
         builder.Property(x => x.Psp).IsRequired();
+        builder.Property(x => x.PspConnectionId);
+        builder.Property(x => x.SecretVersionId);
+        builder.Property(x => x.PspEnvironment);
+        builder.Property(x => x.RoutingSnapshotVersion).IsRequired();
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.PspExternalChargeId).HasMaxLength(256);
         builder.Property(x => x.RedirectUrl).HasMaxLength(2048);

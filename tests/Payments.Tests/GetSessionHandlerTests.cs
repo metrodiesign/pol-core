@@ -31,7 +31,7 @@ public sealed class GetSessionHandlerTests
     public async Task A_session_reads_back_with_its_status_and_charge()
     {
         var session = Session.Create(
-            MerchantId, OrderId, Money.Of(15000m, "THB"), PaymentMethods.Card, Code.TwoCTwoP, Created);
+            MerchantId, OrderId, Money.Of(15000m, "THB"), PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         session.BeginRedirect(Created);
         session.SetPspCharge("INV-1", "https://2c2p.test/hosted/pay", Created);
         var handler = new GetSessionHandler(new FakeSessionRepository(session));
@@ -47,9 +47,9 @@ public sealed class GetSessionHandlerTests
     public async Task Session_list_returns_paged_wire_projection()
     {
         var first = Session.Create(
-            MerchantId, OrderId, Money.Of(100m, "THB"), PaymentMethods.Card, Code.TwoCTwoP, Created);
+            MerchantId, OrderId, Money.Of(100m, "THB"), PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         var second = Session.Create(
-            MerchantId, Guid.NewGuid(), Money.Of(200m, "THB"), PaymentMethods.PromptPay, Code.TwoCTwoP, Created);
+            MerchantId, Guid.NewGuid(), Money.Of(200m, "THB"), PaymentMethods.PromptPay, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         var handler = new ListSessionsHandler(new FakeSessionRepository(first, second));
 
         var page = await handler.Handle(new ListSessionsQuery { Page = 2, Limit = 1 }, default);

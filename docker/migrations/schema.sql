@@ -5559,3 +5559,66 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [PspConnectionId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [PspEnvironment] int NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [RoutingSnapshotVersion] tinyint NOT NULL DEFAULT CAST(0 AS tinyint);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [SecretVersionId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [txn].[PaymentSessions] ADD CONSTRAINT [CK_PaymentSessions_RoutingSnapshotV1] CHECK ([RoutingSnapshotVersion] <> 1 OR ([PspConnectionId] IS NOT NULL AND [SecretVersionId] IS NOT NULL AND [PspEnvironment] IS NOT NULL))');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260906143227_PaymentSessionRoutingSnapshot', N'10.0.8');
+END;
+
+COMMIT;
+GO
+

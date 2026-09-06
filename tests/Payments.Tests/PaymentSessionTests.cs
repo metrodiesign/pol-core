@@ -16,7 +16,7 @@ public sealed class PaymentSessionTests
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
 
     private static Session NewSession() =>
-        Session.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", Code.Omise, At);
+        Session.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, At);
 
     /// <summary>A session that has claimed its redirect and bound a hosted charge (Created -> Redirected).</summary>
     private static Session Redirected(string chargeId = "chrg_abc", string url = "https://hosted.example/r")
@@ -82,14 +82,14 @@ public sealed class PaymentSessionTests
     public void Create_rejects_empty_tenant()
     {
         Assert.Throws<ArgumentException>(() =>
-            Session.Create(Guid.Empty, OrderId, Money.Of(1, "THB"), "card", Code.Omise, At));
+            Session.Create(Guid.Empty, OrderId, Money.Of(1, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, At));
     }
 
     [Fact]
     public void Create_rejects_empty_order()
     {
         Assert.Throws<ArgumentException>(() =>
-            Session.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", Code.Omise, At));
+            Session.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, At));
     }
 
     [Fact]

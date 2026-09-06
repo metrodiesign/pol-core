@@ -32,7 +32,6 @@ using Orders.Infrastructure;
 using Payments.Application.ConfirmPaymentStatus;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
-using Payments.Application.MethodPayable;
 using Api.PaymentCapabilities;
 using Payments.Application.Ports;
 using Payments.Application.ReleaseOpenSession;
@@ -1104,27 +1103,32 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     IActorScope actorScope,
     IAdminScope adminScope,
     IAdminOrderReader adminOrders,
-    IAdminPaymentRoutingSelector routing,
     IAdminOperationExecutor operations,
     IMediator mediator,
     CancellationToken ct) =>
 {
     if (!IsAdminCommerceRequest(http))
     {
-        if (body.MerchantId is not null || body.Psp is null)
+        if (body.MerchantId is not null)
             throw new InvalidRequestException(
-                "Merchant payment session requires psp and forbids merchantId.", "validation_failed");
+                "Merchant payment session forbids merchantId.", "validation_failed");
+        // AC-4.7: the legacy `psp` field is still accepted from the Merchant Console during the compatibility
+        // window (design 682-683) but never routes — the server selects the PSP. A caller that still sends it
+        // is flagged deprecated; the contract step that removes the field and its telemetry are task 9.
+        if (body.Psp is not null)
+            http.Response.Headers["Deprecation"] = "true";
         var merchantResult = await mediator.Send(new CreateSessionCommand(
-            body.OrderId, actor.MerchantId, body.Method, body.Psp.Value), ct);
+            body.OrderId, actor.MerchantId, body.Method), ct);
         return Results.Ok(new CreatePaymentSessionResponse(merchantResult.PaymentSessionId));
     }
 
     if (body.MerchantId is not { } merchantId || merchantId == Guid.Empty || body.Psp is not null)
         throw new InvalidRequestException(
             "Admin payment session requires merchantId and forbids psp.", "validation_failed");
-    var order = await RequireAdminOrderAsync(
+    // Validates the order exists in scope and is mutable (404/403); the PSP is chosen server-side by the
+    // handler's route selector, not here (AC-4.1).
+    _ = await RequireAdminOrderAsync(
         adminOrders, adminScope, body.OrderId, merchantId, mutation: true, ct);
-    var psp = await routing.SelectAsync(merchantId, order.OrderId, body.Method, ct);
     using var actorBinding = actorScope.Begin(merchantId);
     var result = await ExecuteAdminCommerceAsync(
         operations, adminScope, merchantId, "payment-session.create", IdempotencyKeys.Require(http),
@@ -1132,7 +1136,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
         async token =>
         {
             var created = await mediator.Send(
-                new CreateSessionCommand(body.OrderId, merchantId, body.Method, psp), token);
+                new CreateSessionCommand(body.OrderId, merchantId, body.Method), token);
             return new CreatePaymentSessionResponse(created.PaymentSessionId);
         },
         value => value.PaymentSessionId.ToString("D"), ct);
@@ -1147,7 +1151,7 @@ createPaymentSession.RequireAuthorization(ConsoleSessionAuthentication.PolicyNam
     .WithTags("การชำระเงิน")
     .WithName("CreatePaymentSession")
     .WithSummary("สร้าง payment session")
-    .WithDescription("เปิด payment session โดยอ่านยอดจาก Order ฝั่ง server เท่านั้น Merchant Console ส่ง psp; Admin Console ส่ง merchantId และระบบเลือก PSP จาก routing หาก method ไม่ใช่ card/promptpay/installment -> 400, ไม่พบ Order -> 404, สถานะหรือ PSP connection ใช้งานไม่ได้ -> 409")
+    .WithDescription("เปิด payment session โดยอ่านยอดจาก Order ฝั่ง server เท่านั้น และ server เป็นผู้เลือก PSP จาก routing ทุก audience (ไม่รับ psp จาก client เป็น authority) Merchant Console ส่ง field psp เดิมได้ระหว่าง compatibility window แต่ระบบไม่ใช้เลือก route และตอบ header Deprecation: true; Admin Console ส่ง merchantId (ห้ามส่ง psp) หาก method ไม่ใช่ card/promptpay/installment -> 400, ไม่พบ Order -> 404, ไม่มี routing ที่ครอบ method หรือ PSP connection ใช้งานไม่ได้ -> 409 routing_unavailable")
     .Produces<CreatePaymentSessionResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1327,7 +1331,6 @@ api.MapPost("/orders/{token}/pay", async (
     IOrderSummaryReader reader,
     IActorScope actorScope,
     IMediator mediator,
-    DefaultPspSelection defaultPsp,
     IClock clock,
     CancellationToken ct) =>
 {
@@ -1353,13 +1356,13 @@ api.MapPost("/orders/{token}/pay", async (
 
     using var actorBinding = actorScope.Begin(summary.MerchantId);
 
-    // The configured PSP is server-owned. Missing/disabled/unsupported connection state surfaces as 409.
+    // Routing is server-owned: the customer capability route never supplies a PSP (design 694). The handler
+    // selects the connection; missing/disabled/unsupported routing surfaces as 409 routing_unavailable.
     var session = await mediator.Send(
         new CreateSessionCommand(
             summary.OrderId,
             summary.MerchantId,
-            PaymentMethods.FromOrderSnapshot(channel),
-            defaultPsp.Psp), ct);
+            PaymentMethods.FromOrderSnapshot(channel)), ct);
     var redirect = await mediator.Send(new StartRedirectCommand(session.PaymentSessionId), ct);
 
     return Results.Ok(new StartRedirectResponse(redirect.RedirectUrl));
@@ -3376,7 +3379,7 @@ internal sealed record RejectMerchantUserResponse(Guid UserId, string Status);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, string Method, Code? Psp, Guid? MerchantId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed record MerchantCreatePaymentSessionRequest(Guid OrderId, string Method, Code Psp);
+internal sealed record MerchantCreatePaymentSessionRequest(Guid OrderId, string Method, Code? Psp = null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record AdminCreatePaymentSessionRequest(Guid OrderId, string Method, Guid MerchantId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

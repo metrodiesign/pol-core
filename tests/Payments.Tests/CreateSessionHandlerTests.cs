@@ -37,28 +37,23 @@ public sealed class CreateSessionHandlerTests
     private static Connection NewConnection(string enabledMethods = "card,promptpay", Code psp = Code.TwoCTwoP) =>
         Connection.Create(MerchantId, psp, enabledMethods, "psp/secret-ref/merchant-1", Now);
 
-    /// <summary>Reproduces a connection an admin turned off the only way that state exists in production (EF
-    /// materialising such a row) — see ConnectionEligibilityTests; Connection has no Disable().</summary>
-    private static Connection Disabled(Connection connection)
-    {
-        typeof(Connection).GetProperty(nameof(Connection.IsEnabled))!.SetValue(connection, false);
-        return connection;
-    }
-
     private sealed record Harness(
         CreateSessionHandler Handler,
         FakePayableOrderReader Orders,
         FakeSessionRepository Sessions,
         FakeUnitOfWork UnitOfWork,
-        FakeOutbox Outbox)
+        FakeOutbox Outbox,
+        FakePaymentRouteSelector Route)
     {
         /// <summary>The save count observed AT the moment the new row was added — the expire must already
         /// have been committed by then, which the end state alone cannot show.</summary>
         public int? SaveCountWhenMinted { get; set; }
     }
 
-    /// <summary>Default world: the order is awaiting payment, the merchant has a 2C2P connection enabling
-    /// card+promptpay, and both adapters honour card only (today's real capability).</summary>
+    /// <summary>Default world: the order is awaiting payment and the route selector resolves a 2C2P
+    /// connection. PSP selection now lives in the selector (a fake here); its full eligibility matrix is
+    /// proven against the real selector in the routing tests. <paramref name="routeThrows"/> simulates a
+    /// selector refusal (e.g. routing_unavailable).</summary>
     private static Harness NewHarness(
         PayableOrder? order = null,
         Connection[]? connections = null,
@@ -67,7 +62,9 @@ public sealed class CreateSessionHandlerTests
         DateTime? now = null,
         Func<string, PspChargeConfirmation>? onFetchCharge = null,
         IDocumentSaleProbe? documentSales = null,
-        PaymentCapabilityDenial capabilityDenial = PaymentCapabilityDenial.None)
+        PaymentCapabilityDenial capabilityDenial = PaymentCapabilityDenial.None,
+        Exception? routeThrows = null,
+        Code routePsp = Code.TwoCTwoP)
     {
         var orders = new FakePayableOrderReader(order ?? AwaitingOrder());
         var methods = adapterMethods ?? [PaymentMethods.Card];
@@ -78,6 +75,7 @@ public sealed class CreateSessionHandlerTests
         var outbox = new FakeOutbox();
         var connectionRepository = new FakeConnectionRepository(connections ?? [NewConnection()]);
         var clock = new FixedClock { UtcNow = now ?? Now };
+        var route = new FakePaymentRouteSelector { Psp = routePsp, Throws = routeThrows };
 
         Harness? harness = null;
         var sessions = new FakeSessionRepository(existingSessions ?? [])
@@ -87,8 +85,6 @@ public sealed class CreateSessionHandlerTests
 
         var handler = new CreateSessionHandler(
             orders,
-            connectionRepository,
-            adapters,
             sessions,
             new PaymentConfirmationService(
                 connectionRepository,
@@ -103,13 +99,14 @@ public sealed class CreateSessionHandlerTests
             unitOfWork,
             clock,
             new FakePaymentAuthorizationLocks(),
-            new FakeEffectivePaymentCapabilities(capabilityDenial));
+            new FakeEffectivePaymentCapabilities(capabilityDenial),
+            route);
 
-        return harness = new Harness(handler, orders, sessions, unitOfWork, outbox);
+        return harness = new Harness(handler, orders, sessions, unitOfWork, outbox, route);
     }
 
-    private static CreateSessionCommand Command(string method = PaymentMethods.Card, Code psp = Code.TwoCTwoP) =>
-        new(OrderId, MerchantId, method, psp);
+    private static CreateSessionCommand Command(string method = PaymentMethods.Card) =>
+        new(OrderId, MerchantId, method);
 
     private static void AssertNothingWasPersisted(Harness harness)
     {
@@ -228,61 +225,23 @@ public sealed class CreateSessionHandlerTests
         Assert.Equal(Assert.Single(harness.Sessions.Added).Id, result.PaymentSessionId);
     }
 
-    // --- steps 4-5: connection existence + eligibility (409) ---
+    // --- steps 4-6: routing is the selector's job now — the handler surfaces its refusal (AC-4.1/4.4) ---
 
     [Fact]
-    public async Task A_missing_connection_is_refused_here_not_at_redirect_time()
+    public async Task A_route_selector_refusal_surfaces_as_409_and_nothing_is_persisted()
     {
-        var harness = NewHarness(connections: []);
-
-        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(), default));
-
-        Assert.Equal("psp-unavailable", ex.Code);
-        AssertNothingWasPersisted(harness);
-    }
-
-    [Fact]
-    public async Task A_disabled_connection_is_refused()
-    {
-        var harness = NewHarness(connections: [Disabled(NewConnection())]);
-
-        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(), default));
-
-        Assert.Equal("psp-unavailable", ex.Code);
-        Assert.Contains("disabled", ex.Message, StringComparison.Ordinal);
-        AssertNothingWasPersisted(harness);
-    }
-
-    [Fact]
-    public async Task A_method_the_connection_does_not_enable_is_refused()
-    {
-        var harness = NewHarness(connections: [NewConnection(enabledMethods: PaymentMethods.PromptPay)]);
-
-        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(PaymentMethods.Card), default));
-
-        Assert.Equal("psp-unavailable", ex.Code);
-        AssertNothingWasPersisted(harness);
-    }
-
-    // --- step 6: adapter capability (409) ---
-
-    [Fact]
-    public async Task A_method_the_adapter_cannot_honour_is_refused_even_when_the_connection_enables_it()
-    {
-        // The real seed enables promptpay on 2C2P while the 2C2P adapter can only drive card. Without this
-        // step the customer would be redirected to a CARD page after choosing PromptPay.
+        // No eligible primary/fallback covers the method (REQ-6.18): the selector throws routing_unavailable
+        // and the handler surfaces it unchanged, minting nothing. The full eligibility matrix — disabled
+        // connection, method not enabled, adapter cannot honour, environment mismatch — is proven against the
+        // real selector in PaymentRouteSelectorTests.
         var harness = NewHarness(
-            order: TestOrder(method: PaymentMethods.PromptPay),
-            connections: [NewConnection(enabledMethods: "card,promptpay")],
-            adapterMethods: [PaymentMethods.Card]);
+            routeThrows: new ConflictException("No active routing rule can serve this payment.", "routing_unavailable"));
 
         var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
+            await harness.Handler.Handle(Command(), default));
 
-        Assert.Equal("psp-unavailable", ex.Code);
+        Assert.Equal("routing_unavailable", ex.Code);
+        Assert.Equal(1, harness.Route.Calls);
         AssertNothingWasPersisted(harness);
     }
 
@@ -303,7 +262,7 @@ public sealed class CreateSessionHandlerTests
     [Fact]
     public async Task An_open_session_on_the_same_channel_is_returned_instead_of_a_second_one()
     {
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         var harness = NewHarness(existingSessions: [open]);
 
         var result = await harness.Handler.Handle(Command(), default);
@@ -317,7 +276,7 @@ public sealed class CreateSessionHandlerTests
     {
         // The customer who abandoned the PSP page must be able to resume on the SAME hosted charge, which is
         // what keeps the one-open-session rule from bricking the order.
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         open.BeginRedirect(Now);
         var harness = NewHarness(existingSessions: [open]);
 
@@ -330,7 +289,7 @@ public sealed class CreateSessionHandlerTests
     [Fact]
     public async Task An_open_session_on_a_different_method_blocks_a_new_one()
     {
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.PromptPay, Code.TwoCTwoP, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.PromptPay, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         var harness = NewHarness(
             connections: [NewConnection(enabledMethods: "card,promptpay")],
             adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay],
@@ -343,23 +302,25 @@ public sealed class CreateSessionHandlerTests
     }
 
     [Fact]
-    public async Task An_open_session_on_a_different_psp_blocks_a_new_one()
+    public async Task An_open_session_is_resumed_even_after_routing_changed_and_the_selector_is_not_called()
     {
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now);
-        var harness = NewHarness(
-            connections: [NewConnection(psp: Code.Omise)],
-            existingSessions: [open]);
+        // AC-4.3: a settings change (here the routing now points at a different PSP) must not move an
+        // existing attempt. The open session on the order's channel is handed back on its pinned route and
+        // the selector is never consulted — a re-route would otherwise turn a resumable session into a 409.
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
+        var harness = NewHarness(existingSessions: [open], routePsp: Code.Omise);
 
-        await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(psp: Code.Omise), default));
+        var result = await harness.Handler.Handle(Command(), default);
 
+        Assert.Equal(open.Id, result.PaymentSessionId);
+        Assert.Equal(0, harness.Route.Calls);
         AssertNothingWasPersisted(harness);
     }
 
     [Fact]
     public async Task A_terminal_session_does_not_block_a_fresh_attempt()
     {
-        var failed = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now);
+        var failed = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         failed.MarkFailed("declined", Now);
         var harness = NewHarness(existingSessions: [failed]);
 
@@ -374,7 +335,7 @@ public sealed class CreateSessionHandlerTests
     public async Task Attached_Paid_session_blocks_second_attempt_while_Order_event_is_still_pending()
     {
         var paid = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now.AddMinutes(-10));
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddMinutes(-10));
         paid.BeginRedirect(Now.AddMinutes(-9));
         paid.SetPspCharge("paid-charge", "https://psp.test/paid", Now.AddMinutes(-9));
         paid.MarkPaid("paid-charge", Now.AddMinutes(-1));
@@ -399,7 +360,7 @@ public sealed class CreateSessionHandlerTests
         PayableOrderStatus orderStatus)
     {
         var prior = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now.AddHours(-1));
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddHours(-1));
         if (orderStatus == PayableOrderStatus.Failed)
             prior.MarkFailed("psp_failed", Now);
         else
@@ -424,7 +385,7 @@ public sealed class CreateSessionHandlerTests
         PayableOrderStatus orderStatus)
     {
         var prior = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now.AddHours(-1));
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddHours(-1));
         prior.BeginRedirect(Now.AddMinutes(-10));
         prior.SetPspCharge("late-charge", "https://psp.test/late", Now.AddMinutes(-10));
         if (orderStatus == PayableOrderStatus.Failed)
@@ -453,7 +414,7 @@ public sealed class CreateSessionHandlerTests
     private static Session StaleSession(bool withCharge)
     {
         var createdAt = Now - Session.OpenTtl;
-        var session = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, createdAt);
+        var session = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, createdAt);
         if (!withCharge)
             return session;
 
@@ -549,7 +510,7 @@ public sealed class CreateSessionHandlerTests
     {
         // REQ-3.3: the one-open-session rule is unchanged for everything inside the TTL — the boundary is the
         // only thing this task moved, so it is pinned from both sides.
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now - Session.OpenTtl + TimeSpan.FromMinutes(1));
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now - Session.OpenTtl + TimeSpan.FromMinutes(1));
         var harness = NewHarness(existingSessions: [open]);
 
         var result = await harness.Handler.Handle(Command(), default);
@@ -624,6 +585,28 @@ public sealed class CreateSessionHandlerTests
         Assert.Equal(session.Id, harness.Orders.AttachedPaymentSessionId);
         Assert.Equal(PaymentMethods.Card, session.Method);
         Assert.Equal(1, harness.UnitOfWork.TransactionCount);
+    }
+
+    [Fact]
+    public async Task The_created_session_pins_the_selectors_routing_snapshot_as_version_1()
+    {
+        // AC-4.2 / REQ-2.9: the connection, secret version and environment the selector chose are frozen onto
+        // the session at creation, as snapshot version 1 — the values a rotation or environment switch must
+        // never move (REQ-2.10).
+        var harness = NewHarness();
+        harness.Route.ConnectionId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        harness.Route.SecretVersionId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        harness.Route.Psp = Code.Omise;
+        harness.Route.Environment = PspEnvironment.Live;
+
+        await harness.Handler.Handle(Command(), default);
+
+        var session = Assert.Single(harness.Sessions.Added);
+        Assert.Equal(harness.Route.ConnectionId, session.PspConnectionId);
+        Assert.Equal(harness.Route.SecretVersionId, session.SecretVersionId);
+        Assert.Equal(Code.Omise, session.Psp);
+        Assert.Equal(PspEnvironment.Live, session.PspEnvironment);
+        Assert.Equal((byte)1, session.RoutingSnapshotVersion);
     }
 
     [Fact]
