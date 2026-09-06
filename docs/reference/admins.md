@@ -246,9 +246,10 @@ required; Email และ 4 profile FK เป็น optional Account ถูก b
 
 ### Role & permission management (RBAC, scheme `/api/v1/admins`)
 
-Permission catalog ล่าสุดมี **7 กลุ่ม / 26 keys** แบ่งเป็น Platform 5 กลุ่ม / 18 keys และ Merchant 2 กลุ่ม /
-8 keys. Platform groups คือ `txn`, `merchant`, `user`, `system`, `merchants.users`; Merchant groups คือ
-`payment`, `roles`. รายการและ seed grants อยู่ใน [`iam.md`](iam.md). Endpoint กลุ่มนี้ใช้ Platform keys
+Permission catalog ล่าสุดมี **7 กลุ่ม / 25 keys** แบ่งเป็น Platform 5 กลุ่ม / 17 keys, Merchant 1 กลุ่ม / 5 keys
+และ Shared 1 กลุ่ม / 3 keys. Platform groups คือ `txn`, `merchant`, `user`, `system`, `merchants.users`; Merchant group คือ
+`roles`; Shared group คือ `payment` (สิทธิ์ commerce ที่ Tier 0 และ Tier 1 ใช้ร่วมกัน — assign ผ่าน role scope Shared
+เช่น `merchant_staff` ให้ admin ได้). รายการและ seed grants อยู่ใน [`iam.md`](iam.md). Endpoint กลุ่มนี้ใช้ Platform keys
 ตาม gate ของแต่ละ route; top-level admin operations ใช้ catalog เดียวกัน ดู
 [`admin-control-plane.md`](admin-control-plane.md).
 

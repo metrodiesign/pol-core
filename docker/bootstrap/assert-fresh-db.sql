@@ -48,9 +48,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260830172117_Tier0EmployeeProfile'),
     (N'20260902133906_Tier0MicrosoftTenantAwareIdentity'),
     (N'20260905104644_DropOrgReferenceMasterData'),
-    (N'20260906025013_SwitchProviderDefaultToMicrosoft');
+    (N'20260906025013_SwitchProviderDefaultToMicrosoft'),
+    (N'20260906151900_SharedRoleScope');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 25
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 26
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -59,7 +60,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 25
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 25 expected migrations through SwitchProviderDefaultToMicrosoft; ';
+    SET @fail += N'migration history must contain exactly 26 expected migrations through SharedRoleScope; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -201,12 +202,12 @@ IF EXISTS (SELECT 1 FROM sys.database_permissions p
 
 IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 7
     SET @fail += N'iam.PermissionGroups expected 7 rows; ';
-IF (SELECT COUNT(*) FROM iam.Permissions) <> 26
-    SET @fail += N'iam.Permissions expected 26 rows; ';
+IF (SELECT COUNT(*) FROM iam.Permissions) <> 25
+    SET @fail += N'iam.Permissions expected 25 rows; ';
 IF (SELECT COUNT(*) FROM iam.Roles) <> 4
     SET @fail += N'iam.Roles expected 4 rows; ';
-IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 33
-    SET @fail += N'iam.RolePermissions expected 33 rows; ';
+IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 36
+    SET @fail += N'iam.RolePermissions expected 36 rows; ';
 IF EXISTS (SELECT 1 FROM iam.PermissionGroups WHERE Status <> 1)
    OR EXISTS (SELECT 1 FROM iam.Permissions WHERE Status <> 1)
    OR EXISTS (SELECT 1 FROM iam.Roles WHERE Status <> 1)

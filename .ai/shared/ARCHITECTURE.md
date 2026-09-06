@@ -160,7 +160,7 @@ Orders → Paid. จบ ไม่มี issuance.
   `Users`/`RoleAssignments`) และไม่อยู่ใต้ filter เดียวกัน
 - RBAC catalog — **rf2 (2026-07-13, spec `rf2-iam-rbac`)**: catalog ที่เดิมซ้ำ 2 ชุดต่อ console (schema `admin` + `merch`,
   16 keys/6 groups + 7 keys/3 groups) ยุบเป็น **catalog กลางเดียว module `Iam` schema `iam`** — 4 tables
-  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary = **26 keys /
+  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary (ณ rf2 — supersede 2026-09-06 เป็น 25 keys / 36 grants, ดู bullet Shared role scope ด้านล่าง) = **26 keys /
   7 groups** โดย `PermissionGroups.Scope ∈ {Platform, Merchant}` ทุก key สืบทอด side จาก group → assign/grant ข้าม side
   fail-closed by construction (ปิด cross-side grant hole ที่ 2 catalog เดิม detect ไม่ได้). Seed **4 roles**: `platform_admin`
   (18 platform keys) / `platform_auditor` (4) / `merchant_manager` (8 merchant keys) / `merchant_staff` (3); anchor ปิด/ลบ

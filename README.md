@@ -136,7 +136,7 @@ dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL 
 
 ## Baseline seed
 
-Fresh migration ใส่ IAM catalog 26 permissions/7 groups/4 roles/33 grants, master data `cfg.*` แบบ Active และ
+Fresh migration ใส่ IAM catalog 25 permissions/7 groups/4 roles/36 grants, master data `cfg.*` แบบ Active และ
 synthetic merchant หนึ่งรายพร้อม PSP connection ที่ปิดใช้งาน. Seed ไม่มี credential, login subject, PII,
 Cart, Order หรือ payment data. ไม่มีสคริปต์ demo seed แยก; schema/data baseline อยู่ใน migration chain เดียว.
 
