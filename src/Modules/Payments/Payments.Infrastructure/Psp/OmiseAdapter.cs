@@ -35,10 +35,13 @@ public sealed class OmiseAdapter : PspAdapterBase
 
     public override Code Psp => Code.Omise;
 
-    /// <summary>Card only today: PromptPay via Payment Links+ is deferred (see class summary) and
-    /// installment was never wired, so both are refused up-front rather than at the charge call.</summary>
+    /// <summary>EMPTY until a dependency spec records sandbox evidence (merchant-psp-settings REQ-5.11/5.12):
+    /// the card path below is implemented but its hosted-3DS field set is contract-unverified (see the
+    /// ponytail note in <see cref="CreateCardChargeAsync"/>), PromptPay via Payment Links+ is deferred and
+    /// installment was never wired. The connection can still be created and probed (credentials are
+    /// managed independently of methods); enabling any Omise account method fails closed (REQ-5.5).</summary>
     public override IReadOnlySet<string> SupportedMethods { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
+        new HashSet<string>(StringComparer.Ordinal);
 
     public override async Task<PspProbeResult> TestConnectionAsync(
         string secret, PspEnvironment environment, CancellationToken cancellationToken)

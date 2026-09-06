@@ -17,7 +17,7 @@ using SharedKernel;
 namespace Hosts.Tests;
 
 /// <summary>
-/// merchant-psp-settings task 2 — the connection control plane end to end at the store boundary, over the
+/// merchant-psp-settings tasks 2-3 — the connection control plane end to end at the store boundary, over the
 /// REAL runtime context (SQLite), the REAL envelope vault store and the REAL envelope factory; only the PSP
 /// adapter is a recorder. Proves: environment inheritance (REQ-2.1/2.2), one record per provider with a named
 /// 409 and both providers side by side (REQ-3.1/3.2/3.7), zero-method create enabled + unknown health
@@ -156,6 +156,111 @@ public sealed class AdminPspConnectionControlPlaneTests : IDisposable
         Assert.Null(await store.GetMerchantPaymentSettingsAsync(Guid.NewGuid(), Unrestricted, default));
     }
 
+    [Fact]
+    public async Task Omise_methods_are_listed_but_unavailable_and_cannot_be_enabled_until_verified()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new RecordingAdapterFactory(Code.Omise));
+        var created = (await store.CreateConnectionAsync(Intent("omise", [],
+            new Dictionary<string, string> { ["secretKey"] = "skey_test_abcdef" }, null, "create-o"), default)).Connection;
+
+        // REQ-5.3/5.16: all three canonical methods are shown; REQ-5.11: none is available without evidence.
+        Assert.Equal([PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment],
+            created.Methods.Select(x => x.Method));
+        Assert.All(created.Methods, x => Assert.False(x.Available));
+        Assert.All(created.Methods, x => Assert.False(x.AdapterVerified));
+        Assert.Equal("adapter_unverified", created.Methods.Single(x => x.Method == PaymentMethods.Card).Denial);
+        Assert.Equal("provider_method_unavailable", created.Methods.Single(x => x.Method == PaymentMethods.PromptPay).Denial);
+
+        // REQ-5.5: enabling fails closed, and the credential-only connection is still manageable.
+        await Assert.ThrowsAsync<PaymentCapabilityUnavailableException>(() => store.SetAccountMethodAsync(
+            new SetAccountPaymentCapabilityIntent(created.PspConnectionId, PaymentMethods.Card, null, true, 0, "enable-o", Unrestricted), default));
+        var tested = await store.TestConnectionAsync(new TestPspConnectionIntent(
+            created.PspConnectionId, MerchantId, created.Version, "test-o", Unrestricted), default);
+        Assert.Equal("healthy", tested.Connection.Health);
+    }
+
+    [Fact]
+    public async Task Account_method_switch_is_reported_per_method_without_touching_merchant_policy()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new RecordingAdapterFactory());
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create-m"), default)).Connection;
+
+        var card = created.Methods.Single(x => x.Method == PaymentMethods.Card);
+        Assert.True(card.AccountEnabled);
+        Assert.True(card.AdapterVerified);
+        Assert.True(card.Available);
+        Assert.Null(card.Denial);
+        var promptPay = created.Methods.Single(x => x.Method == PaymentMethods.PromptPay);
+        Assert.False(promptPay.AccountEnabled);
+        Assert.True(promptPay.AdapterVerified);
+        Assert.Equal("account_method_disabled", promptPay.Denial);
+
+        var view = await store.GetAccountMethodAsync(created.PspConnectionId, PaymentMethods.PromptPay, Unrestricted, default);
+        Assert.NotNull(view);
+        Assert.True(view.AdapterVerified);
+        Assert.Equal("account_method_disabled", view.Denial);
+
+        // REQ-5.14: the merchant-level policy table is untouched by account-level changes.
+        Assert.Equal(0, await db.MerchantPaymentMethods.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
+    public async Task Routing_draft_requires_normalized_account_method_and_matching_credential_environment()
+    {
+        await using var db = NewContext();
+        var adapters = new RecordingAdapterFactory();
+        var store = Store(db, adapters);
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create-r"), default)).Connection;
+        var connectionId = created.PspConnectionId;
+
+        // REQ-6.6: promptpay has no enabled account row even though the adapter supports it.
+        var noAccount = await Assert.ThrowsAsync<InvalidRequestException>(() => store.CreateRulesetAsync(
+            new CreateRoutingRulesetIntent(MerchantId, "pp", [Rule(PaymentMethods.PromptPay, connectionId)], Unrestricted), default));
+        Assert.Equal("routing_invalid", noAccount.Code);
+
+        // REQ-5.8: widening the legacy CSV projection grants nothing — the normalized rows decide.
+        var tracked = await db.PspConnections.IgnoreQueryFilters().SingleAsync(x => x.Id == connectionId);
+        tracked.ProjectEnabledMethods([PaymentMethods.Card, PaymentMethods.PromptPay]);
+        await db.SaveChangesAsync();
+        var csvOnly = await Assert.ThrowsAsync<InvalidRequestException>(() => store.CreateRulesetAsync(
+            new CreateRoutingRulesetIntent(MerchantId, "csv", [Rule(PaymentMethods.PromptPay, connectionId)], Unrestricted), default));
+        Assert.Equal("routing_invalid", csvOnly.Code);
+
+        // REQ-6.15: a failed health test does not block routing; the account row is what counts.
+        tracked.RecordTest(false, "probe_failed", Now);
+        await db.SaveChangesAsync();
+        var ruleset = await store.CreateRulesetAsync(
+            new CreateRoutingRulesetIntent(MerchantId, "card", [Rule(PaymentMethods.Card, connectionId)], Unrestricted), default);
+        Assert.Equal("draft", ruleset.Status);
+        Assert.Null(adapters.Adapter.ProbedSecret);  // REQ-6.16: eligibility never runs a live probe
+
+        // REQ-6.14: a connection with no credential reference is not routable, even with the account row on.
+        var activeSecretVersionId = tracked.ActiveSecretVersionId;
+        db.Entry(tracked).Property(x => x.ActiveSecretVersionId).CurrentValue = null;
+        await db.SaveChangesAsync();
+        var noCredential = await Assert.ThrowsAsync<InvalidRequestException>(() => store.CreateRulesetAsync(
+            new CreateRoutingRulesetIntent(MerchantId, "no-cred", [Rule(PaymentMethods.Card, connectionId)], Unrestricted), default));
+        Assert.Equal("routing_invalid", noCredential.Code);
+        db.Entry(tracked).Property(x => x.ActiveSecretVersionId).CurrentValue = activeSecretVersionId;
+        await db.SaveChangesAsync();
+
+        // REQ-6.7: the merchant moves to live while the active credential stays sandbox -> refused.
+        var merchant = await db.Merchants.IgnoreQueryFilters().SingleAsync(x => x.Id == MerchantId);
+        merchant.StagePaymentEnvironment(PspEnvironment.Live, Guid.NewGuid());
+        merchant.ActivatePendingPaymentEnvironment(Now);
+        await db.SaveChangesAsync();
+        var mismatch = await Assert.ThrowsAsync<InvalidRequestException>(() => store.CreateRulesetAsync(
+            new CreateRoutingRulesetIntent(MerchantId, "live", [Rule(PaymentMethods.Card, connectionId)], Unrestricted), default));
+        Assert.Equal("routing_invalid", mismatch.Code);
+    }
+
+    private static RoutingRuleInput Rule(string method, Guid connectionId) =>
+        new(1, method, null, null, null, connectionId, null, true);
+
     private static CreatePspConnectionIntent Intent(
         string psp, IReadOnlyList<string> methods, IReadOnlyDictionary<string, string> secrets,
         string? pspMerchantId, string key) =>
@@ -204,18 +309,22 @@ public sealed class AdminPspConnectionControlPlaneTests : IDisposable
         public Task VerifyAsync(AdminPaymentsAccess access, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class RecordingAdapterFactory : IPspAdapterFactory
+    private sealed class RecordingAdapterFactory(Code psp = Code.TwoCTwoP) : IPspAdapterFactory
     {
-        public RecordingAdapter Adapter { get; } = new();
-        public IPspAdapter For(Code psp) => Adapter;
+        public RecordingAdapter Adapter { get; } = new(psp);
+        public IPspAdapter For(Code requested) => Adapter;
     }
 
-    private sealed class RecordingAdapter : IPspAdapter
+    /// <summary>2C2P declares card + promptpay; Omise declares nothing — mirroring the real adapters'
+    /// evidence state (REQ-5.11).</summary>
+    private sealed class RecordingAdapter(Code psp) : IPspAdapter
     {
         public PspEnvironment? ProbedEnvironment { get; private set; }
         public string? ProbedSecret { get; private set; }
-        public Code Psp => Code.TwoCTwoP;
-        public IReadOnlySet<string> SupportedMethods { get; } = new HashSet<string> { PaymentMethods.Card };
+        public Code Psp => psp;
+        public IReadOnlySet<string> SupportedMethods { get; } = psp == Code.TwoCTwoP
+            ? new HashSet<string> { PaymentMethods.Card, PaymentMethods.PromptPay }
+            : new HashSet<string>();
 
         public Task<PspProbeResult> TestConnectionAsync(string secret, PspEnvironment environment, CancellationToken ct)
         {

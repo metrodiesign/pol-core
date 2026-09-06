@@ -36,13 +36,14 @@ public sealed class OmiseAdapterTests
         Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.Omise, DateTime.UtcNow);
 
     [Fact]
-    public void SupportedMethods_declares_card_only()
+    public void SupportedMethods_is_empty_until_sandbox_evidence_exists()
     {
         var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        // PromptPay is deferred and installment was never wired — the capability set must not claim
-        // either, so create-session refuses them instead of the charge call throwing NotSupported (500).
-        Assert.Equal(new[] { PaymentMethods.Card }, adapter.SupportedMethods);
+        // merchant-psp-settings REQ-5.11: the card path exists but is contract-unverified, PromptPay is
+        // deferred and installment was never wired — none may become effective until a dependency spec
+        // records sandbox evidence and adds the method here (REQ-5.12).
+        Assert.Empty(adapter.SupportedMethods);
     }
 
     [Fact]

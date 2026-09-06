@@ -288,10 +288,10 @@ internal sealed class AdminPaymentsControlStore(
         var row = await PlatformReadGuard.ReadAsync(ct => db.MerchantPaymentMethods
             .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
                 x.MerchantId == merchantId && x.PaymentMethodId == MethodId(code), ct), cancellationToken);
-        var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+        var decision = await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
             new PaymentCapabilitySubject(merchantId, PaymentAudience.PlatformAdmin, null), code, null),
-            cancellationToken)).Allowed;
-        return MerchantPolicyView(merchantId, code, row, effective);
+            cancellationToken);
+        return MerchantPolicyView(merchantId, code, row, decision);
     }
 
     public Task<PaymentCapabilityMutationResult<MerchantPaymentMethodView>> SetMerchantMethodAsync(
@@ -341,10 +341,10 @@ internal sealed class AdminPaymentsControlStore(
             await ProjectMerchantMethodsAsync(
                 intent.MerchantId, method, intent.Enabled, ct);
             await unitOfWork.SaveChangesAsync(ct);
-            var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+            var decision = await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
                 new PaymentCapabilitySubject(intent.MerchantId, PaymentAudience.PlatformAdmin, null), method, null),
-                ct)).Allowed;
-            var view = MerchantPolicyView(intent.MerchantId, method, row, effective);
+                ct);
+            var view = MerchantPolicyView(intent.MerchantId, method, row, decision);
             var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
                 "payment.merchant-method.set", intent.IdempotencyKey, intentHash);
             operation.Succeed(200, JsonSerializer.Serialize(view, Json), $"{intent.MerchantId:D}:{method}");
@@ -808,11 +808,12 @@ internal sealed class AdminPaymentsControlStore(
         if (connections.Count != connectionIds.Count)
             throw new InvalidRequestException("Routing references an unknown PSP connection.", "routing_invalid");
 
+        var merchant = await LoadMerchantAsync(merchantId, ct);
         foreach (var rule in specs.Where(x => x.Enabled))
         {
-            ValidateEligible(connections.Single(x => x.Id == rule.TargetConnectionId), rule.Method);
+            await ValidateEligibleAsync(connections.Single(x => x.Id == rule.TargetConnectionId), rule.Method, merchant.PaymentEnvironment, ct);
             if (rule.FallbackConnectionId is { } fallback)
-                ValidateEligible(connections.Single(x => x.Id == fallback), rule.Method);
+                await ValidateEligibleAsync(connections.Single(x => x.Id == fallback), rule.Method, merchant.PaymentEnvironment, ct);
         }
 
         var originatorIds = specs.Where(x => x.OriginatorId.HasValue).Select(x => x.OriginatorId!.Value).ToHashSet();
@@ -826,21 +827,89 @@ internal sealed class AdminPaymentsControlStore(
         }
     }
 
-    private void ValidateEligible(Connection connection, string method)
+    /// <summary>Local routing eligibility (REQ-6.6/6.7/6.14): enabled connection, a credential reference in
+    /// the merchant's environment, and — from the NORMALIZED account-method rows, never the CSV projection
+    /// (REQ-5.8) — an enabled account method the adapter has sandbox evidence for. Health is deliberately
+    /// not consulted (REQ-6.15) and no probe is run (REQ-6.16).</summary>
+    private async Task ValidateEligibleAsync(
+        Connection connection, string method, PspEnvironment environment, CancellationToken ct)
     {
         if (!connection.IsEnabled)
             throw new InvalidRequestException("Routing references a disabled PSP connection.", "routing_invalid");
-        var adapter = adapterFactory.For(connection.Psp);
-        if (method == "any")
-        {
-            if (!connection.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Any(adapter.SupportedMethods.Contains))
-                throw new InvalidRequestException("Routing connection has no eligible method.", "routing_invalid");
-            return;
-        }
-        if (!connection.Supports(method) || !adapter.SupportedMethods.Contains(method))
-            throw new InvalidRequestException("Routing connection does not support the selected method.", "routing_invalid");
+        if (connection.ActiveSecretVersionId is null)
+            throw new InvalidRequestException("Routing connection has no active credential.", "routing_invalid");
+        if (connection.ActiveSecretEnvironment != environment)
+            throw new InvalidRequestException(
+                "Routing connection credential environment does not match the merchant payment environment.", "routing_invalid");
+        var provider = await LoadProviderAsync(connection.Psp, ct);
+        var methods = await ProjectConnectionMethodsAsync(connection, provider, ct);
+        var eligible = method == "any"
+            ? methods.Any(x => x.Available)
+            : methods.Any(x => x.Method == method && x.Available);
+        if (!eligible)
+            throw new InvalidRequestException(
+                method == "any"
+                    ? "Routing connection has no eligible method."
+                    : "Routing connection does not support the selected method.", "routing_invalid");
     }
+
+    private static readonly string[] CanonicalMethods =
+        [PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment];
+
+    /// <summary>Per canonical method: the account-level switch, adapter evidence and the backend decision
+    /// with its first blocking reason (REQ-5.4/5.5/5.11/5.16). The console renders this; it never infers
+    /// availability per provider on its own.</summary>
+    private async Task<IReadOnlyList<PspConnectionMethodView>> ProjectConnectionMethodsAsync(
+        Connection connection, ProviderCatalogRow provider, CancellationToken ct)
+    {
+        // Tracked rows win over the snapshot: create/update project the view inside the same transaction,
+        // before SaveChanges, so rows added or flipped a moment ago are only in the change tracker.
+        var rows = (await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+                .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == connection.MerchantId
+                    && x.PspConnectionId == connection.Id).ToListAsync(token), ct))
+            .Where(x => db.MerchantProviderAccountMethods.Local.All(local => local.Id != x.Id))
+            .Concat(db.MerchantProviderAccountMethods.Local.Where(x =>
+                x.MerchantId == connection.MerchantId && x.PspConnectionId == connection.Id))
+            .ToList();
+        var adapter = adapterFactory.For(connection.Psp);
+        var result = new List<PspConnectionMethodView>(CanonicalMethods.Length);
+        foreach (var method in CanonicalMethods)
+        {
+            var catalog = await LoadProviderMethodAsync(provider, method, ct);
+            var row = catalog is null ? null : rows.SingleOrDefault(x => x.PaymentMethodId == catalog.PaymentMethodId);
+            var accountEnabled = row?.IsEnabled == true;
+            var verified = adapter.SupportedMethods.Contains(method);
+            var denial = AccountMethodDenial(connection, provider, catalog, verified, accountEnabled);
+            result.Add(new PspConnectionMethodView(method, accountEnabled, verified, denial is null, denial));
+        }
+        return result;
+    }
+
+    private static string? AccountMethodDenial(
+        Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow? catalog,
+        bool adapterVerified, bool accountEnabled)
+    {
+        if (!connection.IsEnabled) return "connection_disabled";
+        if (!provider.IsEnabled) return "provider_disabled";
+        if (catalog is null || !catalog.MethodIsActive) return "method_inactive";
+        if (catalog.PaymentProviderMethodId is null || !catalog.ProviderMethodIsActive) return "provider_method_unavailable";
+        if (!adapterVerified) return "adapter_unverified";
+        if (!accountEnabled) return "account_method_disabled";
+        return null;
+    }
+
+    private static string DenialCode(PaymentCapabilityDenial denial) => denial switch
+    {
+        PaymentCapabilityDenial.None => throw new ArgumentOutOfRangeException(nameof(denial)),
+        PaymentCapabilityDenial.UserNotActive => "user_not_active",
+        PaymentCapabilityDenial.UserPolicyDenied => "user_policy_denied",
+        PaymentCapabilityDenial.MerchantUnavailable => "merchant_unavailable",
+        PaymentCapabilityDenial.MethodUnavailable => "method_unavailable",
+        PaymentCapabilityDenial.ProviderUnavailable => "provider_unavailable",
+        PaymentCapabilityDenial.AccountUnavailable => "account_unavailable",
+        PaymentCapabilityDenial.AdapterUnsupported => "adapter_unverified",
+        _ => throw new ArgumentOutOfRangeException(nameof(denial)),
+    };
 
     private async Task<PspConnectionView> ProjectConnectionAsync(Connection x, CancellationToken ct)
     {
@@ -868,6 +937,7 @@ internal sealed class AdminPaymentsControlStore(
                 masked[key] = Mask(masked[key]);
         }
         var adapter = adapterFactory.For(x.Psp);
+        var methods = await ProjectConnectionMethodsAsync(x, await LoadProviderAsync(x.Psp, ct), ct);
         var capabilities = new Dictionary<string, bool>(StringComparer.Ordinal)
         {
             ["test"] = true,
@@ -886,7 +956,8 @@ internal sealed class AdminPaymentsControlStore(
             x.PendingSecretTestResult is { } testResult && x.PendingSecretTestedAt is { } testedAt
                 ? new PspCredentialTestView(testResult, testedAt)
                 : null,
-            new WebhookRegistrationView(x.WebhookRegistrationHash is not null, x.WebhookRegisteredAt));
+            new WebhookRegistrationView(x.WebhookRegistrationHash is not null, x.WebhookRegisteredAt),
+            methods);
     }
 
     private async Task<PspConnectionView> ReplayConnectionAsync(AdminOperationRecord record, CancellationToken ct)
@@ -1245,9 +1316,10 @@ internal sealed class AdminPaymentsControlStore(
     };
 
     private static MerchantPaymentMethodView MerchantPolicyView(
-        Guid merchantId, string method, MerchantPaymentMethod? row, bool effective) => new(
-        merchantId, method, row?.IsEnabled == true, effective,
-        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+        Guid merchantId, string method, MerchantPaymentMethod? row, PaymentMethodDecision decision) => new(
+        merchantId, method, row?.IsEnabled == true, decision.Allowed,
+        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0,
+        decision.Allowed ? null : DenialCode(decision.Denial));
 
     private static MerchantUserPaymentMethodView UserPolicyView(
         Guid merchantUserId, Guid merchantId, string method,
@@ -1255,19 +1327,29 @@ internal sealed class AdminPaymentsControlStore(
         merchantUserId, merchantId, method, row?.IsEnabled == true, effective,
         row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
 
-    private static AccountPaymentCapabilityView AccountMethodView(
+    private AccountPaymentCapabilityView AccountMethodView(
         Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow method,
-        MerchantProviderAccountMethod? row) => new(
-        "account-method", connection.Id, connection.MerchantId, provider.ProviderCode,
-        method.MethodCode, null, row?.IsEnabled == true,
-        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+        MerchantProviderAccountMethod? row)
+    {
+        var verified = adapterFactory.For(connection.Psp).SupportedMethods.Contains(method.MethodCode);
+        return new(
+            "account-method", connection.Id, connection.MerchantId, provider.ProviderCode,
+            method.MethodCode, null, row?.IsEnabled == true,
+            row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0,
+            verified, AccountMethodDenial(connection, provider, method, verified, row?.IsEnabled == true));
+    }
 
-    private static AccountPaymentCapabilityView AccountOptionView(
+    private AccountPaymentCapabilityView AccountOptionView(
         Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow method,
-        ProviderMethodOptionCatalogRow option, MerchantProviderAccountMethodOption? row) => new(
-        "account-method-option", connection.Id, connection.MerchantId, provider.ProviderCode,
-        method.MethodCode, option.OptionCode, row?.IsEnabled == true,
-        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+        ProviderMethodOptionCatalogRow option, MerchantProviderAccountMethodOption? row)
+    {
+        var verified = adapterFactory.For(connection.Psp).SupportedMethods.Contains(method.MethodCode);
+        return new(
+            "account-method-option", connection.Id, connection.MerchantId, provider.ProviderCode,
+            method.MethodCode, option.OptionCode, row?.IsEnabled == true,
+            row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0,
+            verified, verified ? null : "adapter_unverified");
+    }
 
     private sealed class ProviderCatalogRow
     {

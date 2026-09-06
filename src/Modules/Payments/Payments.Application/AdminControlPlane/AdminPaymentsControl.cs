@@ -44,6 +44,17 @@ public sealed record WebhookRegistrationView(bool Acknowledged, DateTime? Acknow
 /// <summary>Safe projection of a connection: masked hints only, never a secret or the vault envelope.
 /// <c>Environment</c> is the merchant's (inherited, REQ-2.2); <c>CredentialEnvironment</c> is what the active
 /// credential was issued for; <c>CallbackUrl</c> carries no secret (REQ-11.1).</summary>
+/// <summary>One canonical method as seen on one provider account (REQ-5.13/5.16): the account-level
+/// switch (<c>AccountEnabled</c>), whether the adapter has sandbox evidence for it (<c>AdapterVerified</c>,
+/// REQ-5.11), and the backend-decided availability with the first blocking reason so the console never
+/// hard-codes per-provider rules. Independent of the merchant-level policy, which is its own resource.</summary>
+public sealed record PspConnectionMethodView(
+    string Method,
+    bool AccountEnabled,
+    bool AdapterVerified,
+    bool Available,
+    string? Denial);
+
 public sealed record PspConnectionView(
     Guid PspConnectionId,
     Guid MerchantId,
@@ -63,7 +74,8 @@ public sealed record PspConnectionView(
     string CredentialEnvironment,
     string CallbackUrl,
     PspCredentialTestView? PendingCredentialTest,
-    WebhookRegistrationView WebhookRegistration);
+    WebhookRegistrationView WebhookRegistration,
+    IReadOnlyList<PspConnectionMethodView> Methods);
 
 /// <summary>The merchant-level payment environment (REQ-2.1) with its pending switch, if any. <c>Version</c>
 /// is <c>Merchant.Version</c> — the ETag an environment-change request must present.</summary>
@@ -137,7 +149,9 @@ public sealed record AccountPaymentCapabilityView(
     bool Enabled,
     Guid? UpdatedBy,
     DateTime? UpdatedAt,
-    long Version);
+    long Version,
+    bool AdapterVerified,
+    string? Denial);
 
 public sealed record SetGlobalPaymentCapabilityIntent(
     string Code,
@@ -160,6 +174,9 @@ public sealed record SetAccountPaymentCapabilityIntent(
 
 public sealed record PaymentCapabilityMutationResult<T>(T Value, bool Replayed);
 
+/// <summary>The merchant-level policy for one method (REQ-5.13) plus the backend's effective decision:
+/// <c>Effective</c> requires BOTH this policy and a qualifying provider-account method (REQ-5.15);
+/// <c>Denial</c> names the first blocking reason (snake_case of <see cref="PaymentCapabilityDenial"/>).</summary>
 public sealed record MerchantPaymentMethodView(
     Guid MerchantId,
     string Method,
@@ -167,7 +184,8 @@ public sealed record MerchantPaymentMethodView(
     bool Effective,
     Guid? UpdatedBy,
     DateTime? UpdatedAt,
-    long Version);
+    long Version,
+    string? Denial);
 
 public sealed record MerchantUserPaymentMethodView(
     Guid MerchantUserId,

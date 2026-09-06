@@ -15,11 +15,12 @@ public interface IPspAdapter
     Code Psp { get; }
 
     /// <summary>
-    /// The canonical <see cref="PaymentMethods"/> codes this adapter can actually honour today. Distinct
-    /// from a connection's <c>EnabledMethods</c>, which is the company's commercial arrangement with the
-    /// PSP: a method may be commercially enabled while our adapter cannot yet drive it, and admitting it
-    /// would silently charge the customer through a different channel. The intersection of the two is the
-    /// real eligibility.
+    /// The canonical <see cref="PaymentMethods"/> codes this adapter has PROVEN against the PSP sandbox
+    /// (merchant-psp-settings REQ-5.4/5.11): a method is listed only once its redirect -> webhook ->
+    /// fetch-to-confirm contract has sandbox evidence, and is removed from nothing else. Distinct from the
+    /// catalog (<c>cfg.PaymentProviderMethods</c>, what the PSP offers) and from an account method row
+    /// (what the merchant has enabled): the control plane requires all three, so implemented-but-unverified
+    /// code can never charge a customer (REQ-5.5 fail-closed, REQ-5.12 opens it by editing this set).
     /// </summary>
     IReadOnlySet<string> SupportedMethods { get; }
 
