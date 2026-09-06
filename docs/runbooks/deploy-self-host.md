@@ -79,7 +79,7 @@ Use isolated staging DB. Never point rehearsal at production.
 3. Record explicit reset approval.
 4. Stop application traffic and background dispatchers.
 5. DBA resets only approved staging `VCentralPay` target using organization procedure.
-6. Run all 23 migrations in timestamp order through `20260902133906_Tier0MicrosoftTenantAwareIdentity`.
+6. Run all 25 migrations in timestamp order through `20260906025013_SwitchProviderDefaultToMicrosoft`.
 7. Run `WorkforceIdentityMigrator`; an existing Admin inventory requires the verified first-run manifest and exact
    approval inputs from `admin-workforce-jit-rollout.md`. Require exit `0` before API startup.
 8. Run `docker/bootstrap/assert-fresh-db.sql` and the aggregate tenant-aware completion query.
