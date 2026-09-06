@@ -898,7 +898,60 @@ internal static class AdminControlEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/merchant-settings/{merchantId:guid}/simple-routing", async (
+            Guid merchantId,
+            HttpContext http,
+            IAdminScope scope,
+            ISimpleRoutingControlStore store,
+            CancellationToken ct) =>
+        {
+            var value = await store.GetSimpleRoutingAsync(merchantId, PaymentsAccess(scope), ct);
+            if (value is null)
+                return Results.Problem(statusCode: StatusCodes.Status404NotFound);
+            VersionEtags.Set(http, value.Version);
+            return Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("กฎเส้นทาง PSP").WithName("GetMerchantSimpleRouting")
+            .WithSummary("อ่าน simple routing ของร้านค้า")
+            .WithDescription("คืนกฎเส้นทางต่อช่องทาง (primary/fallback) ที่หน้าตั้งค่าทั่วไปแก้ได้, ruleset id/version สำหรับ activation และ ETag; advancedReadOnly = true เมื่อ active หรือ draft มี amount, Originator หรือ any predicate หากไม่พบหรือนอก Admin scope -> 404")
+            .Produces<SimpleRoutingView>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        api.MapPut("/payments/merchant-settings/{merchantId:guid}/simple-routing", async (
+            Guid merchantId,
+            SimpleRoutingRequest body,
+            HttpContext http,
+            IAdminScope scope,
+            ISimpleRoutingControlStore store,
+            CancellationToken ct) =>
+        {
+            EnsureMerchant(body.MerchantId, merchantId);
+            var value = await store.SetSimpleRoutingAsync(new SetSimpleRoutingIntent(
+                merchantId, SimpleRoutingRows(body.Rules), VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, value.Version);
+            return Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("กฎเส้นทาง PSP").WithName("SetMerchantSimpleRouting")
+            .WithSummary("กำหนด simple routing ของร้านค้า")
+            .WithDescription("สร้างหรือแทน draft simple ruleset จากแถว method/primary/fallback เท่านั้น ต้องส่ง merchantId, If-Match และ Idempotency-Key; active หรือ draft ที่มี advanced predicate -> 409 advanced_routing_read_only; primary/fallback หรือ environment ไม่ถูกต้อง -> 400 validation_failed")
+            .Produces<SimpleRoutingView>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
     }
+
+    private static IReadOnlyList<SimpleRoutingRuleRow> SimpleRoutingRows(
+        IReadOnlyList<SimpleRoutingRowRequest>? values) =>
+        (values ?? []).Select(x => new SimpleRoutingRuleRow(
+            x.Method, x.PrimaryConnectionId, x.FallbackConnectionId)).ToList();
 
     private static async ValueTask<object?> HandleKnownErrors(
         EndpointFilterInvocationContext context, EndpointFilterDelegate next)
@@ -1056,3 +1109,14 @@ internal sealed record RoutingRuleRequest(
     Guid TargetConnectionId,
     Guid? FallbackConnectionId,
     bool Enabled);
+
+internal sealed record SimpleRoutingRequest(
+    Guid MerchantId,
+    IReadOnlyList<SimpleRoutingRowRequest>? Rules);
+
+// Only method/primary/fallback are bound. Any amount/originator/predicate key a client tacks on is dropped
+// by the deserializer, so a write can never mint an advanced predicate from this page (AC-5.2 #5).
+internal sealed record SimpleRoutingRowRequest(
+    [property: Required] string Method,
+    Guid PrimaryConnectionId,
+    Guid? FallbackConnectionId);

@@ -313,6 +313,50 @@ public sealed record RequestRoutingActivationIntent(
 
 public sealed record RoutingActivationResult(Guid ApprovalId, RoutingRulesetView Ruleset, bool Replayed);
 
+/// <summary>One simple per-method routing row as the general settings page edits it (REQ-6.19): a primary
+/// connection and an optional fallback, never an amount, Originator or <c>any</c> predicate.</summary>
+public sealed record SimpleRoutingRuleRow(
+    string Method,
+    Guid PrimaryConnectionId,
+    Guid? FallbackConnectionId);
+
+public sealed record SimpleRoutingRuleView(
+    string Method,
+    Guid PrimaryConnectionId,
+    Guid? FallbackConnectionId);
+
+/// <summary>The merchant's simple routing as the general settings page reads it. <c>AdvancedReadOnly</c> is
+/// true when the active or any draft ruleset carries an amount, Originator or <c>any</c> predicate — the page
+/// then renders the matrix read-only and cannot write (REQ-6.20). <c>RulesetId</c> is the draft the page
+/// edits (null when none exists yet). <c>Version</c> is the ETag a PUT must present: the draft's version, or
+/// 0 when no draft exists (REQ-9.4), mirroring the row-absent convention used across this store.</summary>
+public sealed record SimpleRoutingView(
+    Guid MerchantId,
+    Guid? RulesetId,
+    string Status,
+    bool AdvancedReadOnly,
+    IReadOnlyList<SimpleRoutingRuleView> Rules,
+    long Version);
+
+public sealed record SetSimpleRoutingIntent(
+    Guid MerchantId,
+    IReadOnlyList<SimpleRoutingRuleRow> Rules,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    AdminPaymentsAccess Access);
+
+/// <summary>Narrow port for the general settings page's simple routing (design <c>ISimpleRoutingControlStore</c>):
+/// it accepts only method/primary/fallback rows and refuses to create, replace or delete any ruleset that
+/// carries an advanced predicate (REQ-6.19/6.20/6.21).</summary>
+public interface ISimpleRoutingControlStore
+{
+    /// <summary>Null when the merchant does not exist OR is outside the admin's scope (REQ-1.4: 404 either way).</summary>
+    Task<SimpleRoutingView?> GetSimpleRoutingAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<SimpleRoutingView> SetSimpleRoutingAsync(
+        SetSimpleRoutingIntent intent, CancellationToken cancellationToken);
+}
+
 public interface IAdminPaymentsControlStore
 {
     /// <summary>Null when the merchant does not exist OR is outside the admin's scope (REQ-1.4: 404 either way).</summary>

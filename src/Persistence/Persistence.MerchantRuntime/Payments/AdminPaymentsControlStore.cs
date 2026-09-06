@@ -31,7 +31,7 @@ internal sealed class AdminPaymentsControlStore(
     IMerchantRuntimeAuthorizationLease authorizationLease,
     PaymentAuthorizationSqlLockManager? authorizationLocks = null,
     IEffectivePaymentCapabilityResolver? effectiveResolver = null)
-    : IAdminPaymentsControlStore, IAccountPaymentCapabilityControlStore
+    : IAdminPaymentsControlStore, IAccountPaymentCapabilityControlStore, ISimpleRoutingControlStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private PaymentAuthorizationSqlLockManager AuthorizationLocks { get; } =
@@ -768,6 +768,9 @@ internal sealed class AdminPaymentsControlStore(
                 x.Priority, x.Method, x.OriginatorId, x.MinAmount, x.MaxAmount,
                 x.TargetConnectionId, x.FallbackConnectionId, x.Enabled)).ToList();
             await ValidateRulesAsync(intent.MerchantId, input, ct);
+            // REQ-6.17 / AC-5.4: every merchant-level enabled method must have a primary before activation.
+            // Enforced here because this is the single activation path both the simple and advanced pages use.
+            await EnsureRoutingCoverageAsync(intent.MerchantId, entity, ct);
             var intentHash = Hash(new
             {
                 intent.RulesetId,
@@ -794,6 +797,186 @@ internal sealed class AdminPaymentsControlStore(
             await unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken);
+
+    private const string SimpleRoutingName = "Simple routing";
+
+    public async Task<SimpleRoutingView?> GetSimpleRoutingAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        if (!await MerchantExistsForAccessAsync(merchantId, access, cancellationToken))
+            return null;
+        // Every LIVE ruleset (draft, pending-approval or active — not superseded history): the page is
+        // read-only if ANY of them carries an advanced predicate, including one already sent for activation.
+        var rulesets = await PlatformReadGuard.ReadAsync(ct => db.RoutingRulesets.IgnoreQueryFilters()
+            .AsNoTracking().Include(x => x.Rules)
+            .Where(x => x.MerchantId == merchantId && x.Status != RoutingRulesetStatus.Superseded)
+            .ToListAsync(ct), cancellationToken);
+        var advancedReadOnly = rulesets.Any(x => x.Rules.Any(IsAdvancedRule));
+        // Resolve "the draft" deterministically; PUT resolves it the same way, so a second draft appearing
+        // shifts the resolution and the stale ETag turns into a 409 state_conflict.
+        var draft = rulesets.Where(x => x.Status == RoutingRulesetStatus.Draft)
+            .OrderBy(x => x.Id).FirstOrDefault();
+        var display = draft
+            ?? rulesets.FirstOrDefault(x => x.Status == RoutingRulesetStatus.PendingApproval)
+            ?? rulesets.FirstOrDefault(x => x.Status == RoutingRulesetStatus.Active);
+        var rows = advancedReadOnly || display is null
+            ? (IReadOnlyList<SimpleRoutingRuleView>)[]
+            : display.Rules.OrderBy(r => r.Priority)
+                .Select(r => new SimpleRoutingRuleView(r.Method, r.TargetConnectionId, r.FallbackConnectionId))
+                .ToList();
+        // Version is the draft's (the write target); 0 when no draft exists yet, even if a pending/active
+        // ruleset is shown for context — a PUT still creates a fresh draft against ETag 0.
+        return new SimpleRoutingView(
+            merchantId, draft?.Id, display is null ? "none" : RulesetStatusCode(display.Status),
+            advancedReadOnly, rows, draft?.Version ?? 0);
+    }
+
+    public Task<SimpleRoutingView> SetSimpleRoutingAsync(
+        SetSimpleRoutingIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            // Scan every LIVE ruleset (draft, pending-approval or active) — a pending-approval advanced
+            // ruleset must still make the page read-only, or a simple PUT could create a draft that then
+            // supersedes it. Superseded history is excluded.
+            var rulesets = await PlatformReadGuard.ReadAsync(token => db.RoutingRulesets.IgnoreQueryFilters()
+                .Include(x => x.Rules)
+                .Where(x => x.MerchantId == intent.MerchantId && x.Status != RoutingRulesetStatus.Superseded)
+                .ToListAsync(token), ct);
+
+            // Advanced guard BEFORE the ETag check: an advanced-rule merchant is always read-only from the
+            // simple page whatever ETag it presents, so no advanced ruleset is ever mutated here.
+            if (rulesets.Any(x => x.Rules.Any(IsAdvancedRule)))
+                throw new ConflictException(
+                    "Routing carries advanced rules and is read-only from the simple settings page.",
+                    "advanced_routing_read_only");
+
+            var draft = rulesets.Where(x => x.Status == RoutingRulesetStatus.Draft)
+                .OrderBy(x => x.Id).FirstOrDefault();
+
+            // Idempotency replay BEFORE the ETag check (same order as the other mutations here): a genuine
+            // retry returns the stored result, and a same-key/different-intent request is a reuse conflict
+            // rather than a stale-ETag one.
+            var intentHash = Hash(new { intent.MerchantId, intent.ExpectedVersion, Rows = intent.Rules });
+            var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+                "routing.simple-set", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return Replay<SimpleRoutingView>(prior);
+            EnsureVersion(draft?.Version ?? 0, intent.ExpectedVersion);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+
+            var specs = await BuildSimpleSpecsAsync(intent.MerchantId, intent.Rules, ct);
+            if (draft is null)
+            {
+                draft = RoutingRuleset.Create(intent.MerchantId, SimpleRoutingName, specs, clock.UtcNow);
+                db.RoutingRulesets.Add(draft);
+            }
+            else
+            {
+                draft.Replace(draft.Name, specs, clock.UtcNow);
+            }
+
+            var view = ProjectSimpleRouting(draft, advancedReadOnly: false);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "routing.simple-set", intent.IdempotencyKey, intentHash);
+            operation.Succeed(200, JsonSerializer.Serialize(view, Json), draft.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return view;
+        }, cancellationToken);
+
+    private static bool IsAdvancedRule(RoutingRule rule) =>
+        rule.Method == "any" || rule.OriginatorId is not null
+        || rule.MinAmount is not null || rule.MaxAmount is not null;
+
+    private static SimpleRoutingView ProjectSimpleRouting(RoutingRuleset draft, bool advancedReadOnly) => new(
+        draft.MerchantId, draft.Id, RulesetStatusCode(draft.Status), advancedReadOnly,
+        draft.Rules.OrderBy(r => r.Priority)
+            .Select(r => new SimpleRoutingRuleView(r.Method, r.TargetConnectionId, r.FallbackConnectionId)).ToList(),
+        draft.Version);
+
+    /// <summary>Turns simple rows into full specs, emitting <c>validation_failed</c> at the request boundary
+    /// BEFORE the domain guards (which throw bare <see cref="ArgumentException"/> without a code). Rejects a
+    /// non-canonical method (incl. <c>any</c>), a duplicate method, an empty/equal primary/fallback (AC-5.3
+    /// #8), and a connection that is unknown, out of the merchant, disabled, in the wrong environment (AC-5.3
+    /// #9) or without the method enabled at both the account and the merchant policy level (AC-5.3).</summary>
+    private async Task<IReadOnlyList<RoutingRuleSpec>> BuildSimpleSpecsAsync(
+        Guid merchantId, IReadOnlyList<SimpleRoutingRuleRow> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0)
+            throw new InvalidRequestException("At least one routing row is required.", "validation_failed");
+        var merchant = await LoadMerchantAsync(merchantId, ct);
+        var specs = new List<RoutingRuleSpec>(rows.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var priority = 1;
+        foreach (var row in rows)
+        {
+            var method = NormalizeMethod(row.Method);
+            if (!seen.Add(method))
+                throw new InvalidRequestException("A method appears more than once.", "validation_failed");
+            if (row.PrimaryConnectionId == Guid.Empty)
+                throw new InvalidRequestException("A routing row requires a primary connection.", "validation_failed");
+            if (row.FallbackConnectionId == row.PrimaryConnectionId)
+                throw new InvalidRequestException("Primary and fallback connections must differ.", "validation_failed");
+            await ValidateSimpleEligibleAsync(merchantId, row.PrimaryConnectionId, method, merchant.PaymentEnvironment, ct);
+            if (row.FallbackConnectionId is { } fallback)
+                await ValidateSimpleEligibleAsync(merchantId, fallback, method, merchant.PaymentEnvironment, ct);
+            specs.Add(new RoutingRuleSpec(
+                priority++, method, null, null, null, row.PrimaryConnectionId, row.FallbackConnectionId, true));
+        }
+        return specs;
+    }
+
+    private async Task ValidateSimpleEligibleAsync(
+        Guid merchantId, Guid connectionId, string method, PspEnvironment environment, CancellationToken ct)
+    {
+        var connection = await PlatformReadGuard.ReadAsync(token => db.PspConnections.IgnoreQueryFilters()
+            .AsNoTracking().SingleOrDefaultAsync(x => x.Id == connectionId && x.MerchantId == merchantId, token), ct);
+        if (connection is null)
+            throw new InvalidRequestException("Routing connection is unknown for the merchant.", "validation_failed");
+        if (!connection.IsEnabled)
+            throw new InvalidRequestException("Routing connection is disabled.", "validation_failed");
+        if (connection.ActiveSecretVersionId is null)
+            throw new InvalidRequestException("Routing connection has no active credential.", "validation_failed");
+        if (connection.ActiveSecretEnvironment != environment)
+            throw new InvalidRequestException(
+                "Routing connection environment does not match the merchant payment environment.", "validation_failed");
+        var provider = await LoadProviderAsync(connection.Psp, ct);
+        var methods = await ProjectConnectionMethodsAsync(connection, provider, ct);
+        if (!methods.Any(x => x.Method == method && x.Available))
+            throw new InvalidRequestException(
+                "Routing connection does not have the method enabled at the account level.", "validation_failed");
+        if (!await MerchantMethodEnabledAsync(merchantId, method, ct))
+            throw new InvalidRequestException(
+                "The method is not enabled at the merchant policy level.", "validation_failed");
+    }
+
+    private async Task<bool> MerchantMethodEnabledAsync(Guid merchantId, string method, CancellationToken ct)
+    {
+        var methodId = MethodId(method);
+        var row = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods.IgnoreQueryFilters()
+            .AsNoTracking().SingleOrDefaultAsync(x => x.MerchantId == merchantId && x.PaymentMethodId == methodId, token), ct);
+        return row?.IsEnabled == true;
+    }
+
+    /// <summary>REQ-6.17 / AC-5.4: every merchant-level enabled method must be covered by an enabled rule with
+    /// a primary connection (its own method or the catch-all <c>any</c>), else the activation is refused.</summary>
+    private async Task EnsureRoutingCoverageAsync(Guid merchantId, RoutingRuleset ruleset, CancellationToken ct)
+    {
+        var enabledMethodIds = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
+            .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == merchantId && x.IsEnabled)
+            .Select(x => x.PaymentMethodId).ToListAsync(token), ct);
+        foreach (var methodId in enabledMethodIds)
+        {
+            var code = MethodCode(methodId);
+            if (code is null)
+                continue;
+            var covered = ruleset.Rules.Any(r => r.Enabled
+                && (r.Method == code || r.Method == "any") && r.TargetConnectionId != Guid.Empty);
+            if (!covered)
+                throw new ConflictException("An enabled merchant method has no primary route.", "routing_incomplete");
+        }
+    }
 
     private async Task ValidateRulesAsync(Guid merchantId, IReadOnlyList<RoutingRuleInput> rules, CancellationToken ct)
     {

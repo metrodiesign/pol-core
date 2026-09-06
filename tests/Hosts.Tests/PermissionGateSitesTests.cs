@@ -173,6 +173,8 @@ public sealed class PermissionGateSitesTests
         new("PUT", "/api/v1/payments/routing-rulesets/{rulesetId:guid}", "admin", "settings.manage"),
         new("DELETE", "/api/v1/payments/routing-rulesets/{rulesetId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/routing-rulesets/{rulesetId:guid}/activation-requests", "admin", "settings.manage"),
+        new("GET", "/api/v1/payments/merchant-settings/{merchantId:guid}/simple-routing", "admin", "settings.manage"),
+        new("PUT", "/api/v1/payments/merchant-settings/{merchantId:guid}/simple-routing", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/transactions", "admin", "txn.view"),
         new("GET", "/api/v1/payments/transactions/{paymentSessionId:guid}", "admin", "txn.view"),
         new("GET", "/api/v1/payments/transactions/export", "admin", "txn.export"),
@@ -256,7 +258,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_158_active_gate_sites_are_pinned() => Assert.Equal(158, Sites.Length);
+    public void Exactly_160_active_gate_sites_are_pinned() => Assert.Equal(160, Sites.Length);
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

@@ -67,7 +67,7 @@ public sealed class TransactionInventoryTests
         ["src/Hosts/Api/Orders/OrderCreationCoordinator.cs"] = 1,                                    // direct Cart-to-Order shared MerchantRuntime transaction
         ["src/Persistence/Persistence.ControlPlane/Governance/GovernanceStore.cs"] = 3,              // rows 29-31
         ["src/Persistence/Persistence.MerchantRuntime/Merchants/AdminMerchantControlStore.cs"] = 2, // rows 32-33
-        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 12, // all Admin payment mutations lease-covered
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 13, // all Admin payment mutations lease-covered (incl. simple-routing set, task 5)
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs"] = 1, // request-scoped authorization snapshot
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs"] = 3, // backfill, cutover, rollback
         ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsApprovalExecutor.cs"] = 2, // rows 38-39
