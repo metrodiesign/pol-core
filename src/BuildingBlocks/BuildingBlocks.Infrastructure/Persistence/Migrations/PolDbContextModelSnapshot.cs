@@ -243,8 +243,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Provider")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("microsoft");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -2154,8 +2156,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Provider")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("microsoft");
 
                     b.Property<string>("SaleCode")
                         .HasMaxLength(20)

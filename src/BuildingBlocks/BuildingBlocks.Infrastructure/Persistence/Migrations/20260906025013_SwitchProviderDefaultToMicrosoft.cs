@@ -5,7 +5,7 @@
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class DropRetiredProviderDefaults : Migration
+    public partial class SwitchProviderDefaultToMicrosoft : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -17,6 +17,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 type: "nvarchar(32)",
                 maxLength: 32,
                 nullable: false,
+                defaultValue: "microsoft",
                 oldClrType: typeof(string),
                 oldType: "nvarchar(32)",
                 oldMaxLength: 32,
@@ -29,6 +30,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 type: "nvarchar(32)",
                 maxLength: 32,
                 nullable: false,
+                defaultValue: "microsoft",
                 oldClrType: typeof(string),
                 oldType: "nvarchar(32)",
                 oldMaxLength: 32,
@@ -48,7 +50,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 defaultValue: "google",
                 oldClrType: typeof(string),
                 oldType: "nvarchar(32)",
-                oldMaxLength: 32);
+                oldMaxLength: 32,
+                oldDefaultValue: "microsoft");
 
             migrationBuilder.AlterColumn<string>(
                 name: "Provider",
@@ -60,7 +63,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 defaultValue: "google",
                 oldClrType: typeof(string),
                 oldType: "nvarchar(32)",
-                oldMaxLength: 32);
+                oldMaxLength: 32,
+                oldDefaultValue: "microsoft");
         }
     }
 }

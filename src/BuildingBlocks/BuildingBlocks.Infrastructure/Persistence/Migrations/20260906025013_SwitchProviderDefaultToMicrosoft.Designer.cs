@@ -13,8 +13,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    [Migration("20260905140218_DropRetiredProviderDefaults")]
-    partial class DropRetiredProviderDefaults
+    [Migration("20260906025013_SwitchProviderDefaultToMicrosoft")]
+    partial class SwitchProviderDefaultToMicrosoft
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -246,8 +246,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Provider")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("microsoft");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -2157,8 +2159,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Provider")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("microsoft");
 
                     b.Property<string>("SaleCode")
                         .HasMaxLength(20)
