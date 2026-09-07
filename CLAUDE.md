@@ -10,6 +10,23 @@ vendor-neutral `.ai/` operating layer and reused by every agent. This file is th
 thin Claude Code adapter on top of it — it bootstraps the shared layer and maps it
 to real Claude mechanisms. It does NOT restate shared prose.
 
+## การเลือก workflow และการทำงานต่อเนื่อง
+
+ค่าเริ่มต้น: เมื่อผู้ใช้มอบหมาย objective ให้สำรวจ repo เลือกแนวทางที่ปลอดภัยและย้อนกลับได้
+บันทึก assumptions แล้วทำงานต่อจนผ่าน review และ test gates ใน scope ที่ได้รับมอบหมาย
+ใช้ spec ที่มีเป็นข้อกำหนดและรักษา traceability; ไม่เรียก interactive workflow หรือสร้างขั้นรออนุมัติอัตโนมัติ
+
+เลือก interactive spec workflow เมื่อผู้ใช้ขอ review/sign-off แต่ละ phase อย่างชัดเจนเท่านั้น
+การเรียก `/spec-*` อย่างเดียวไม่ถือเป็นคำขอให้หยุดรอทุก phase; ทำเฉพาะผลลัพธ์ที่คำสั่งนั้นขอ
+คำสั่ง STOP/Wait/Pause เพื่อรอ phase approval ใน TASK_PROTOCOL, adapter และ spec skills
+ใช้เฉพาะ interactive workflow นี้; review คุณภาพ, test gates และข้อกำหนดของ spec ยังใช้เสมอ
+
+ถามเฉพาะ product decision สำคัญที่อนุมานจาก repo หรือ objective ไม่ได้ หรือ action ที่ต้องมี
+external/destructive authorization และยังไม่ได้รับ; ทำส่วนที่เป็นอิสระต่อระหว่างรอ
+คงข้อห้าม secrets, production, protected refs และ permission hooks ทั้งหมด
+บันทึก `Status: approved` เฉพาะเมื่อผู้ใช้อนุมัติจริง; หาก hook บังคับ approval ให้รายงาน blocker
+และทำส่วนที่ไม่ติด gate ต่อ ห้ามสร้าง approval metadata หรือเลี่ยง hook เพื่อให้ผ่าน
+
 ## Read first, every session (the always-on canon)
 
 Before doing any work, read the canonical shared sources — they are the durable
@@ -38,22 +55,19 @@ Adopt the Claude-specific adapter and honest self-knowledge in:
 - `.ai/agents/claude/CAPABILITIES.md`
 - `.ai/agents/claude/LIMITATIONS.md`
 
-## The workflow gates (inside an invoked `/spec-*` run only)
+## Phase gates สำหรับ interactive spec workflow
 
-Once a `/spec-*` command is running, these gates are non-negotiable for that run.
-Outside such a run they do not apply.
+phase approval ในส่วนนี้ใช้เฉพาะ interactive workflow ที่ผู้ใช้ขอ ตามนโยบายด้านบน
 
 Every feature flows through three artifacts under `.ai/specs/<feature-name>/`,
-IN ORDER, with an APPROVAL GATE after each (Design-First swaps 1 and 2 — same gates):
+ตามลำดับ; phase approval ใช้เฉพาะ interactive workflow (Design-First สลับ 1 และ 2):
 
   1. requirements.md  — WHAT the system must do (EARS notation)
   2. design.md        — HOW it will be built (architecture)
   3. tasks.md         — discrete, trackable implementation steps
 
-After producing each artifact, STOP and ask me to review before generating the
-next. Wait for explicit approval ("approved" / "continue"). The only exception is
-`/spec-quick`, which runs all phases without gates. (Full phase detail and the
-"approval lives in the file, not the conversation" rule: `.ai/shared/TASK_PROTOCOL.md`.)
+เมื่อใช้ interactive workflow ที่ผู้ใช้ขอ ให้เสนอแต่ละ artifact และรอ phase approval
+ตามกติกาใน workflow; งานที่ได้รับมอบหมายให้ทำต่อเนื่องให้ตรวจคุณภาพแล้วดำเนินต่อใน scope เดิม
 
 ## How to run each phase (project slash commands — do not improvise the structure)
 
