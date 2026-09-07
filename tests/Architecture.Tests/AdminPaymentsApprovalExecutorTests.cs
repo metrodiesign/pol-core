@@ -174,6 +174,271 @@ public sealed class AdminPaymentsApprovalExecutorTests : IDisposable
         Assert.Equal("credential_candidate_expired", execution.Outcome);
     }
 
+    [Fact]
+    public async Task Approving_an_environment_change_activates_every_connection_and_flips_the_merchant()
+    {
+        var seed = await SeedPendingEnvironmentAsync(candidateExpiresAt: Now.AddHours(24));
+        await using var db = NewContext();
+        var executor = EnvironmentExecutor(db, CredentialVault(db));
+
+        await executor.ExecuteAsync(EnvironmentDecision(seed.ApprovalId, seed.Version), default);
+
+        await using var verify = NewContext();
+        var merchant = await verify.Merchants.SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Live, merchant.PaymentEnvironment);                 // AC-7.2 environment flipped
+        Assert.Null(merchant.PendingPaymentEnvironment);
+        Assert.Null(merchant.PendingPaymentEnvironmentApprovalId);
+        for (var i = 0; i < seed.ConnectionIds.Length; i++)
+        {
+            var connection = await verify.PspConnections.SingleAsync(x => x.Id == seed.ConnectionIds[i]);
+            Assert.Equal(seed.CandidateVersionIds[i], connection.ActiveSecretVersionId); // candidate activated
+            Assert.Equal(PspEnvironment.Live, connection.ActiveSecretEnvironment);
+            Assert.Null(connection.PendingApprovalId);
+            var previous = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == seed.ActiveVersionIds[i]);
+            Assert.Equal(VaultSecretVersionState.Retired, previous.State);               // old retired, not deleted
+            Assert.Null(previous.ExpiresAt);
+        }
+        var execution = Assert.Single(await verify.ApprovalExecutionRecords.ToListAsync());
+        Assert.Equal("environment_activated", execution.Outcome);
+    }
+
+    [Fact]
+    public async Task A_failure_midway_through_activation_rolls_the_whole_switch_back()
+    {
+        var seed = await SeedPendingEnvironmentAsync(candidateExpiresAt: Now.AddHours(24));
+        await using var db = NewContext();
+        // Throw on the SECOND activation: the first connection is already retired+activated in-transaction when
+        // the failure lands, so this proves the whole switch — both connections AND the merchant — rolls back
+        // (REQ-2.14/2.15, critical #2), not just the connection that failed.
+        var vault = new FailOnNthActivateVault(CredentialVault(db), failOn: 2);
+        var executor = EnvironmentExecutor(db, vault);
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            executor.ExecuteAsync(EnvironmentDecision(seed.ApprovalId, seed.Version), default));
+
+        await using var verify = NewContext();
+        var merchant = await verify.Merchants.SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Sandbox, merchant.PaymentEnvironment);              // unchanged
+        Assert.Equal(PspEnvironment.Live, merchant.PendingPaymentEnvironment);          // still pending
+        Assert.Equal(seed.ApprovalId, merchant.PendingPaymentEnvironmentApprovalId);
+        for (var i = 0; i < seed.ConnectionIds.Length; i++)
+        {
+            var connection = await verify.PspConnections.SingleAsync(x => x.Id == seed.ConnectionIds[i]);
+            Assert.Equal(seed.ActiveVersionIds[i], connection.ActiveSecretVersionId);   // active kept
+            Assert.Equal(PspEnvironment.Sandbox, connection.ActiveSecretEnvironment);
+            Assert.Equal(seed.ApprovalId, connection.PendingApprovalId);                // still staged
+            var previous = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == seed.ActiveVersionIds[i]);
+            var candidate = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == seed.CandidateVersionIds[i]);
+            Assert.Equal(VaultSecretVersionState.Active, previous.State);
+            Assert.Equal(VaultSecretVersionState.Staged, candidate.State);
+        }
+        Assert.Empty(await verify.ApprovalExecutionRecords.ToListAsync());              // claim rolled back too
+    }
+
+    [Fact]
+    public async Task Rejecting_an_environment_change_discards_every_candidate_and_keeps_the_environment()
+    {
+        var seed = await SeedPendingEnvironmentAsync(candidateExpiresAt: Now.AddHours(24));
+        await using var db = NewContext();
+        var executor = EnvironmentExecutor(db, CredentialVault(db));
+        var rejected = EnvironmentDecision(seed.ApprovalId, seed.Version) with { Decision = "rejected" };
+
+        await executor.ExecuteAsync(rejected, default);
+
+        await using var verify = NewContext();
+        var merchant = await verify.Merchants.SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Sandbox, merchant.PaymentEnvironment);              // AC-7.3 environment kept
+        Assert.Null(merchant.PendingPaymentEnvironment);
+        for (var i = 0; i < seed.ConnectionIds.Length; i++)
+        {
+            var connection = await verify.PspConnections.SingleAsync(x => x.Id == seed.ConnectionIds[i]);
+            Assert.Equal(seed.ActiveVersionIds[i], connection.ActiveSecretVersionId);
+            Assert.Null(connection.PendingApprovalId);
+            var candidate = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == seed.CandidateVersionIds[i]);
+            Assert.Equal(VaultSecretVersionState.Discarded, candidate.State);           // every candidate discarded
+        }
+        var execution = Assert.Single(await verify.ApprovalExecutionRecords.ToListAsync());
+        Assert.Equal("environment_rejected", execution.Outcome);
+    }
+
+    [Fact]
+    public async Task Approving_a_stale_environment_change_discards_every_candidate_and_reports_stale()
+    {
+        var seed = await SeedPendingEnvironmentAsync(candidateExpiresAt: Now.AddHours(24));
+        await using var db = NewContext();
+        var executor = EnvironmentExecutor(db, CredentialVault(db));
+
+        // The merchant version moved since the request (e.g. an unrelated settings edit): the approval is stale
+        // and must be cleaned up like a reject (AC-7.3 "reject OR stale"), not left pending on a rollback.
+        await executor.ExecuteAsync(EnvironmentDecision(seed.ApprovalId, seed.Version + 1), default);
+
+        await using var verify = NewContext();
+        var merchant = await verify.Merchants.SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Sandbox, merchant.PaymentEnvironment);
+        Assert.Null(merchant.PendingPaymentEnvironment);
+        for (var i = 0; i < seed.ConnectionIds.Length; i++)
+        {
+            var connection = await verify.PspConnections.SingleAsync(x => x.Id == seed.ConnectionIds[i]);
+            Assert.Equal(seed.ActiveVersionIds[i], connection.ActiveSecretVersionId);
+            Assert.Null(connection.PendingApprovalId);
+            var candidate = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == seed.CandidateVersionIds[i]);
+            Assert.Equal(VaultSecretVersionState.Discarded, candidate.State);           // AC-7.3 candidates discarded
+        }
+        var execution = Assert.Single(await verify.ApprovalExecutionRecords.ToListAsync());
+        Assert.Equal("environment_stale", execution.Outcome);
+    }
+
+    [Fact]
+    public async Task Approving_an_environment_change_with_an_expired_candidate_reports_credential_candidate_expired()
+    {
+        var seed = await SeedPendingEnvironmentAsync(candidateExpiresAt: Now.AddHours(-1));  // AC-7.4 past 24h
+        await using var db = NewContext();
+        var executor = EnvironmentExecutor(db, CredentialVault(db));
+
+        await executor.ExecuteAsync(EnvironmentDecision(seed.ApprovalId, seed.Version), default);
+
+        await using var verify = NewContext();
+        var merchant = await verify.Merchants.SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Sandbox, merchant.PaymentEnvironment);              // whole request fails safe
+        Assert.Null(merchant.PendingPaymentEnvironment);
+        for (var i = 0; i < seed.ConnectionIds.Length; i++)
+        {
+            var connection = await verify.PspConnections.SingleAsync(x => x.Id == seed.ConnectionIds[i]);
+            Assert.Equal(seed.ActiveVersionIds[i], connection.ActiveSecretVersionId);   // active untouched
+            Assert.Null(connection.PendingApprovalId);
+            var candidate = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == seed.CandidateVersionIds[i]);
+            Assert.Equal(VaultSecretVersionState.Discarded, candidate.State);
+        }
+        var execution = Assert.Single(await verify.ApprovalExecutionRecords.ToListAsync());
+        Assert.Equal("credential_candidate_expired", execution.Outcome);
+    }
+
+    [Fact]
+    public async Task Approving_an_environment_change_with_a_connection_staged_by_no_one_is_incomplete()
+    {
+        // The request staged the ONE connection the merchant had; a second connection (a different PSP) was
+        // then created before approval and holds no candidate for this approval. Activating the staged one and
+        // flipping the merchant would leave the new connection mixed, so the executor fails the whole request
+        // (design 250-263, critical #2) rather than partially switch.
+        Guid stagedConnection;
+        Guid approvalId;
+        long version;
+        Guid candidateVersion;
+        await using (var seedDb = NewContext())
+        {
+            var vault = CredentialVault(seedDb);
+            seedDb.Merchants.Add(Merchant.CreateWithId(
+                MerchantId, "vcommerce", "Merchant", null, "TH", "THB", [], "{}", Now));
+            var conn = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp-only", Now);
+            seedDb.PspConnections.Add(conn);
+            await seedDb.SaveChangesAsync();
+            var active = await vault.StageVersionAsync(MerchantId, "psp-only", "{\"secretKey\":\"active\"}", "{}", Now.AddHours(24), default);
+            await seedDb.SaveChangesAsync();
+            await vault.ActivateVersionAsync(MerchantId, active, default);
+            conn.SetInitialSecretVersion(active, PspEnvironment.Sandbox);
+            await seedDb.SaveChangesAsync();
+            candidateVersion = await vault.StageVersionAsync(MerchantId, "psp-only", "{\"secretKey\":\"candidate\"}", "{}", Now.AddHours(24), default);
+            approvalId = Guid.NewGuid();
+            conn.StageSecretVersion(candidateVersion, approvalId, PspEnvironment.Live);
+            var seedMerchant = await seedDb.Merchants.SingleAsync(x => x.Id == MerchantId);
+            seedMerchant.StagePaymentEnvironment(PspEnvironment.Live, approvalId);
+            await seedDb.SaveChangesAsync();
+            stagedConnection = conn.Id;
+            version = seedMerchant.Version;
+            // A connection of a different PSP appears AFTER the request — never staged for this approval.
+            seedDb.PspConnections.Add(Connection.Create(MerchantId, Code.Omise, string.Empty, "psp-late", Now));
+            await seedDb.SaveChangesAsync();
+        }
+        await using var db = NewContext();
+        var executor = EnvironmentExecutor(db, CredentialVault(db));
+
+        await executor.ExecuteAsync(EnvironmentDecision(approvalId, version), default);
+
+        await using var verify = NewContext();
+        var merchant = await verify.Merchants.SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Sandbox, merchant.PaymentEnvironment);
+        Assert.Null(merchant.PendingPaymentEnvironment);
+        var staged = await verify.PspConnections.SingleAsync(x => x.Id == stagedConnection);
+        Assert.Null(staged.PendingApprovalId);                                          // its candidate discarded
+        var candidate = await verify.Set<VaultSecretVersion>().SingleAsync(x => x.Id == candidateVersion);
+        Assert.Equal(VaultSecretVersionState.Discarded, candidate.State);
+        var execution = Assert.Single(await verify.ApprovalExecutionRecords.ToListAsync());
+        Assert.Equal("environment_credentials_incomplete", execution.Outcome);
+    }
+
+    private async Task<(Guid[] ConnectionIds, Guid ApprovalId, long Version, Guid[] ActiveVersionIds, Guid[] CandidateVersionIds)>
+        SeedPendingEnvironmentAsync(DateTime candidateExpiresAt)
+    {
+        await using var db = NewContext();
+        var vault = CredentialVault(db);
+        db.Merchants.Add(Merchant.CreateWithId(
+            MerchantId, "vcommerce", "Merchant", null, "TH", "THB", [], "{}", Now));
+        var connA = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp-a", Now);
+        var connB = Connection.Create(MerchantId, Code.Omise, string.Empty, "psp-b", Now);
+        db.PspConnections.AddRange(connA, connB);
+        await db.SaveChangesAsync();
+
+        var connections = new[] { (Conn: connA, Name: "psp-a"), (Conn: connB, Name: "psp-b") };
+        var actives = new Guid[connections.Length];
+        var candidates = new Guid[connections.Length];
+        var approvalId = Guid.NewGuid();
+        for (var i = 0; i < connections.Length; i++)
+        {
+            actives[i] = await vault.StageVersionAsync(MerchantId, connections[i].Name,
+                $"{{\"secretKey\":\"active-{connections[i].Name}\"}}", "{}", Now.AddHours(24), default);
+            await db.SaveChangesAsync();
+            await vault.ActivateVersionAsync(MerchantId, actives[i], default);
+            connections[i].Conn.SetInitialSecretVersion(actives[i], PspEnvironment.Sandbox);
+        }
+        await db.SaveChangesAsync();
+        for (var i = 0; i < connections.Length; i++)
+        {
+            candidates[i] = await vault.StageVersionAsync(MerchantId, connections[i].Name,
+                $"{{\"secretKey\":\"candidate-{connections[i].Name}\"}}", "{}", candidateExpiresAt, default);
+            connections[i].Conn.StageSecretVersion(candidates[i], approvalId, PspEnvironment.Live);
+        }
+        var merchant = await db.Merchants.SingleAsync(x => x.Id == MerchantId);
+        merchant.StagePaymentEnvironment(PspEnvironment.Live, approvalId);
+        await db.SaveChangesAsync();
+        return ([connA.Id, connB.Id], approvalId, merchant.Version, actives, candidates);
+    }
+
+    private static ApprovalDecided EnvironmentDecision(Guid approvalId, long version) => new(
+        Guid.NewGuid(), approvalId, "merchant", MerchantId, "approved", CheckerId, "checked",
+        "merchant-environment", MerchantId.ToString("D"), $"v{version}", "corr-approval", Now);
+
+    private AdminPaymentsApprovalExecutor EnvironmentExecutor(MerchantRuntimeDbContext db, IVaultSecretStore vault) => new(
+        db, new FixedClock(), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
+        vault, new OkAdapterFactory(true), NoOpSecurityTelemetry.Instance,
+        new PaymentAuthorizationSqlLockManager(db));
+
+    private sealed class FailOnNthActivateVault(IVaultSecretStore inner, int failOn) : IVaultSecretStore
+    {
+        private int _activations;
+
+        public Task ActivateVersionAsync(Guid merchantId, Guid versionId, CancellationToken ct)
+        {
+            if (++_activations == failOn)
+                throw new InvalidOperationException("Injected vault activation failure.");
+            return inner.ActivateVersionAsync(merchantId, versionId, ct);
+        }
+
+        public Task StoreAsync(Guid m, string n, string s, CancellationToken ct) => inner.StoreAsync(m, n, s, ct);
+        public Task InsertAsync(Guid m, string n, string s, CancellationToken ct) => inner.InsertAsync(m, n, s, ct);
+        public Task<string> RevealAsync(Guid m, string n, CancellationToken ct) => inner.RevealAsync(m, n, ct);
+        public Task<string?> MaskedAsync(Guid m, string n, CancellationToken ct) => inner.MaskedAsync(m, n, ct);
+        public Task<bool> ExistsAsync(Guid m, string n, CancellationToken ct) => inner.ExistsAsync(m, n, ct);
+        public Task<Guid> StageVersionAsync(Guid m, string n, string s, string h, DateTime? e, CancellationToken ct) =>
+            inner.StageVersionAsync(m, n, s, h, e, ct);
+        public Task<string> ReadVersionForServerAsync(Guid m, Guid v, CancellationToken ct) =>
+            inner.ReadVersionForServerAsync(m, v, ct);
+        public Task RetireVersionAsync(Guid m, Guid v, CancellationToken ct) => inner.RetireVersionAsync(m, v, ct);
+        public Task DiscardVersionAsync(Guid m, Guid v, CancellationToken ct) => inner.DiscardVersionAsync(m, v, ct);
+        public Task<string?> MaskedVersionAsync(Guid m, Guid v, CancellationToken ct) => inner.MaskedVersionAsync(m, v, ct);
+        public Task<DateTime?> StagedVersionExpiresAtAsync(Guid m, Guid v, CancellationToken ct) =>
+            inner.StagedVersionExpiresAtAsync(m, v, ct);
+    }
+
     private async Task<(Guid ConnectionId, Guid ApprovalId, long Version, Guid ActiveVersionId, Guid CandidateVersionId)>
         SeedPendingCredentialAsync(DateTime candidateExpiresAt)
     {

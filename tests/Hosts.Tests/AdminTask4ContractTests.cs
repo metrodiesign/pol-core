@@ -163,6 +163,7 @@ public sealed class AdminTask4ContractTests
         AssertMutation(paths, "/api/v1/payments/psp-connections/{connectionId}/test", "post", "TestPspConnection", etag: true, idempotency: true);
         AssertMutation(paths, "/api/v1/payments/psp-connections/{connectionId}/credential-change-requests", "post", "RequestPspCredentialChange", etag: true, idempotency: true);
         AssertMutation(paths, "/api/v1/payments/psp-connections/{connectionId}/credential-change-requests/{approvalId}/test", "post", "TestPspCredentialCandidate", etag: true, idempotency: true);
+        AssertMutation(paths, "/api/v1/payments/merchant-settings/{merchantId}/environment-change-requests", "post", "RequestMerchantEnvironmentChange", etag: true, idempotency: true);
 
         AssertOperation(paths, "/api/v1/payments/routing-rulesets", "get", "ListRoutingRulesets");
         AssertOperation(paths, "/api/v1/payments/routing-rulesets/{rulesetId}", "get", "GetRoutingRuleset");

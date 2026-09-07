@@ -138,6 +138,35 @@ public sealed record TestPspCandidateCredentialIntent(
 public sealed record PspConnectionMutationResult(PspConnectionView Connection, bool Replayed);
 public sealed record PspCredentialChangeResult(Guid ApprovalId, Guid CandidateVersionId, string Status, bool Replayed);
 
+/// <summary>One connection's target-environment credentials inside an atomic environment switch (REQ-2.11):
+/// every connection of the merchant is staged under one approval.</summary>
+public sealed record EnvironmentChangeConnectionCredential(
+    Guid PspConnectionId,
+    IReadOnlyDictionary<string, string> Secrets,
+    string? PspMerchantId);
+
+/// <summary>Requests a maker-checker switch of the merchant's payment environment (REQ-2.11-2.16). Stages a
+/// candidate credential for EVERY connection under a single approval id; the checker's approval activates them
+/// all — and flips <c>Merchant.PaymentEnvironment</c> — in one transaction, so no connection can be left in a
+/// mixed sandbox/live state (task 7, critical #2).</summary>
+public sealed record RequestEnvironmentChangeIntent(
+    Guid MerchantId,
+    string TargetEnvironment,
+    bool OmiseWebhookRegistered,
+    IReadOnlyList<EnvironmentChangeConnectionCredential> Connections,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    string CorrelationId,
+    AdminPaymentsAccess Access);
+
+public sealed record EnvironmentChangeResult(
+    Guid ApprovalId,
+    Guid MerchantId,
+    string TargetEnvironment,
+    int ConnectionCount,
+    string Status,
+    bool Replayed);
+
 public sealed record GlobalPaymentCapabilityView(
     string Kind,
     string Code,
@@ -380,6 +409,7 @@ public interface IAdminPaymentsControlStore
     Task<PspConnectionMutationResult> TestConnectionAsync(TestPspConnectionIntent intent, CancellationToken cancellationToken);
     Task<PspCredentialChangeResult> RequestCredentialChangeAsync(RequestPspCredentialChangeIntent intent, CancellationToken cancellationToken);
     Task<PspConnectionMutationResult> TestCandidateCredentialAsync(TestPspCandidateCredentialIntent intent, CancellationToken cancellationToken);
+    Task<EnvironmentChangeResult> RequestEnvironmentChangeAsync(RequestEnvironmentChangeIntent intent, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<EffectivePaymentMethod>?> ListMerchantMethodsAsync(
         Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);

@@ -747,6 +747,117 @@ internal sealed class AdminPaymentsControlStore(
         return new PspConnectionMutationResult(view, false);
     }
 
+    public Task<EnvironmentChangeResult> RequestEnvironmentChangeAsync(
+        RequestEnvironmentChangeIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            // Unknown environment code is malformed input (400), decided before touching state (REQ-2.6).
+            var target = ParseEnvironment(intent.TargetEnvironment);
+            var merchant = await LoadMerchantForUpdateAsync(intent.MerchantId, ct);
+            if (target == merchant.PaymentEnvironment)
+                throw new InvalidRequestException(
+                    "The merchant already uses the requested payment environment.", "validation_failed");
+
+            var connections = await PlatformReadGuard.ReadAsync(token => db.PspConnections.IgnoreQueryFilters()
+                .Where(x => x.MerchantId == intent.MerchantId).ToListAsync(token), ct);
+
+            // Map the body's credentials to this merchant's connections. A body entry that names an unknown or
+            // out-of-scope connection, or names one twice, is malformed input (400) — checked before any 409.
+            var byId = new Dictionary<Guid, EnvironmentChangeConnectionCredential>();
+            foreach (var entry in intent.Connections)
+            {
+                if (connections.All(c => c.Id != entry.PspConnectionId))
+                    throw new InvalidRequestException(
+                        $"Connection '{entry.PspConnectionId:D}' does not belong to this merchant.", "validation_failed");
+                if (!byId.TryAdd(entry.PspConnectionId, entry))
+                    throw new InvalidRequestException(
+                        $"Connection '{entry.PspConnectionId:D}' appears more than once.", "validation_failed");
+            }
+
+            // Validate every provided credential at the TARGET environment and build its envelope BEFORE any
+            // vault write (REQ-4.7-4.11). Envelopes are kept so a fingerprint feeds the idempotency hash.
+            var staged = new List<(Connection Connection, PspSecretEnvelopeResult Envelope)>();
+            foreach (var connection in connections.OrderBy(c => c.Id))
+            {
+                if (!byId.TryGetValue(connection.Id, out var entry))
+                    continue;
+                ValidateSecretFields(connection.Psp, entry.Secrets, entry.PspMerchantId, target);
+                var envelope = envelopeFactory.Build(new PspSecretInput(connection.Psp, entry.Secrets, entry.PspMerchantId));
+                staged.Add((connection, envelope));
+            }
+
+            var intentHash = Hash(new
+            {
+                intent.MerchantId,
+                target = target.ToCode(),
+                intent.ExpectedVersion,
+                connections = staged.Select(x => new
+                {
+                    connectionId = x.Connection.Id,
+                    secretFingerprint = SecretIntentFingerprint(x.Envelope.EnvelopeJson),
+                }).ToList(),
+            });
+            var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+                "payment.environment-change", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return Replay<EnvironmentChangeResult>(prior);
+
+            // Every connection must be re-credentialed for the target — a partial switch would leave a mixed
+            // sandbox/live state (REQ-2.16). Missing one is a named 409, not a silent partial stage.
+            if (staged.Count != connections.Count)
+                throw new ConflictException(
+                    "Every connection must supply a credential for the target environment.",
+                    "environment_credentials_incomplete");
+            // Omise live requires the admin to confirm the callback URL is registered at the dashboard (REQ-11.2).
+            if (target == PspEnvironment.Live
+                && connections.Any(c => c.Psp == Code.Omise) && !intent.OmiseWebhookRegistered)
+                throw new ConflictException(
+                    "The Omise callback URL must be acknowledged as registered before going live.", "webhook_not_ready");
+            // Guard the pending state BEFORE the ETag so a caller holding a fresh ETag still sees approval_pending,
+            // not state_conflict (precedent: the single-connection credential change).
+            if (merchant.PendingPaymentEnvironmentApprovalId is not null)
+                throw new ConflictException("A payment environment change is already pending for this merchant.", "approval_pending");
+            if (connections.Any(c => c.PendingApprovalId is not null))
+                throw new ConflictException("A credential change is pending for one of this merchant's connections.", "approval_pending");
+            // An unresolved legacy Session (snapshot version 0 — a historical charge whose pinned secret has not
+            // been proven) blocks the switch until task 9 remediation clears it (critical #12).
+            if (await PlatformReadGuard.ReadAsync(token => db.PaymentSessions.IgnoreQueryFilters()
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0, token), ct))
+                throw new ConflictException(
+                    "The merchant has an unresolved legacy payment session that must be remediated first.", "legacy_snapshot_blocked");
+
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            EnsureVersion(merchant.Version, intent.ExpectedVersion);
+
+            var approvalId = Guid.CreateVersion7();
+            foreach (var (connection, envelope) in staged)
+            {
+                var secretName = $"psp-connection-{connection.Id:N}";
+                var candidate = await vault.StageVersionAsync(intent.MerchantId, secretName,
+                    envelope.EnvelopeJson, JsonSerializer.Serialize(envelope.Hints, Json),
+                    clock.UtcNow.AddHours(24), ct);
+                connection.StageSecretVersion(candidate, approvalId, target);
+                if (target == PspEnvironment.Live && connection.Psp == Code.Omise)
+                    connection.AcknowledgeWebhookRegistration(
+                        adapterFactory.For(connection.Psp).CallbackUrlFor(connection.Id), intent.Access.ActorId, clock.UtcNow);
+            }
+            merchant.StagePaymentEnvironment(target, approvalId);
+            var result = new EnvironmentChangeResult(
+                approvalId, intent.MerchantId, target.ToCode(), staged.Count, "pending", false);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "payment.environment-change", intent.IdempotencyKey, intentHash);
+            operation.Succeed(202, JsonSerializer.Serialize(result, Json), approvalId.ToString("D"));
+            EnqueueApproval(new ApprovalRequested(
+                Guid.CreateVersion7(), approvalId, "merchant", intent.MerchantId,
+                "psp.environment.change", "settings.manage", intent.Access.ActorId,
+                "merchant-environment", intent.MerchantId.ToString("D"), $"v{merchant.Version}",
+                intent.CorrelationId, clock.UtcNow));
+            await unitOfWork.SaveChangesAsync(ct);
+            return result;
+        }, cancellationToken);
+
     public async Task<PagedResult<RoutingRulesetView>> ListRulesetsAsync(
         RoutingRulesetQuery query, CancellationToken cancellationToken)
     {
@@ -1264,6 +1375,11 @@ internal sealed class AdminPaymentsControlStore(
 
     private async Task<Merchant> LoadMerchantAsync(Guid merchantId, CancellationToken ct) =>
         await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == merchantId, token), ct)
+        ?? throw new NotFoundException("Merchant was not found.");
+
+    private async Task<Merchant> LoadMerchantForUpdateAsync(Guid merchantId, CancellationToken ct) =>
+        await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters()
             .SingleOrDefaultAsync(x => x.Id == merchantId, token), ct)
         ?? throw new NotFoundException("Merchant was not found.");
 
@@ -1813,6 +1929,12 @@ internal sealed class AdminPaymentsControlStore(
         try { return Codes.FromCode(value.Trim().ToLowerInvariant()); }
         catch (Exception ex) when (ex is ArgumentException or ArgumentOutOfRangeException)
         { throw new InvalidRequestException("PSP code is invalid.", "invalid_psp_config"); }
+    }
+
+    private static PspEnvironment ParseEnvironment(string value)
+    {
+        try { return PspEnvironments.FromCode(value); }
+        catch (ArgumentException ex) { throw new InvalidRequestException(ex.Message, "validation_failed"); }
     }
 
     private static PspConnectionHealth ParseHealth(string value) => value.Trim().ToLowerInvariant() switch

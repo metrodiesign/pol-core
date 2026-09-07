@@ -568,6 +568,34 @@ internal static class AdminControlEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
+        api.MapPost("/payments/merchant-settings/{merchantId:guid}/environment-change-requests", async (
+            Guid merchantId,
+            HttpContext http,
+            IAdminScope scope,
+            IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var body = await ReadSecretBodyAsync<EnvironmentChangeRequest>(http, ct);
+            var connections = (body.Connections ?? []).Select(c => new EnvironmentChangeConnectionCredential(
+                c.PspConnectionId, c.Secrets ?? new Dictionary<string, string>(), c.PspMerchantId)).ToList();
+            var result = await store.RequestEnvironmentChangeAsync(new RequestEnvironmentChangeIntent(
+                merchantId, body.TargetEnvironment ?? string.Empty, body.OmiseWebhookRegistered, connections,
+                VersionEtags.Require(http), IdempotencyKeys.Require(http), http.TraceIdentifier, PaymentsAccess(scope)), ct);
+            return Results.Accepted(value: result);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .Accepts<EnvironmentChangeRequest>("application/json")
+            .WithMetadata(new IfMatchMutationMarker("202", EmitsEtag: false), new IdempotencyMutationMarker())
+            .WithTags("การเชื่อมต่อ PSP").WithName("RequestMerchantEnvironmentChange")
+            .WithSummary("ขอเปลี่ยนสภาพแวดล้อมการชำระเงินของร้านค้า")
+            .WithDescription("stage credential ของทุก connection ไปยัง environment เป้าหมายภายใต้ approval เดียว แล้วสร้างคำขอ maker-checker โดยยังไม่เปิดใช้ ต้องส่ง If-Match (Merchant version) และ Idempotency-Key; environment ไม่รู้จัก/connection แปลกปลอม/ตรง environment เดิม -> 400; ขาด connection ใด -> 409 environment_credentials_incomplete; Omise ไป live โดยยังไม่ยืนยัน callback -> 409 webhook_not_ready; มี approval ค้าง -> 409 approval_pending; legacy session ยังไม่ remediate -> 409 legacy_snapshot_blocked; body เกิน 16 KiB -> 413")
+            .Produces<EnvironmentChangeResult>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+
         api.MapGet("/payments/psp-connections", async (
             IAdminScope scope,
             IAdminPaymentsControlStore store,
@@ -1121,6 +1149,19 @@ internal sealed record PspCredentialChangeRequest(
     Guid MerchantId,
     IReadOnlyDictionary<string, string>? Secrets,
     string? PspMerchantId);
+
+internal sealed record EnvironmentChangeRequest(
+    [property: Required] string? TargetEnvironment,
+    bool OmiseWebhookRegistered,
+    IReadOnlyList<EnvironmentChangeConnectionRequest>? Connections);
+
+// Only pspConnectionId/pspMerchantId/secrets are bound; psp is accepted for display parity but the target
+// provider is derived from the connection itself (never client-supplied routing authority).
+internal sealed record EnvironmentChangeConnectionRequest(
+    Guid PspConnectionId,
+    string? Psp,
+    string? PspMerchantId,
+    IReadOnlyDictionary<string, string>? Secrets);
 
 internal sealed record RoutingRulesetRequest(
     Guid MerchantId,
