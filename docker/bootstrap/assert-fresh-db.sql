@@ -49,9 +49,14 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260902133906_Tier0MicrosoftTenantAwareIdentity'),
     (N'20260905104644_DropOrgReferenceMasterData'),
     (N'20260906025013_SwitchProviderDefaultToMicrosoft'),
-    (N'20260906151900_SharedRoleScope');
+    (N'20260906121417_MerchantPspSecurityFoundation'),
+    (N'20260906123608_MerchantPaymentEnvironment'),
+    (N'20260906143227_PaymentSessionRoutingSnapshot'),
+    (N'20260906151900_SharedRoleScope'),
+    (N'20260907023022_InboundWebhookPendingMatch'),
+    (N'20260907033444_LegacyVaultExpiryRemediation');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 26
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 31
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -60,7 +65,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 26
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 26 expected migrations through SharedRoleScope; ';
+    SET @fail += N'migration history must contain exactly 31 expected migrations through LegacyVaultExpiryRemediation; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

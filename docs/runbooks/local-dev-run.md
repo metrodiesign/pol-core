@@ -173,10 +173,10 @@ dotnet ef migrations list --context PolDbContext \
   --startup-project src/Hosts/Api
 ```
 
-ปัจจุบันต้องมี 26 migrations และตัวสุดท้ายต้องเป็น:
+ปัจจุบันต้องมี 31 migrations และตัวสุดท้ายต้องเป็น:
 
 ```text
-20260906151900_SharedRoleScope
+20260907033444_LegacyVaultExpiryRemediation
 ```
 
 ตรวจ static migration guard โดยไม่ต้องมี `sqlcmd` บน host:
