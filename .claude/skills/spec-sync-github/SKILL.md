@@ -6,6 +6,9 @@ argument-hint: <feature> [--dry-run] [--epic-only]
 
 # Sync spec to GitHub Issues: $ARGUMENTS
 
+ก่อนสร้างหรือแก้ issue body หรือ artifact ให้ใช้
+[นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Mirror a spec's `tasks.md` onto GitHub Issues so teammates see progress. The spec
 files stay the SOURCE OF TRUTH; the issues are an idempotent PROJECTION. Re-running
 must UPDATE, never duplicate.

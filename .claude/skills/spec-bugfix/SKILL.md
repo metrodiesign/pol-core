@@ -8,6 +8,9 @@ argument-hint: <bug description>
 
 Bug: $ARGUMENTS
 
+ก่อนสร้างหรือแก้ artifact ให้ใช้
+[นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Phase 0 — Intake. If $ARGUMENTS does not already answer them, ask me these in
 ONE batched message (in Thai):
   1. Repro steps — the exact page/viewport/command/input that shows the bug
@@ -22,22 +25,22 @@ confirm the root cause.
 
 Phase 2 (after I confirm) — Create `.ai/specs/bugfix-<short>/bugfix.md`:
 
-  # Bugfix: <short title>
+  # Bugfix: <ชื่อแบบสั้น>
   > Status: draft
 
   ## Current Behavior (Defect)
-  WHEN <repro condition> THEN <defective behavior> — with repro steps that
-  actually run (page / viewport / command / measured value), not prose.
+  เมื่อ<เงื่อนไขที่ทำให้เกิดปัญหา> <พฤติกรรมที่ผิด> — พร้อม repro step ที่รันได้จริง
+  (page / viewport / command / ค่าที่วัดได้) ไม่ใช่คำอธิบายอย่างเดียว
 
   ## Expected Behavior
-  - F1  THE SYSTEM SHALL <correct behavior>   (EARS; stable F-IDs, one criterion
-        per observable fix — tasks cite these on their Satisfies: line)
+  - F1  ระบบต้อง<พฤติกรรมที่ถูกต้อง>   (EARS; ใช้ stable F-ID และหนึ่ง criterion
+        ต่อหนึ่งผลแก้ที่สังเกตได้ โดย task อ้าง ID ในบรรทัด Satisfies:)
   - F2  ...
 
   ## Unchanged Behavior
-  - B1  WHEN <condition> THE SYSTEM SHALL CONTINUE TO <existing behavior>
-  - B2  ... (stable B-IDs; cover every regression risk Phase 1 identified,
-        including everything on the do-not-modify list)
+  - B1  เมื่อ<เงื่อนไข> ระบบต้องคง<พฤติกรรมเดิม>
+  - B2  ... (ใช้ stable B-ID และครอบคลุม regression risk ทุกข้อที่พบใน Phase 1
+        รวมทุกอย่างใน do-not-modify list)
 
 STOP for my review. On explicit approval, flip the header to
 `> Status: approved <YYYY-MM-DD>` before Phase 3.

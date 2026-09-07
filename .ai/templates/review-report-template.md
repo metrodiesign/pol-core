@@ -1,5 +1,6 @@
-# Review Report: <pr-or-branch-or-task>
+# Review Report: <PR, branch หรืองาน>
 
+> ใช้ [นโยบายภาษาของผลลัพธ์](../shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
 > Severity headers ตาม REVIEW_PROTOCOL.md (../shared/REVIEW_PROTOCOL.md)
 > เรียง finding ตามความรุนแรง สูงสุดก่อน ลบหัวข้อ severity ที่ไม่มี finding ได้
 > ทุก finding ต้องชี้ตำแหน่งจริง (`path:line`) + แก้อย่างไร ลบบรรทัด `<...>` ที่กรอกแล้ว
@@ -7,7 +8,7 @@
 ## Scope reviewed
 
 - <ไฟล์ / diff / REQ IDs ที่ตรวจ>
-- Commands run: `<typecheck command>`, `<test command>` -> <ผล>
+- Commands run: `<คำสั่ง typecheck>`, `<คำสั่ง test>` -> <ผล>
 
 ## Verdict
 

@@ -173,6 +173,8 @@ def ears_ok(text: str) -> bool:
         "THE SYSTEM SHALL" in text
         or bool(EARS_KEYWORD_RE.search(text))
         or bool(EARS_IF_RE.search(text) and EARS_THEN_RE.search(text))
+        # Thai forms: single grammar owner is spec_contract (EARS.md).
+        or bool(sc.THAI_EARS_RE.fullmatch(" ".join(text.split())))
     )
 
 

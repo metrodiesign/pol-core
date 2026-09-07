@@ -6,6 +6,8 @@ argument-hint: <feature folder name (optional)>
 
 # Property-Based Testing
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Resolve the target spec: use $ARGUMENTS if given; if `.ai/specs/` holds more
 than one feature and none was named, list them and ask — never guess. If
 requirements.md is still `> Status: draft`, warn in Thai and ask for
@@ -13,7 +15,7 @@ confirmation before proceeding.
 
 Step 1 — From the active spec's requirements.md, extract PROPERTIES: universal
 statements that must hold for ALL valid inputs. Express each as:
-  "For any <inputs> where <precondition>, THE SYSTEM SHALL <invariant>"
+  "สำหรับทุก <ข้อมูลเข้า> ที่ <เงื่อนไขก่อนเริ่ม> ระบบต้อง<เงื่อนไขที่ต้องเป็นจริงเสมอ>"
 Link each to its REQ ID and note the input space / generators needed. Present the
 list and let me choose which to test.
 

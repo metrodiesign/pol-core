@@ -6,6 +6,8 @@ argument-hint: <short description of the feature>
 
 # Start a Feature Spec
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 The feature idea is: $ARGUMENTS
 
 Step 0 — Right-size first: a trivial one-sentence change needs NO spec — just make the edit.

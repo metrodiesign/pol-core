@@ -11,9 +11,9 @@
   runner.
 - Unit tests cover **pure logic** only, co-located with the logic under test in the project
   test directory; that is where headless tests go.
-- A project has an integration-test tier against a real service only if it actually ships a
-  DB / backend — otherwise there is none. UI behavior, when the project ships a UI, is
-  verified in its target runtime (see below), not by the headless test runner.
+- A project has an integration-test tier against a real service only if it ships that boundary.
+  Repo นี้มี `console/backend`, SQLite event logs, GitHub/provider ports และ Console SPA จึงมี
+  backend/integration/fault tests จริง; external live provider calls ยังแยกเป็น manual conformance.
 
 ## Pure-logic-first
 
@@ -37,8 +37,10 @@ layering in [ARCHITECTURE.md](ARCHITECTURE.md).
 - For a bugfix, validation is three-dimensional: (a) a repro test that is RED before the
   fix and GREEN after (the F-IDs), (b) a 1:1 assertion for every B-ID, (c) each
   assertion checks the observable failure mode.
-- No `.only` / `.skip` may be committed. Coverage must not fall below the project
-  threshold. (Both are CI-enforced — see [SECURITY_RULES.md](SECURITY_RULES.md).)
+- No `.only` / `.skip` may be committed. Coverage must not fall below the project threshold.
+  Repo นี้รัน tests ของทุก Node workspace ผ่าน `scripts/ci-test-scope.sh`; downstream project
+  ยังใช้ `SDD_TEST_CMD`/`SDD_TYPECHECK_CMD` ผ่าน task gate. ดู exact CI และ required-check
+  activation ใน [SECURITY_RULES.md](SECURITY_RULES.md).
 
 ## UI verification
 
@@ -61,14 +63,26 @@ the canonical UI-verify reference for every agent until/unless it moves under `.
 
 When a task is marked `- [x]` in `tasks.md`, append an `Evidence:` block in the SAME
 edit — the checkbox and the evidence flip together. Record what you ACTUALLY ran and
-observed, not the planned check:
+observed, not the planned check. เขียนคำอธิบายตาม
+[นโยบายภาษาของผลลัพธ์](TASK_PROTOCOL.md#ภาษาของผลลัพธ์) โดยคงคำสั่งและ raw output:
 
+ใช้ระยะเยื้องสองช่องตามตัวอย่าง เว้นบรรทัดก่อนและหลัง `Evidence:` เพื่อแสดงหลักฐาน
+เป็นย่อหน้าและรายการย่อย ห้ามเว้นบรรทัดระหว่างบรรทัดงานกับ `Satisfies:`/`Verify:`
+เพราะตัวอ่านใช้บรรทัดว่างเป็นขอบเขตข้อมูล ตัวอย่างนี้ยังไม่ใช่หลักฐานว่างานเสร็จ:
+
+```markdown
+- [ ] 1. <ชื่องาน>
+  Satisfies: REQ-1. Verify: <คำสั่งตรวจ>.
+
+  Evidence:
+
+  - test: `<คำสั่งจริง>` -> <ผลที่สังเกต>
+  - viewports: <ผลที่วัดจริง; งานที่ไม่มีหน้าจอใช้ `n/a — logic-only`>
+  - deviations: <ไม่มี | สิ่งที่ต่างจากข้อกำหนดพร้อมเหตุผล>
 ```
-Evidence:
-  - test: `<exact command>` -> <result, e.g. 47 passed / 0 failed>
-  - viewports: 375 OK | 768 OK | 1440 OK   (browser tasks; else `n/a — logic-only`)
-  - deviations: <none | what differed from design/requirements and why>
-```
+
+ก่อนส่งมอบ เปิดหน้าตัวอย่างเอกสาร ตรวจว่าแต่ละผลตรวจเป็นคนละรายการและไม่ต่อท้ายคำอธิบายงาน
+พร้อมรันตัวตรวจหลักฐานและตัวตรวจการอ้างอิง เพื่อให้ทั้งหน้าตาและการอ่านข้อมูลถูกต้อง
 
 - The command must be the exact one you ran, copy-pasteable.
 - For a browser task, the viewport line records the measured `clientWidth` outcome at

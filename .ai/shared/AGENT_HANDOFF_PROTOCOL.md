@@ -1,67 +1,65 @@
 # Agent Handoff Protocol
 
-> Vendor-neutral. The contract for passing work between agents (Claude -> Codex ->
-> OpenCode -> Pi, or one session to the next). Any agent can WRITE a handoff note and
-> any agent can RESUME from one.
+> contract กลางที่ไม่ผูกกับ provider สำหรับส่งงานระหว่าง agent (Claude -> Codex ->
+> OpenCode -> Pi หรือข้าม session) agent ทุกตัวเขียนและ resume จาก handoff note ได้
 
-A handoff note compacts the volatile conversation (Tier 4 in
-[CONTEXT_MANAGEMENT.md](CONTEXT_MANAGEMENT.md)) into a durable record so the next agent
-starts with everything load-bearing and nothing else. Write one before `/clear`, before
-compaction, or whenever you hand off — and **never hand off in the middle of an
-unfinished task whose state lives only in the conversation** without writing it down
-first.
+ก่อนเขียน handoff note ให้ใช้
+[นโยบายภาษาของผลลัพธ์](TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
 
-Fill the template at
-[`../templates/handoff-note-template.md`](../templates/handoff-note-template.md). The
-schema below is canonical; the template mirrors it.
+handoff note ย่อ conversation ที่เปลี่ยนได้ง่าย (Tier 4 ใน
+[CONTEXT_MANAGEMENT.md](CONTEXT_MANAGEMENT.md)) เป็น record ถาวร เพื่อให้ agent ถัดไป
+ได้ข้อมูลที่จำเป็นครบ เขียนก่อน `/clear`, ก่อน compaction หรือทุกครั้งที่ส่งงานต่อ
+ถ้างานยังไม่เสร็จและ state อยู่เฉพาะใน conversation ต้องบันทึกก่อน handoff เสมอ
+
+กรอก [`../templates/handoff-note-template.md`](../templates/handoff-note-template.md)
+โดย schema ด้านล่างเป็นต้นทาง และ template ต้องตรงกับ schema นี้
 
 ## Schema
 
 ```
-# Handoff: <feature / task short title>
-> From: <agent/session>   To: <next agent or "any">   Date: <YYYY-MM-DD>
+# Handoff: <ชื่อฟีเจอร์หรืองานแบบสั้น>
+> From: <agent/session>   To: <agent ถัดไปหรือ "any">   Date: <YYYY-MM-DD>
 
 ## Task Summary
-<what this work is, in 1-3 sentences, with the active spec and the REQ-IDs / F-IDs / B-IDs in scope>
+<สรุปงาน 1-3 ประโยค พร้อม active spec และ REQ-ID / F-ID / B-ID ใน scope>
 
 ## Current Status
-<what is done, what is in progress, what is not started — be specific about the active task ID and how far it got>
+<สิ่งที่เสร็จ กำลังทำ และยังไม่เริ่ม พร้อม active task ID และความคืบหน้าที่ชัดเจน>
 
 ## Files Changed
-- <path> — <created | edited> — <what changed>
-(Include UNTRACKED files: `git diff --stat` does not show them — list from your own session memory + `git status`.)
+- <path> — <created | edited> — <สิ่งที่เปลี่ยน>
+(รวมไฟล์ UNTRACKED เพราะ `git diff --stat` ไม่แสดง โดยใช้ข้อมูลจาก session และ `git status`)
 
 ## Important Decisions
-<each architectural/implementation decision made, WITH its rationale — not just what, but why; reference ADRs if any>
+<การตัดสินใจด้าน architecture/implementation พร้อมเหตุผล และอ้าง ADR ถ้ามี>
 
 ## Constraints
-<hard limits the next agent must respect: do-not-modify files, scope boundaries, approved-only behaviors, stack rules that bit you>
+<ข้อจำกัดที่ agent ถัดไปต้องรักษา: do-not-modify files, scope boundary, พฤติกรรมที่ต้อง approved และ stack rules ที่เกี่ยวข้อง>
 
 ## Tests Run
-- <exact command> -> <observed result>
-(Copy the Evidence blocks. State viewport results for browser work. Say what could NOT be run and why.)
+- <คำสั่งจริง> -> <ผลที่สังเกตได้>
+(คัดลอก Evidence block ระบุผล viewport สำหรับ browser และบอกสิ่งที่รันไม่ได้พร้อมเหตุผล)
 
 ## Known Issues
-<bugs, flaky checks, deferred items, anything risky or assumed — link to a risk report if one exists>
+<bug, flaky check, รายการที่เลื่อน, ความเสี่ยง หรือ assumption พร้อม link ไป risk report ถ้ามี>
 
 ## Next Recommended Agent
-<which agent should pick this up and why — e.g. "spec-architect for a design critique", "any builder for the next task", or a specific harness if a mechanism is needed>
+<agent ที่ควรรับต่อพร้อมเหตุผล เช่น "spec-architect สำหรับ critique design", "builder ตัวใดก็ได้สำหรับ task ถัดไป" หรือ harness เฉพาะที่ต้องใช้>
 
 ## Next Steps
-1. <the very next action, concretely>
-2. <then this>
-(Start with the exact command to reload context — e.g. read the spec files and run the state script.)
+1. <การดำเนินการถัดไปที่ชัดเจน>
+2. <การดำเนินการลำดับต่อมา>
+(เริ่มด้วยคำสั่งจริงสำหรับโหลด context เช่น อ่าน spec files และรัน state script)
 ```
 
 ## Resuming from a handoff
 
-The receiving agent:
+agent ที่รับงาน:
 
-1. Reads the handoff note, then the cited spec files (Tier 3) and the project rules
-   (Tier 2) — the note points; the files are the source of truth.
-2. **Reconciles against the filesystem before trusting any status.** Checkboxes and git
-   log can lie; untracked files do not appear in `git diff --stat`. Confirm what
-   actually exists before continuing.
-3. Re-runs the recorded test/build commands to establish a known-good baseline.
-4. Continues from "Next Steps", honoring every "Constraint", and proceeds per
-   [TASK_PROTOCOL.md](TASK_PROTOCOL.md).
+1. อ่าน handoff note แล้วอ่าน spec files ที่อ้างถึง (Tier 3) และ project rules (Tier 2)
+   โดยไฟล์ต้นทางเป็น source of truth
+2. **เทียบกับ filesystem ก่อนเชื่อ status** เพราะ checkbox และ git log อาจคลาดเคลื่อน
+   และ untracked files ไม่อยู่ใน `git diff --stat` ตรวจสิ่งที่มีจริงก่อนทำต่อ
+3. รันคำสั่ง test/build ที่บันทึกไว้อีกครั้งเพื่อสร้าง known-good baseline
+4. ทำต่อจาก "Next Steps" โดยรักษา "Constraints" ทุกข้อและทำตาม
+   [TASK_PROTOCOL.md](TASK_PROTOCOL.md)

@@ -1,60 +1,53 @@
-# EARS Notation
+# รูปประโยคข้อกำหนด
 
-> Vendor-neutral. Mandatory for every functional requirement in `requirements.md`.
-> Canonical source for the requirement-writing rules referenced by
-> [TASK_PROTOCOL.md](TASK_PROTOCOL.md).
+กฎกลางสำหรับเขียนข้อกำหนดใน `requirements.md` ให้ชัดเจนและทดสอบได้
+ใช้ร่วมกับ [นโยบายภาษาของผลลัพธ์](TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
 
-EARS (Easy Approach to Requirements Syntax) constrains each requirement to one of a
-small set of patterns so that it is unambiguous and directly testable.
+## รูปประโยคทั้งห้าแบบ
 
-## The 5 patterns
+เขียนข้อกำหนดใหม่เป็นภาษาไทย เลือกรูปประโยคให้ตรงสถานการณ์:
 
-Write every functional requirement using exactly one of these patterns:
-
-| Pattern | Template | Use for |
+| รูปแบบ | ประโยค | ใช้เมื่อ |
 |---|---|---|
-| Ubiquitous | `THE SYSTEM SHALL <behavior>` | always-true behavior |
-| Event-driven | `WHEN <trigger> THE SYSTEM SHALL <behavior>` | response to an event |
-| State-driven | `WHILE <state> THE SYSTEM SHALL <behavior>` | behavior during a state |
-| Optional | `WHERE <feature included> THE SYSTEM SHALL <behavior>` | behavior gated on a feature being present |
-| Error handling | `IF <unwanted condition> THEN THE SYSTEM SHALL <response>` | handling an undesired condition |
+| ข้อกำหนดทั่วไป | ระบบต้อง<พฤติกรรม> | ต้องทำเสมอ |
+| ตอบสนองต่อเหตุการณ์ | เมื่อ<เหตุการณ์> ระบบต้อง<พฤติกรรม> | เกิดเหตุการณ์ที่กำหนด |
+| ระหว่างอยู่ในสถานะ | ขณะที่<สถานะ> ระบบต้อง<พฤติกรรม> | ระบบอยู่ในสถานะที่กำหนด |
+| เมื่อเปิดใช้คุณสมบัติ | ในกรณีที่<เปิดใช้คุณสมบัติ> ระบบต้อง<พฤติกรรม> | เปิดใช้คุณสมบัติเสริม |
+| จัดการข้อผิดพลาด | หาก<เงื่อนไขผิดพลาด> ระบบต้อง<การตอบสนอง> | เกิดเงื่อนไขที่ไม่ต้องการ |
 
-## Stable REQ-ID rule
+ต้องระบุพฤติกรรมหลัง “ระบบต้อง” เสมอ และระบุเงื่อนไขให้ครบในรูปที่มีเงื่อนไข
+เว้นวรรคตามภาษาไทยได้ เช่น “ระบบต้องบันทึกข้อมูล” หรือ “ระบบต้อง บันทึกข้อมูล”
+ตัวตรวจยังอ่านประโยคอังกฤษเดิมได้ เพื่อให้เอกสารเก่าใช้งานต่อได้โดยไม่ต้องแปลทั้งคลัง
 
-Every requirement carries a **stable, hierarchical ID** of the form `REQ-<n>.<m>`
-(for example `REQ-1.2`): a capability number and a criterion number. IDs are stable —
-once assigned they do not get renumbered, because design, tasks, tests, and traceability
-all cite them. A bugfix spec uses `F-<n>` (the fix behavior) and `B-<n>` (unchanged
-behavior that must be preserved) on the same principle.
+## รหัสอ้างอิงที่คงเดิม
 
-Typical shape inside `requirements.md`:
+ทุกข้อใช้รหัสรูปแบบ `REQ-<n>.<m>` เช่น `REQ-1.2` โดยเลขแรกระบุความสามารถ
+และเลขหลังระบุเกณฑ์ เมื่อกำหนดแล้วห้ามเปลี่ยนเลข เพราะการออกแบบ งาน และการทดสอบอ้างรหัสนี้
+เอกสารแก้ข้อผิดพลาดใช้ `F-<n>` สำหรับพฤติกรรมที่แก้ และ `B-<n>` สำหรับพฤติกรรมที่ต้องรักษา
 
+หัวข้ออ้างอิงยังใช้ `## REQ-N:` และรายการเกณฑ์ใช้ `- N.M` เพื่อให้เครื่องมืออ่านได้
+หัวข้ออื่นและข้อความอธิบายใช้ภาษาไทย ตัวอย่าง:
+
+```markdown
+## REQ-1: การบันทึกฉบับร่าง
+
+**ความต้องการของผู้ใช้:** ในฐานะผู้เขียน ฉันต้องการบันทึกฉบับร่าง เพื่อกลับมาแก้ไขภายหลัง
+
+**เกณฑ์การยอมรับ:**
+
+- 1.1 ระบบต้องเก็บวันที่แก้ไขล่าสุดของฉบับร่าง
+- 1.2 เมื่อผู้ใช้กดบันทึก ระบบต้องบันทึกเนื้อหาปัจจุบัน
+- 1.3 ขณะที่กำลังบันทึก ระบบต้องแสดงสถานะการบันทึก
+- 1.4 ในกรณีที่เปิดใช้การบันทึกอัตโนมัติ ระบบต้องบันทึกทุกหนึ่งนาที
+- 1.5 หากบันทึกไม่สำเร็จ ระบบต้องเก็บเนื้อหาในหน้าจอไว้ให้ผู้ใช้ลองใหม่
 ```
-## REQ-1: <Capability, e.g. Premium Calculation>
-**User Story:** As a <role>, I want <goal>, so that <benefit>.
-**Acceptance Criteria (EARS):**
-- 1.1  THE SYSTEM SHALL <behavior>                               (ubiquitous)
-- 1.2  WHEN <event> THE SYSTEM SHALL <behavior>                  (event-driven)
-- 1.3  WHILE <state> THE SYSTEM SHALL <behavior>                 (state-driven)
-- 1.4  WHERE <feature is included> THE SYSTEM SHALL <behavior>   (optional)
-- 1.5  IF <error condition> THEN THE SYSTEM SHALL <response>     (error handling)
-```
 
-## Writing atomic, testable requirements
+## เกณฑ์คุณภาพของข้อกำหนด
 
-- **Atomic** — one observable behavior per criterion. Split compound criteria joined by
-  "and" into separate IDs.
-- **Unambiguous** — exactly one reading. Reject subjective wording ("fast",
-  "user-friendly", "looks good") unless quantified with a measurable threshold
-  ("renders within 200ms", "contrast ratio >= 4.5:1").
-- **Testable** — each criterion must map to a test that can pass or fail
-  deterministically. If you cannot describe the test, the requirement is not yet
-  testable — rewrite it.
-- **Complete** — cover the happy path AND error/edge cases. Use `IF ... THEN` for every
-  error condition; do not leave failure behavior implicit.
-- **Traceable** — every REQ-ID is later cited by a design element, a task's
-  `Satisfies:` line, and at least one test. An uncovered REQ at the end of
-  implementation is a blocker.
+- **แยกเป็นข้อ:** หนึ่งเกณฑ์ระบุพฤติกรรมที่สังเกตได้หนึ่งอย่าง แยกพฤติกรรมที่ตรวจคนละเรื่องเป็นคนละรหัส
+- **ชัดเจน:** เลี่ยงคำว่า “เร็ว” หรือ “ใช้ง่าย” โดยไม่มีค่าที่วัดได้ เช่น “แสดงผลภายใน 200 มิลลิวินาที”
+- **ทดสอบได้:** ต้องระบุวิธีตรวจที่ตัดสินผ่านหรือไม่ผ่านได้แน่นอน หากยังระบุไม่ได้ ให้เขียนข้อกำหนดใหม่
+- **ครบถ้วน:** ครอบคลุมกรณีปกติ กรณีขอบเขต และข้อผิดพลาด โดยใช้ “หาก… ระบบต้อง…” เมื่อเกิดข้อผิดพลาด
+- **ตรวจย้อนกลับได้:** แต่ละรหัสต้องมีการออกแบบ งาน และการทดสอบรองรับ ข้อที่ไม่มีผู้รับผิดชอบยังถือว่าไม่เสร็จ
 
-For the audit step that hunts gaps, conflicts, and untestable wording BEFORE design,
-see the analyze phase in [TASK_PROTOCOL.md](TASK_PROTOCOL.md).
+ดูขั้นตอนตรวจข้อกำหนดใน [TASK_PROTOCOL.md](TASK_PROTOCOL.md) ก่อนออกแบบ

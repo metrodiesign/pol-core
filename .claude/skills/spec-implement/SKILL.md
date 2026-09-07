@@ -6,6 +6,8 @@ argument-hint: <task id, range like 1-3, or "all">
 
 # Implement task(s): $ARGUMENTS
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Resolve $ARGUMENTS to the target task(s): a single id (e.g. 2), a range (1-3), or
 all incomplete tasks. For multiple tasks, work in dependency order.
 

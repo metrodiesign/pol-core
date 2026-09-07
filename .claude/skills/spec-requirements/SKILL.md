@@ -6,6 +6,8 @@ argument-hint: <feature folder name (optional)>
 
 # Generate requirements.md
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Resolve the target spec folder: use $ARGUMENTS if given; otherwise use the
 feature folder created by /spec-new in this conversation. If neither identifies
 one and `.ai/specs/` holds several features, list them and ask — never guess.

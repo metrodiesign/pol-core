@@ -1,11 +1,10 @@
 # Output Formats
 
-> Vendor-neutral. Standard shapes every agent produces, so output is comparable and
-> machine-readable across Claude, Codex, OpenCode, and Pi.
+> โครงกลางที่ไม่ผูกกับ provider เพื่อให้ output จาก Claude, Codex, OpenCode และ Pi
+> เปรียบเทียบกันและอ่านด้วยเครื่องได้
 
-Use these shapes. Where a fillable template exists under [`../templates/`](../templates/),
-start from it rather than re-deriving the structure. Keep prose concise and
-engineering-focused.
+ใช้โครงต่อไปนี้ เมื่อมี template ใน [`../templates/`](../templates/) ให้เริ่มจาก
+template แทนการสร้างโครงใหม่ เขียนให้กระชับและเน้นข้อมูลทางวิศวกรรม
 
 ก่อนสร้างหรือแก้ผลลัพธ์ทุกชนิดในหน้านี้ ให้ใช้
 [นโยบายภาษาของผลลัพธ์](TASK_PROTOCOL.md#ภาษาของผลลัพธ์): เติม placeholder ที่เป็นข้อความอธิบาย
@@ -13,139 +12,139 @@ engineering-focused.
 
 ## Implementation plan
 
-What you will build before you build it. See
+ระบุสิ่งที่จะสร้างก่อนเริ่มลงมือ ดู
 [`../templates/implementation-plan-template.md`](../templates/implementation-plan-template.md).
 
 ```
 ## Goal
-<the task, in one sentence, with the REQ-IDs it satisfies>
+<งานหนึ่งประโยค พร้อม REQ-ID ที่งานนี้ทำให้ผ่าน>
 
 ## Affected files
-- <path> — <create | edit> — <why>
+- <path> — <create | edit> — <เหตุผล>
 
 ## Steps
-1. <step> -> verify: <check>
-2. <step> -> verify: <check>
+1. <ขั้นตอน> -> verify: <วิธีตรวจ>
+2. <ขั้นตอน> -> verify: <วิธีตรวจ>
 
 ## Risks / open questions
-- <risk or question>
+- <ความเสี่ยงหรือคำถาม>
 ```
 
 ## Code review report
 
-See [REVIEW_PROTOCOL.md](REVIEW_PROTOCOL.md) for the dimensions, and
+ดูมิติการ review ใน [REVIEW_PROTOCOL.md](REVIEW_PROTOCOL.md) และใช้
 [`../templates/review-report-template.md`](../templates/review-report-template.md).
 
 ```
 ## Summary
-<what changed, what was reviewed against (which REQ-IDs)>
+<สิ่งที่เปลี่ยน และสิ่งที่ใช้เป็นเกณฑ์ review พร้อม REQ-ID>
 
 ## Critical
 ## High
 ## Medium
 ## Low
 ## Suggestions
-<findings under each header: file:line — dimension — why — concrete fix>
+<finding ใต้แต่ละหัวข้อ: file:line — มิติ — เหตุผล — วิธีแก้ที่ชัดเจน>
 
 ## Verdict
-<approve | request changes — blocked while any Critical/High stands>
+<approve | request changes — block ขณะที่ยังมี Critical/High>
 ```
 
 ## Bug analysis
 
-Root-cause-first. The defect/expected/unchanged shape lives in the bugfix spec.
+เริ่มจาก root cause ส่วนโครง defect/expected/unchanged อยู่ใน bugfix spec
 
 ```
 ## Symptom
-WHEN <repro: page / viewport / command / input> THEN <defective behavior, measured>
+เมื่อ<เงื่อนไขที่ทำให้เกิดปัญหา> <พฤติกรรมที่ผิดพร้อมค่าที่วัดได้>
 
 ## Root cause
-<the actual cause, traced to the file/line — not a guess>
+<สาเหตุจริงที่ trace ถึง file/line ไม่ใช่การคาดเดา>
 
 ## Fix outline
-<the minimal change that addresses the root cause>
+<การเปลี่ยนแปลงขั้นต่ำที่แก้ root cause>
 
 ## Regression surface
-<existing behavior at risk -> becomes B-IDs in the bugfix spec>
+<พฤติกรรมเดิมที่เสี่ยง -> แปลงเป็น B-ID ใน bugfix spec>
 ```
 
 ## Refactor summary
 
 ```
 ## Intent
-<what is being made better, and why now>
+<สิ่งที่ปรับให้ดีขึ้น และเหตุผลที่ทำตอนนี้>
 
 ## Behavior change
-none — refactor preserves behavior   (or: <the intended behavior change + its REQ-ID>)
+none — refactor รักษาพฤติกรรมเดิม (หรือ: <พฤติกรรมที่ตั้งใจเปลี่ยน + REQ-ID>)
 
 ## Files touched
-- <path> — <what moved/changed>
+- <path> — <สิ่งที่ย้ายหรือเปลี่ยน>
 
 ## Verification
-<tests that were green before AND after — proof behavior is preserved>
+<test ที่เขียวทั้งก่อนและหลัง เพื่อยืนยันว่าพฤติกรรมเดิมยังอยู่>
 ```
 
 ## Test report
 
-See [TESTING_PROTOCOL.md](TESTING_PROTOCOL.md) for the Evidence block.
+ดูรูปแบบ Evidence block ใน [TESTING_PROTOCOL.md](TESTING_PROTOCOL.md)
 
 ```
 ## Scope
-<which REQ-IDs / F-IDs / B-IDs these tests cover>
+<REQ-ID / F-ID / B-ID ที่ test ครอบคลุม>
 
 ## Result
-- test: `<exact command>` -> <N passed / M failed>
-- viewports: 375 OK | 768 OK | 1440 OK   (browser tasks; else `n/a — logic-only`)
-- coverage: <if measured, vs threshold>
+- test: `<คำสั่งจริง>` -> <ผ่าน N / ไม่ผ่าน M>
+- viewports: 375 OK | 768 OK | 1440 OK   (งาน browser; กรณีอื่นใช้ `n/a — logic-only`)
+- coverage: <ค่าที่วัดได้เทียบ threshold ถ้ามี>
 
 ## Gaps
-<anything not covered, and why>
+<สิ่งที่ยังไม่ครอบคลุม พร้อมเหตุผล>
 ```
 
 ## Handoff note
 
-The schema is owned by [AGENT_HANDOFF_PROTOCOL.md](AGENT_HANDOFF_PROTOCOL.md); fill
+schema อยู่ใน [AGENT_HANDOFF_PROTOCOL.md](AGENT_HANDOFF_PROTOCOL.md) ให้กรอก
 [`../templates/handoff-note-template.md`](../templates/handoff-note-template.md).
 
 ## ADR (Architecture Decision Record)
 
-One decision per record, immutable once accepted.
+หนึ่งการตัดสินใจต่อหนึ่ง record และห้ามแก้หลัง accepted
 
 ```
-# ADR-<n>: <decision title>
+# ADR-<n>: <ชื่อการตัดสินใจ>
 > Status: proposed | accepted | superseded by ADR-<m>
 > Date: <YYYY-MM-DD>
 
 ## Context
-<the forces and constraints>
+<แรงผลักและข้อจำกัด>
 
 ## Decision
-<what we will do>
+<สิ่งที่จะทำ>
 
 ## Consequences
-<trade-offs accepted, what becomes easier/harder>
+<trade-off ที่ยอมรับ และสิ่งที่ง่ายหรือยากขึ้น>
 
 ## Alternatives considered
-<options rejected, and why>
+<ทางเลือกที่ไม่เลือก พร้อมเหตุผล>
 ```
 
 ## Risk report
 
 ```
 ## Risk
-<what could go wrong, stated concretely>
+<สิ่งที่อาจผิดพลาดอย่างชัดเจน>
 
 ## Severity / likelihood
 <high | medium | low> / <high | medium | low>
 
 ## Impact
-<what breaks, who is affected>
+<สิ่งที่จะพังและผู้ได้รับผลกระทบ>
 
 ## Mitigation / follow-up
-<the action that reduces or accepts the risk; owner if known>
+<การดำเนินการเพื่อลดหรือยอมรับความเสี่ยง พร้อม owner ถ้าทราบ>
 ```
 
 ## Changelog entry
 
-See [`../templates/changelog-entry-template.md`](../templates/changelog-entry-template.md).
-Group entries under Added / Changed / Fixed / Removed; reference the version tag.
+ดู [`../templates/changelog-entry-template.md`](../templates/changelog-entry-template.md)
+จัดรายการใต้ Added / Changed / Fixed / Removed และอ้าง version tag

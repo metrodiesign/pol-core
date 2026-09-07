@@ -1,5 +1,6 @@
-# Implementation Plan: <task-name>
+# Implementation Plan: <ชื่องาน>
 
+> ใช้ [นโยบายภาษาของผลลัพธ์](../shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
 > แผนการลงมือก่อนเขียนโค้ด แต่ละ step ต้องมี verify ที่ตรวจได้ ลบบรรทัด `<...>` ที่กรอกแล้ว
 
 ## Summary
@@ -8,20 +9,20 @@
 
 ## Approach / Key decisions
 
-- <decision + เหตุผลสั้นๆ เช่น แยกสูตรเป็น pure function ใน lib/>
-- <alternative ที่พิจารณาแล้วไม่เลือก + ทำไม>
+- <การตัดสินใจ + เหตุผลสั้น ๆ เช่น แยกสูตรเป็น pure function ใน lib/>
+- <ทางเลือกที่พิจารณาแล้วไม่เลือก + เหตุผล>
 
 ## Files to change
 
 | File | Change | Reason |
 |---|---|---|
-| `<path>` | <new / edit / delete> | <ทำไม> |
+| `<path>` | <new / edit / delete> | <เหตุผล> |
 
 ## Steps
 
-1. <step> -> verify: <check ที่รันได้>
-2. <step> -> verify: <check>
-3. <step> -> verify: <check>
+1. <ขั้นตอน> -> verify: <วิธีตรวจที่รันได้>
+2. <ขั้นตอน> -> verify: <วิธีตรวจ>
+3. <ขั้นตอน> -> verify: <วิธีตรวจ>
 
 ## Tests
 
@@ -29,4 +30,4 @@
 
 ## Risks / Rollback
 
-- <risk + วิธีถอยกลับถ้าพัง>
+- <ความเสี่ยง + วิธี rollback ถ้าพัง>

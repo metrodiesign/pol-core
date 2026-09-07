@@ -6,6 +6,8 @@ argument-hint: <short description of the feature>
 
 # Quick Spec (no gates)
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 The feature idea is: $ARGUMENTS
 
 This is the gate-free path the constitution allows for SMALL, well-understood features.
@@ -40,8 +42,10 @@ STOP and switch to the gated flow (`/spec-requirements` → `/spec-analyze` →
    assumptions) — fix what you find before writing design.md; no separate
    session, no stop.
 3. `design.md` — minimal architecture only: data shapes, key functions, file list. No padding.
-   Still include a minimal `## Requirement Traceability` table (REQ → file/function) —
-   `scripts/spec-trace.sh` requires it and runs as a blocker in later steps.
+   Still include a minimal `## Requirement Traceability` table with columns
+   `Design element | REQ | Section`; every `Section` value must exactly match a real `##`
+   heading in the same design. `scripts/spec-trace.sh` requires this sliceable contract and
+   runs as a blocker in later steps.
 4. `tasks.md` — the FEWEST cohesive, independently verifiable tasks (see `spec-tasks` sizing).
    Print the task list compactly — one line per task: title + REQ IDs (not the
    full file) — as a free interrupt point; do NOT stop or wait for approval.

@@ -6,6 +6,8 @@ argument-hint: <feature folder name (optional)>
 
 # Analyze Requirements
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Resolve the target spec: use $ARGUMENTS if given; if `.ai/specs/` holds more
 than one feature and none was named, list them and ask — never guess.
 
@@ -22,7 +24,7 @@ Reason across the requirement SET (pairs/groups, functional vs non-functional),
 not one requirement at a time.
 
 Incremental re-run: if a findings log with a commit anchor already exists under
-"Edge Cases & Open Questions", run `git diff <anchor> -- <requirements.md>`
+"กรณีพิเศษและคำถามที่ยังไม่ยุติ" (เอกสารเก่าอาจใช้ "Edge Cases & Open Questions"), run `git diff <anchor> -- <requirements.md>`
 (working tree included) and focus on the changed REQs plus their interactions
 with the rest; do not re-flag findings already logged with a decision. No anchor
 = full audit.
@@ -37,7 +39,7 @@ Do NOT silently edit the file — edit ONLY after I decide. Then:
   If it was already approved, re-stamp its header: `> Status: approved
   <original date>, amended <YYYY-MM-DD>`.
 - Log EVERY finding with its decision — dismissed ones included, with a one-line
-  reason — under "Edge Cases & Open Questions", anchored with the current commit
+  reason — under "กรณีพิเศษและคำถามที่ยังไม่ยุติ" (เอกสารเก่าอาจใช้ "Edge Cases & Open Questions"), anchored with the current commit
   hash of requirements.md (`git log -1 --format=%h -- <path>`), so finding codes
   never dangle into a lost conversation and re-runs can skip them.
 - If design.md or tasks.md already exist, flag which sections must sync (see the

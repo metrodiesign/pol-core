@@ -1,5 +1,6 @@
-# Handoff Note: <task-or-feature>
+# Handoff Note: <ชื่องานหรือฟีเจอร์>
 
+> ใช้ [นโยบายภาษาของผลลัพธ์](../shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
 > Schema ตาม AGENT_HANDOFF_PROTOCOL.md (../shared/AGENT_HANDOFF_PROTOCOL.md)
 > กรอกก่อนส่งงานต่อให้ agent อื่น หรือก่อน /clear / compaction ลบบรรทัด `<...>` ที่กรอกแล้ว
 
@@ -17,7 +18,7 @@
 
 ## Important Decisions
 
-- <decision + rationale ที่ต้องคงไว้ ไม่ให้ตกหล่นตอน handoff>
+- <การตัดสินใจ + เหตุผลที่ต้องคงไว้ ไม่ให้ตกหล่นตอน handoff>
 
 ## Constraints
 
@@ -26,18 +27,18 @@
 ## Tests Run
 
 - `<command>` -> <ผล>
-- typecheck: `<typecheck command>` -> <result> (the project typecheck command via SDD_TYPECHECK_CMD env, or a package.json typecheck script)
-- test: `<test command>` -> <result> (the project test runner via SDD_TEST_CMD env, or a package.json test script for a Node project)
+- typecheck: `<คำสั่ง typecheck>` -> <ผล> (คำสั่งของโปรเจกต์จาก `SDD_TYPECHECK_CMD` หรือ script `typecheck` ใน `package.json`)
+- test: `<คำสั่ง test>` -> <ผล> (test runner ของโปรเจกต์จาก `SDD_TEST_CMD` หรือ script `test` ใน `package.json` สำหรับ Node project)
 
 ## Known Issues
 
-- <bug/gap/limitation ที่ยังค้าง หรือ "none">
+- <bug/gap/ข้อจำกัดที่ยังค้าง หรือ "none">
 
 ## Next Recommended Agent
 
-<role/persona ที่ควรรับต่อ เช่น .ai/roles/bug-investigator.md, หรือ "human review">
+<role/persona ที่ควรรับต่อ เช่น .ai/roles/bug-investigator.md หรือ "ให้มนุษย์ review">
 
 ## Next Steps
 
 1. <step ถัดไปที่ผู้รับควรทำเป็นอันดับแรก>
-2. <step>
+2. <ขั้นตอนถัดมา>

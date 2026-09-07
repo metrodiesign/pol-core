@@ -330,6 +330,38 @@ class SpecContractTest(unittest.TestCase):
         _, diagnostics = parse_requirement_criteria(invalid.encode(), self.path("requirements.md"))
         self.assertTrue({"EARS_FORM_INVALID", "EARS_MAJOR_MISMATCH", "EARS_ID_DUPLICATE"} <= self.codes(diagnostics))
 
+    def test_criteria_accept_thai_ears_forms_from_ears_md(self):
+        # The five forms documented in .ai/shared/EARS.md, plus the optional space after "ระบบต้อง".
+        valid = (
+            "## REQ-1: การบันทึกฉบับร่าง\n"
+            "- 1.1 ระบบต้องเก็บวันที่แก้ไขล่าสุดของฉบับร่าง\n"
+            "- 1.2 เมื่อผู้ใช้กดบันทึก ระบบต้องบันทึกเนื้อหาปัจจุบัน\n"
+            "- 1.3 ขณะที่กำลังบันทึก ระบบต้องแสดงสถานะการบันทึก\n"
+            "- 1.4 ในกรณีที่เปิดใช้การบันทึกอัตโนมัติ ระบบต้องบันทึกทุกหนึ่งนาที\n"
+            "- 1.5 หากบันทึกไม่สำเร็จ ระบบต้องเก็บเนื้อหาในหน้าจอไว้ให้ผู้ใช้ลองใหม่\n"
+            "- 1.6 ระบบต้อง บันทึกข้อมูล\n"
+        )
+        criteria, diagnostics = parse_requirement_criteria(valid.encode(), self.path("requirements.md"))
+        self.assertEqual(6, len(criteria))
+        self.assertEqual(set(), self.codes(diagnostics))
+        # Thai near-misses stay rejected: condition without "ระบบต้อง", and "ระบบต้อง" without a behavior.
+        invalid = (
+            "## REQ-1: การบันทึกฉบับร่าง\n"
+            "- 1.1 เมื่อผู้ใช้กดบันทึก บันทึกเนื้อหาปัจจุบัน\n"
+            "- 1.2 ระบบต้อง\n"
+        )
+        _, diagnostics = parse_requirement_criteria(invalid.encode(), self.path("requirements.md"))
+        self.assertEqual(2, sum(1 for diagnostic in diagnostics if diagnostic.code == "EARS_FORM_INVALID"))
+        # Bugfix F/B criteria use the same grammar (spec-bugfix template).
+        bugfix = (
+            "## Fix\n"
+            "- F-1 ระบบต้องคืนค่า 404 เมื่อไม่พบ record\n"
+            "- B-1 เมื่อ record มีอยู่ ระบบต้องคงพฤติกรรมเดิม\n"
+        )
+        criteria, diagnostics = parse_bugfix_criteria(bugfix.encode(), self.path("bugfix.md"))
+        self.assertEqual(["F-1", "B-1"], [criterion.ref for criterion in criteria])
+        self.assertEqual(set(), self.codes(diagnostics))
+
     def test_bugfix_lints_f_and_b_without_requirements_and_requires_task_coverage(self):
         bugfix = (
             "## Fix\n"
