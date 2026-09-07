@@ -38,48 +38,48 @@
       "nodeId": "I_kwDOTAp-Ws8AAAABP82OUg",
       "dbId": 5365403218,
       "subIssueLinked": true,
-      "bodyHash": "sha256:ee81a59e509760683f136481cf08a40da3d3852eae1c3586d8280e2a0d120514",
-      "state": "open"
+      "bodyHash": "sha256:39fd714c9c73a7cd813079631ca6889c9e9374f08a00cf3de2452b39c39a50b1",
+      "state": "closed"
     },
     "5": {
       "issue": 228,
       "nodeId": "I_kwDOTAp-Ws8AAAABP82PVA",
       "dbId": 5365403476,
       "subIssueLinked": true,
-      "bodyHash": "sha256:5ab1dba2d2c964a834b30069c0fd657f75d3027cd4372876559ffb85bb1b8b88",
-      "state": "open"
+      "bodyHash": "sha256:63b0b67ef1eb43d5a4bff30ad3404c5fd25229b3ed93c589d5889ce95cb1b26a",
+      "state": "closed"
     },
     "6": {
       "issue": 229,
       "nodeId": "I_kwDOTAp-Ws8AAAABP82Qmg",
       "dbId": 5365403802,
       "subIssueLinked": true,
-      "bodyHash": "sha256:9a675fe3cb952d1e7b9e342554e8d8a9cdeda2bbcd9940a570f0d94168ae78c1",
-      "state": "open"
+      "bodyHash": "sha256:67fc5f7de3cc10ef94e79a71e3668591938ceb66f5cd48785059e446cf8d2863",
+      "state": "closed"
     },
     "7": {
       "issue": 230,
       "nodeId": "I_kwDOTAp-Ws8AAAABP82Riw",
       "dbId": 5365404043,
       "subIssueLinked": true,
-      "bodyHash": "sha256:9975c6d70234b96d244492e34c9ceb93368ac714b2293c3fc907bdc5a91aad6c",
-      "state": "open"
+      "bodyHash": "sha256:baeeea02df5b5cd5a44a51fd0f494600fd527d65d9a5ad4c8ae1f31352a6f353",
+      "state": "closed"
     },
     "8": {
       "issue": 231,
       "nodeId": "I_kwDOTAp-Ws8AAAABP82TFw",
       "dbId": 5365404439,
       "subIssueLinked": true,
-      "bodyHash": "sha256:3847427c057ffe3340768fd63e93365f8ed3197b91a8e6f4c147ae5726d9ab28",
-      "state": "open"
+      "bodyHash": "sha256:431f8b0dd574c3c275c86b6d592ae6ca9c3c20fcf5c4cacf37b4f997cbb6b3cb",
+      "state": "closed"
     },
     "9": {
       "issue": 232,
       "nodeId": "I_kwDOTAp-Ws8AAAABP82UCA",
       "dbId": 5365404680,
       "subIssueLinked": true,
-      "bodyHash": "sha256:7ed59c1c9c800f1a6bd16cb442e8f8f0d995fa050f61f7ac97ac39314fe8a3d6",
-      "state": "open"
+      "bodyHash": "sha256:ac8105e65feefbffe70a4acfb0a0d130c1794551fb28ed66b1f2e9d21063ba22",
+      "state": "closed"
     },
     "10": {
       "issue": 233,
@@ -90,7 +90,7 @@
       "state": "open"
     }
   },
-  "lastSync": "2026-09-06T14:00:07+00:00",
+  "lastSync": "2026-09-07T08:56:57+00:00",
   "labelsEnsured": [
     "spec:merchant-psp-settings",
     "spec-epic",
