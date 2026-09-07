@@ -9,6 +9,9 @@ Read and follow the canonical procedure in `.claude/skills/spec-retro/SKILL.md` 
 authoritative steps) together with `.ai/shared/CONTEXT_MANAGEMENT.md` and
 `.ai/shared/LESSONS.md` (where durable lessons are promoted).
 
+ก่อนเขียนผลลัพธ์ อ่าน [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+แล้วใช้กับเนื้อหา retro และข้อความส่งมอบเช่นเดียวกับ spec phase อื่น
+
 Run this at the END of a work session, BEFORE clearing or compacting context, while the
 full session history is still available. Skip entirely if the session changed no files
 AND produced no new durable lesson.

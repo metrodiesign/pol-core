@@ -6,6 +6,8 @@ argument-hint: <short description of the feature>
 
 # Quick Spec (no gates)
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 The feature idea is: $ARGUMENTS
 
 This is the gate-free path the constitution allows for SMALL, well-understood features.
@@ -25,23 +27,18 @@ STOP and switch to the gated flow (`/spec-requirements` → `/spec-analyze` →
    batched message (in Thai), wait for the answers, then run steps 1-6 in one
    uninterrupted pass — this single Q&A round replaces every approval gate.
 1. Create the spec folder `.ai/specs/<kebab-case-name>/`. Every artifact
-   written belowต้องใช้ canonical status line แยกจาก quick annotation เสมอ:
-
-   ```text
-   > Status: approved <YYYY-MM-DD>
-   > Status-Note: quick, no approval gates
-   ```
-
-   ห้ามเติม `(quick, no gates)` หรือ annotation อื่นท้าย `> Status:` เพราะ status
-   grammar มีรูป canonical เดียว ส่วน quick flow ยังคงเป็นข้อยกเว้นที่ไม่หยุดรอ approval.
+   written below gets the header `> Status: approved <YYYY-MM-DD> (quick, no
+   gates)` immediately — the constitution exempts this flow from gates.
 2. `requirements.md` — EARS notation, atomic/testable, stable IDs (REQ-N). Keep it tight.
    Then self-check it inline against the FIVE /spec-analyze categories (logical
    inconsistencies, ambiguities, conflicting constraints, gaps, unstated
    assumptions) — fix what you find before writing design.md; no separate
    session, no stop.
 3. `design.md` — minimal architecture only: data shapes, key functions, file list. No padding.
-   Still include a minimal `## Requirement Traceability` table (REQ → file/function) —
-   `scripts/spec-trace.sh` requires it and runs as a blocker in later steps.
+   Still include a minimal `## Requirement Traceability` table with columns
+   `Design element | REQ | Section`; every `Section` value must exactly match a real `##`
+   heading in the same design. `scripts/spec-trace.sh` requires this sliceable contract and
+   runs as a blocker in later steps.
 4. `tasks.md` — the FEWEST cohesive, independently verifiable tasks (see `spec-tasks` sizing).
    Print the task list compactly — one line per task: title + REQ IDs (not the
    full file) — as a free interrupt point; do NOT stop or wait for approval.

@@ -6,6 +6,8 @@ argument-hint: <task id, range like 1-3, or "all">
 
 # Implement task(s): $ARGUMENTS
 
+ก่อนสร้างหรือแก้ผลลัพธ์ อ่านและใช้ [นโยบายภาษาของผลลัพธ์](../../../.ai/shared/TASK_PROTOCOL.md#ภาษาของผลลัพธ์)
+
 Resolve $ARGUMENTS to the target task(s): a single id (e.g. 2), a range (1-3), or
 all incomplete tasks. For multiple tasks, work in dependency order.
 
@@ -16,74 +18,31 @@ with any unchecked tasks. If more than one folder qualifies: interactive → lis
 them and ask, never guess; unattended (pane-loop/CI) → require the feature name in
 the argument and stop with that message instead of waiting.
 
-เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:
+If tasks.md is still `> Status: draft`: interactive → warn in Thai and ask for
+confirmation (if I confirm, flip it to `> Status: approved <YYYY-MM-DD>` as part
+of that confirmation); unattended → treat it as a hard stop, state the reason and
+stop immediately — never sit waiting for an answer no one will give.
 
-- มี `bugfix.md` และไม่มี `requirements.md`/`design.md` → `bugfix`
-- มี `requirements.md` กับ `design.md` และไม่มี `bugfix.md` → feature shape ที่
-  Requirements-First และ Design-First converge แล้ว (`requirements-first` กับ
-  `design-first` ใช้ phase contract เดียวกันสำหรับ implement); ใช้
-  `requirements-first` เป็น canonical label ของ shape นี้โดยไม่เดาประวัติจาก prose
-- shape อื่น → หยุด เพราะ missing หรือ ambiguous
+Once, before the loop: run `scripts/spec-state.sh <feature>` and reconcile tasks.md
+with the filesystem for the target tasks and their dependencies. The filesystem is
+ground truth — checkboxes and git log can lie, and untracked files never appear in
+`git diff --stat`. If a checkbox contradicts reality (marked [x] but artifacts
+missing, or [ ] but already built), fix the checkbox and note the reconciliation
+in tasks.md before implementing.
 
-ก่อนอ่าน implementation context, แก้ source หรือแก้ `tasks.md` ให้รัน shared phase gate:
+For EACH task:
 
-```bash
-python3 scripts/spec_contract.py gate phase --feature <feature> --phase implement --workflow <workflow>
-```
-
-คำสั่งต้องคืน exit `0` ก่อนจึงทำต่อได้ หาก artifact missing, malformed, unknown หรือ
-ไม่ approved ให้หยุดตาม diagnostic ของ engine ทันที ห้ามใช้ conversation, checkbox
-หรือ code existence แทน approval และห้าม flip upstream status เพื่อข้าม gate.
-
-Resolve selector ผ่าน shared engine ให้เป็น exact `<task-id>` ตาม file order โดยอ่านเฉพาะ
-ID ที่ CLI คืน ห้ามอ่าน task body ก่อน slice.
-
-หาก `$ARGUMENTS == all` ให้เลือกเฉพาะ pending task IDs:
-
-```bash
-python3 scripts/spec_contract.py task-ids --feature <feature> --pending --format lines
-```
-
-หาก `$ARGUMENTS` เป็น exact ID หรือ numeric range ให้ใช้ selector เดิม:
-
-```bash
-python3 scripts/spec_contract.py task-ids --feature <feature> --selector "$ARGUMENTS" --format lines
-```
-
-ทั้งสอง branch ต้องคืน exit `0` ก่อนเข้า loop; selector unknown หรือคำสั่งคืน non-zero ให้หยุด
-ตาม diagnostic ทันที. นำทุก ID ที่ CLI คืนเข้า loop ด้านล่างตาม file order โดยไม่ข้าม ID.
-
-For EACH exact task ID:
-
-0. รัน slice ก่อนอ่าน implementation context อื่น:
-
-   ```bash
-   scripts/spec-slice.sh <feature> <task-id>
-   ```
-
-   ถ้า `spec-slice.sh` คืน non-zero ให้หยุดทันที ใช้ output ที่ exit `0` เป็น initial slice
-   และห้ามแทนด้วย grep หรือ parser ใน skill.
-
-   หาก output มี `MISSING:` ให้ full-read upstream artifacts ทั้งหมดตาม workflow:
-
-   - feature: `requirements.md`, `design.md` และ `tasks.md`
-   - bugfix: `bugfix.md` และ `tasks.md`
-
-   หลัง full-read ให้รัน gate ซ้ำด้วย workflow เดิม:
-
-   ```bash
-   python3 scripts/spec_contract.py gate phase --feature <feature> --phase implement --workflow <workflow>
-   ```
-
-   gate ซ้ำต้องคืน exit `0` ก่อนทำต่อ ห้ามเดา mapping ที่หาย หาก full-read พบ artifact
-   missing, malformed, unknown หรือไม่ approved ให้หยุดโดยไม่แก้ source หรือ `tasks.md`.
-
-1. หลัง slice, fallback และ gate ซ้ำเสร็จแล้ว จึงรัน `scripts/spec-state.sh <feature>` และ
-   reconcile target task กับ dependencies เทียบ filesystem โดยถือ filesystem เป็น ground
-   truth; checkbox กับ git log อาจผิด และ untracked files ไม่อยู่ใน `git diff --stat`.
-   ถ้าพบความขัดแย้ง ให้หยุดรายงานก่อนแก้ `tasks.md`. จากนั้นอ่าน task slice กับ supplemental
-   context ที่ slice ระบุ พร้อม @.ai/shared/ARCHITECTURE.md โดย slice เป็น context เริ่มต้นที่
-   authoritative; full-read ใช้เฉพาะ fallback `MISSING:` ข้างต้น.
+1. Load context via `scripts/spec-slice.sh <feature> <task-id>` and read ONLY
+   its output (the task block + its linked REQ blocks + the design sections
+   the traceability table maps to those REQs + Status headers) plus
+   @.ai/shared/ARCHITECTURE.md. This is a bugfix spec's own scope — bugfix.md
+   uses F-IDs/B-IDs, not REQ ids, so the slicer does not apply there; read
+   bugfix.md directly instead. Fall back to reading the full requirements.md
+   + design.md when: (a) the slice output contains any `MISSING:` marker, (b)
+   this is the feature's final or an assembly task (it needs cross-task
+   awareness by design), or (c) I ask for full context. Slice-first is an
+   optimization, never a gate — if the slicer is missing or errors, fall back
+   to the full read instead of guessing.
 2. Plan the task with your own internal TODO list, then implement the WHOLE task in
    one cohesive pass. It may span many files — that is expected; keep the entire
    task in context rather than splitting it across turns.
@@ -92,11 +51,10 @@ For EACH exact task ID:
 4. Mark the task "- [x]" in tasks.md, state which IDs are now satisfied, AND in
    the SAME edit append an `Evidence:` block directly under that task line — the
    box and the evidence flip together. Record what you actually ran and observed
-   (not the planned `Verify:` line):
-       Evidence:
-         - test: `<exact command>` -> <result, e.g. 47 passed / 0 failed>
-         - viewports: 375 OK | 768 OK | 1440 OK   (browser tasks; else `n/a — logic-only`)
-         - deviations: <none | what differed from design/requirements and why>
+   (not the planned `Verify:` line). ใช้รูปแบบเต็มจาก
+   [ตัวอย่างหลักฐาน](../../../.ai/shared/TESTING_PROTOCOL.md#evidence-block-format):
+   ระยะเยื้องสองช่อง เว้นบรรทัดก่อนและหลัง `Evidence:` และแสดงแต่ละผลตรวจเป็นรายการย่อย
+   ตรวจหน้าตัวอย่าง Markdown ว่าหลักฐานไม่รวมกับคำอธิบายงานเป็นย่อหน้าเดียว
    For a browser task you must have Read references/browser-verify.md and verified
    `clientWidth === target` at each viewport — record the values, never assert a
    pass you did not observe; if a check could not be run, say so in `deviations:`.

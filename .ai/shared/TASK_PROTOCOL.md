@@ -9,21 +9,26 @@ code, ALWAYS**. Do not jump to implementation for any non-trivial feature.
 ## ภาษาของผลลัพธ์
 
 ทุก `spec-*` และทุก harness ใช้นโยบายนี้ร่วมกัน: สร้างหรือแก้ข้อความอธิบายเป็นภาษาไทย
-ทั้ง requirements (เนื้อหา User Story และ Acceptance Criteria), design, tasks, bugfix,
+ทั้ง requirements (ความต้องการของผู้ใช้และเกณฑ์การยอมรับ), design, tasks, bugfix,
 implementation plan, review/test report, handoff, retro, ชื่อและเนื้อหา issue ที่ sync
 รวมถึงข้อความที่สื่อสารกับผู้ใช้
 
+ใช้กับ `requirements.md`, `design.md`, `tasks.md`, `handoff.md` และเอกสารประกอบที่สร้างใหม่
+โดยแปล placeholder และตัวอย่างข้อความสำหรับผู้อ่านในต้นทางด้วย เพื่อให้ template นำไปใช้ได้ตรงนโยบาย
+
 template ภาษาอังกฤษกำหนดโครงสร้าง ไม่ใช่ภาษาของผลลัพธ์ เติมชื่อ feature/task และเนื้อหา
-เป็นภาษาไทย คงหัวข้อบังคับตาม template เดิม ส่วนหัวข้อที่ตั้งเองใช้ภาษาไทย
+เป็นภาษาไทย ใน requirements ให้ใช้หัวข้อและรูปประโยคไทยตาม EARS.md รวมคำว่า
+“เมื่อ… ระบบต้อง…” แทนคำเชื่อมอังกฤษ อธิบายด้วยคำไทยทั่วไปโดยไม่แทรกศัพท์อังกฤษที่แปลได้
+เอกสารอื่นคงเฉพาะหัวข้อที่ตัวตรวจอ้างถึงตามตารางด้านล่าง ส่วนหัวข้อที่ตั้งเองใช้ภาษาไทย
 เมื่อแก้ spec เดิม ให้ปรับข้อความเฉพาะ scope งาน ไม่แปลเอกสารเก่าย้อนหลังทั้งชุด
 
 | ส่วน | สิ่งที่คงเดิม |
 |---|---|
-| ข้อมูลทางเทคนิค | code, identifier, command, path, technical term และ raw error/log |
-| Requirement | REQ-ID / F-ID / B-ID และ EARS keywords: THE SYSTEM SHALL, WHEN, WHILE, WHERE, IF, THEN |
+| ข้อมูลทางเทคนิค | code, identifier, command, path และ raw error/log; คำอธิบายใช้ภาษาไทย |
+| Requirement | REQ-ID / F-ID / B-ID; เขียนประโยคใหม่เป็นภาษาไทย ตัวตรวจยังรองรับประโยคอังกฤษในเอกสารเก่า |
 | สถานะและ schema | `Status:` พร้อมค่า enum เดิม, schema keys และ checkbox syntax |
 | Task metadata | `Satisfies:`, `Depends on:`, `Verify:`, `Batch:` และ `Evidence:` พร้อม keys ภายใน |
-| โครงเอกสาร | หัวข้อบังคับและคอลัมน์ตาราง เช่น Requirement Traceability, Design element, REQ, Section |
+| โครงเอกสาร | หัวข้อที่ตัวอ่านใช้ เช่น `## REQ-N:` และ `## Requirement Traceability` พร้อมคอลัมน์ Design element, REQ, Section |
 
 ค่าในคอลัมน์ `Section` ต้องตรงกับ heading จริงที่อ้างอิง แม้ heading นั้นเป็นภาษาไทย
 
@@ -31,12 +36,16 @@ template ภาษาอังกฤษกำหนดโครงสร้า�
 
 ```markdown
 ## REQ-1: การบันทึกฉบับร่าง
-**Acceptance Criteria (EARS):**
-- 1.1 WHEN ผู้ใช้กดบันทึก THE SYSTEM SHALL บันทึกเนื้อหาปัจจุบันเป็นฉบับร่าง
+**เกณฑ์การยอมรับ:**
+- 1.1 เมื่อผู้ใช้กดบันทึก ระบบต้องบันทึกเนื้อหาปัจจุบันเป็นฉบับร่าง
 
 - [ ] 1. บันทึกฉบับร่าง — ผู้ใช้เรียกคืนเนื้อหาที่บันทึกไว้ได้
-     Satisfies: REQ-1.1. Verify: ทดสอบบันทึกแล้วโหลดกลับและเปรียบเทียบเนื้อหา.
+  Satisfies: REQ-1.1. Verify: ทดสอบบันทึกแล้วโหลดกลับและเปรียบเทียบเนื้อหา.
 ```
+
+รายการงานใช้ระยะเยื้องสองช่องสำหรับข้อความภายในงาน เว้นบรรทัดก่อนและหลัง `Evidence:`
+แล้วแสดงผลตรวจเป็นรายการย่อยตาม [ตัวอย่างหลักฐาน](TESTING_PROTOCOL.md#evidence-block-format)
+คงข้อมูลอ้างอิงและวิธีตรวจติดกับบรรทัดงาน เพื่อให้ตัวอ่านยังจับคู่ได้ ตรวจทั้งผลที่แสดงและผลตัวอ่านก่อนส่งมอบ
 
 ก่อนส่งมอบ อ่านผลลัพธ์ซ้ำ: เนื้อหาที่สร้างหรือแก้เป็นภาษาไทย, machine contract คงเดิม,
 traceability อ้างอิงได้จริง และ Evidence ระบุเฉพาะคำสั่งกับผลที่รันและสังเกตจริง
