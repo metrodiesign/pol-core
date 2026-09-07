@@ -9,7 +9,6 @@ public sealed class KeysTests
     private static readonly string[] ExpectedKeys =
     [
         "txn.view", "txn.refund", "txn.export",
-        "txn.manage",
         "merchant.view", "merchant.manage",
         "user.view", "user.manage", "user.roles",
         "audit.view", "settings.manage", "apikey.manage",
@@ -23,9 +22,9 @@ public sealed class KeysTests
         ["txn", "merchant", "user", "system", "merchants.users", "payment", "roles"];
 
     [Fact]
-    public void All_has_exactly_26_keys_across_7_groups()
+    public void All_has_exactly_25_keys_across_7_groups()
     {
-        Assert.Equal(26, Keys.AllKeys.Count);
+        Assert.Equal(25, Keys.AllKeys.Count);
         Assert.Equal(7, Keys.GroupKeys.Count);
         Assert.Equal(ExpectedKeys.ToHashSet(StringComparer.Ordinal), Keys.AllKeys);
         Assert.Equal(ExpectedGroups.ToHashSet(StringComparer.Ordinal), Keys.GroupKeys.ToHashSet(StringComparer.Ordinal));
@@ -41,6 +40,7 @@ public sealed class KeysTests
         Assert.DoesNotContain("invoice.manage", Keys.AllKeys);
         Assert.DoesNotContain("settlement.run", Keys.AllKeys);
         Assert.DoesNotContain("finance", Keys.GroupKeys);
+        Assert.DoesNotContain("txn.manage", Keys.AllKeys); // retired with the shared payment group
     }
 
     [Theory]
@@ -49,7 +49,7 @@ public sealed class KeysTests
     [InlineData("user", Scope.Platform)]
     [InlineData("system", Scope.Platform)]
     [InlineData("merchants.users", Scope.Platform)]
-    [InlineData("payment", Scope.Merchant)]
+    [InlineData("payment", Scope.Shared)]
     [InlineData("roles", Scope.Merchant)]
     public void GroupScope_matches_the_v5_plan(string group, Scope expected) =>
         Assert.Equal(expected, Keys.GroupScope[group]);
@@ -63,16 +63,25 @@ public sealed class KeysTests
     }
 
     [Fact]
-    public void Platform_side_has_18_keys_and_merchant_side_has_8()
+    public void Platform_side_has_17_keys_merchant_side_5_and_shared_3()
     {
-        Assert.Equal(18, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
-        Assert.Equal(8, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
+        Assert.Equal(17, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
+        Assert.Equal(5, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
+        Assert.Equal(3, Keys.KeySide.Count(kv => kv.Value == Scope.Shared));
+    }
+
+    // The commerce keys both tiers call are Shared — the one role set Tier 0 and Tier 1 hold in common.
+    [Fact]
+    public void Payment_keys_are_shared_across_both_consoles()
+    {
+        Assert.Equal(Scope.Shared, Keys.KeySide[Keys.PaymentView]);
+        Assert.Equal(Scope.Shared, Keys.KeySide[Keys.PaymentCreate]);
+        Assert.Equal(Scope.Shared, Keys.KeySide[Keys.PaymentRedirect]);
     }
 
     [Fact]
-    public void Admin_commerce_and_merchant_management_keys_are_platform_scoped()
+    public void Admin_merchant_management_keys_are_platform_scoped()
     {
-        Assert.Equal(Scope.Platform, Keys.KeySide[Keys.TxnManage]);
         Assert.Equal(Scope.Platform, Keys.KeySide[Keys.MerchantUserManage]);
         Assert.Equal(Scope.Platform, Keys.KeySide[Keys.MerchantRolesView]);
         Assert.Equal(Scope.Platform, Keys.KeySide[Keys.MerchantRolesManage]);

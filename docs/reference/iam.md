@@ -4,39 +4,44 @@
 
 ## Catalog
 
-Iam เป็น catalog กลางเดียวสำหรับ Platform และ Merchant scope. ทุก permission สืบทอด scope จาก group;
-role grant ข้าม scope ถูก reject ทั้ง domain, persistence และ boot parity guard.
+Iam เป็น catalog กลางเดียวสำหรับ Platform (Tier 0), Merchant (Tier 1) และ Shared scope. ทุก permission สืบทอด scope
+จาก group; role ฝั่ง Platform/Merchant ถือ key ฝั่งตนรวม Shared ได้, role Shared ถือ Shared เท่านั้น, grant ข้ามฝั่ง
+ถูก reject ทั้ง domain, persistence และ boot parity guard.
 
-Current seed:
+Current seed (2026-09-06, migration `SharedRoleScope`):
 
 | Scope | Groups | Permissions |
 |---|---:|---:|
-| Platform | 5 | 18 |
-| Merchant | 2 | 8 |
-| Total | 7 | 26 |
+| Platform | 5 | 17 |
+| Merchant | 1 | 5 |
+| Shared | 1 | 3 |
+| Total | 7 | 25 |
 
 Groups:
 
 - Platform: `txn`, `merchant`, `user`, `system`, `merchants.users`
-- Merchant: `payment`, `roles`
+- Merchant: `roles`
+- Shared: `payment` (`payment.view`, `payment.create`, `payment.redirect`) — สิทธิ์ commerce ที่ Tier 0 และ Tier 1
+  เรียกร่วมกัน; endpoint `dual-console` ทั้ง 15 จุด gate ด้วย key เดียวนี้ไม่ว่า session ระดับใด
 
-Platform keys เพิ่มสำหรับ Admin control plane ได้แก่ `txn.manage`, `merchants.users.manage`,
-`merchants.roles.view` และ `merchants.roles.manage`. Merchant keys เพิ่ม `payment.view`, `users.view`,
-`users.manage`, `users.roles` และ `roles.view`/`roles.manage` ตาม catalog ใน source.
+Platform keys สำหรับ Admin control plane ได้แก่ `merchants.users.manage`, `merchants.roles.view` และ
+`merchants.roles.manage`. Merchant keys ได้แก่ `users.view`, `users.manage`, `users.roles`, `roles.view`, `roles.manage`.
 
-Retired: catalog product writes, merchant/admin policy groupsและทุก policy permission.
+Retired: `txn.manage` (ฝาแฝดฝั่ง admin ของ `payment.create` — ไม่มี endpoint gate เมื่อ payment เป็น Shared),
+catalog product writes, merchant/admin policy groups และทุก policy permission.
 
 ## Roles and grants
 
 | Role | Scope | Grants | Anchor |
 |---|---|---:|---|
-| `platform_admin` | Platform | 18 | yes |
-| `platform_auditor` | Platform | 4 | no |
+| `platform_admin` | Platform | 20 | yes |
+| `platform_auditor` | Platform | 5 | no |
 | `merchant_manager` | Merchant | 8 | yes |
-| `merchant_staff` | Merchant | 3 | no |
+| `merchant_staff` | Shared | 3 | no |
 
-รวม 33 seed grants. Anchor role ปิดหรือลบไม่ได้. Shared seed role มี `MerchantId = NULL`; merchant custom role
-ต้องมี owner merchant และ visibility confined ด้วย `RoleVisibility`.
+รวม 36 seed grants. Anchor role ปิดหรือลบไม่ได้. Seed role มี `MerchantId = NULL`; merchant custom role
+ต้องมี owner merchant และ visibility confined ด้วย `RoleVisibility`. Role scope Shared assign ได้ทั้ง
+`admin.RoleAssignments` (Tier 0) และ `merch.RoleAssignments` (Tier 1) และปรากฏใน role list ของทั้งสอง console.
 
 ## Active-only resolution
 
@@ -68,4 +73,4 @@ Admin API client เป็น credential ของ merchant/originator ไม่
 Routes อยู่ใต้ `/api/v1/api-clients` และใช้ `apikey.manage`; รายละเอียด request/response อยู่ใน
 [`admin-control-plane.md`](admin-control-plane.md).
 
-Migration seed และ integration tests ต้องตรง 26 permissions / 7 groups / 4 roles / 33 grants.
+Migration seed และ integration tests ต้องตรง 25 permissions / 7 groups / 4 roles / 36 grants.

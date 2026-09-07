@@ -160,7 +160,7 @@ Orders → Paid. จบ ไม่มี issuance.
   `Users`/`RoleAssignments`) และไม่อยู่ใต้ filter เดียวกัน
 - RBAC catalog — **rf2 (2026-07-13, spec `rf2-iam-rbac`)**: catalog ที่เดิมซ้ำ 2 ชุดต่อ console (schema `admin` + `merch`,
   16 keys/6 groups + 7 keys/3 groups) ยุบเป็น **catalog กลางเดียว module `Iam` schema `iam`** — 4 tables
-  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary = **26 keys /
+  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary (ณ rf2 — supersede 2026-09-06 เป็น 25 keys / 36 grants, ดู bullet Shared role scope ด้านล่าง) = **26 keys /
   7 groups** โดย `PermissionGroups.Scope ∈ {Platform, Merchant}` ทุก key สืบทอด side จาก group → assign/grant ข้าม side
   fail-closed by construction (ปิด cross-side grant hole ที่ 2 catalog เดิม detect ไม่ได้). Seed **4 roles**: `platform_admin`
   (18 platform keys) / `platform_auditor` (4) / `merchant_manager` (8 merchant keys) / `merchant_staff` (3); anchor ปิด/ลบ
@@ -169,7 +169,22 @@ Orders → Paid. จบ ไม่มี issuance.
   assignment 2 ตาราง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK `RoleId`→`iam.Roles`). `RequirePermission` +
   boot parity guard side-aware เหลือกลไกเดียว (`Api.Iam`); resolve permission สดต่อ request จาก DB (union ของ role Active),
   fail-closed 403. `iam.*` อยู่นอก RLS (REQ-9.2 — resolve ระหว่าง authenticate, app-layer scoped read เป็น floor). แกน role
-  (action) กับ Tier/RLS (visibility) ยัง **orthogonal** — งาน visibility เป็น rf6. รายละเอียด: `.ai/specs/rf2-iam-rbac/`
+  (action) กับ Tier/RLS (visibility) ยัง **orthogonal**. รายละเอียด: `.ai/specs/rf2-iam-rbac/`
+- Shared role scope — **2026-09-06 (actor model, `feat/actor-model`)**: `Scope` เพิ่มค่าที่สาม **`Shared = 3`** สำหรับ
+  ฟีเจอร์ commerce ที่ Tier 0 และ Tier 1 เรียกร่วมกัน — group `payment` (`payment.view/create/redirect`) ย้ายจาก Merchant
+  เป็น Shared, seed role `merchant_staff` เป็น Shared (assign ได้ทั้ง `admin.RoleAssignments`/`merch.RoleAssignments`),
+  `platform_admin`/`platform_auditor` ได้ key `payment.*` แทน `txn.manage` ที่ **retire** (เดิมเป็นฝาแฝดฝั่ง admin ของ
+  `payment.create` บน 15 endpoint `dual-console` ซึ่งตอนนี้ gate ด้วย `RequirePermission(payment.*)` key เดียว).
+  กติกา: role ฝั่ง Platform/Merchant ถือ key ฝั่งตน + Shared ได้, role Shared ถือ Shared เท่านั้น, `RoleVisibility` เห็น
+  Shared ทั้งสองฝั่ง, parity guard อนุญาต Shared ใต้ทุก policy และ**เฉพาะ** Shared ใต้ `dual-console`, DB CHECK
+  `CK_Roles_ScopeMerchant` = `([Scope] IN (1, 3) AND [MerchantId] IS NULL) OR [Scope] = 2` (migration
+  `20260906151900_SharedRoleScope`). catalog = **25 keys / 7 groups / 4 roles / 36 grants**
+- Per-agent visibility — **2026-09-06 (ปิด "rf6" ที่ค้าง)**: `MerchantRuntimeDbContext.CurrentMerchantUser` (จาก
+  `IActorContext.UserId`) เข้า query filter ของ `Order` เป็นชั้นที่สอง — merchant user (Tier 1) เห็นเฉพาะ order ที่
+  `InitiatingMerchantUserId == ตนเอง`; admin ambient scope / webhook / worker ไม่มี user จึงยังเห็นทั้ง merchant. seam
+  เดียวครอบ list/detail/resend/cancel/reconciliation/payment-session mint ทั้งหมด และ `Session` ใช้ predicate เดียวกัน
+  ผ่าน `Orders.Any(...)` (list/get session by id) (`Architecture.Tests/OrderVisibilityFloorTests`). order ที่ admin สร้างแทน originator (`InitiatingMerchantUserId` NULL) ตัวแทนไม่เห็น —
+  ตั้งใจ; Cart ไม่มีข้อมูลลูกค้าจึงยังกรองระดับ merchant
 - MasterData — **2026-07-13, spec `masterdata-module`**: reference data ของโปรไฟล์พนักงาน (`Position`/`Office`/`Level`/`Division`,
   เดิมฝังอยู่ใต้ `Admins.Domain/Application/Infrastructure.MasterData`) แยกเป็น**โมดูลของตัวเอง `MasterData`** (3 project
   shape เดียวกับ `Iam`, ไม่มี Mediator handler เพราะเป็น CRUD ธรรมดา) — `Admins.Application` อ้างได้เฉพาะ

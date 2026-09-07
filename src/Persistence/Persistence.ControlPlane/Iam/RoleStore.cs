@@ -79,14 +79,16 @@ internal sealed class RoleStore : IRoleStore
 
     public async Task<PermissionCatalogResult> ListCatalogAsync(Scope scope, CancellationToken cancellationToken)
     {
+        // A side's grantable vocabulary = its own groups + the Shared groups (Role.SetPermissions applies the
+        // same rule), so either console's role editor can grant the shared commerce keys.
         var groups = await _db.PermissionGroups.AsNoTracking()
-            .Where(g => g.Scope == scope)
+            .Where(g => g.Scope == scope || g.Scope == Scope.Shared)
             .OrderBy(g => g.SortOrder)
             .Select(g => new PermissionGroupItem(g.Key, g.Name, g.Status))
             .ToListAsync(cancellationToken);
         var permissions = await _db.Permissions.AsNoTracking()
             .Join(_db.PermissionGroups, p => p.GroupKey, g => g.Key, (p, g) => new { p, g.Scope })
-            .Where(x => x.Scope == scope)
+            .Where(x => x.Scope == scope || x.Scope == Scope.Shared)
             .OrderBy(x => x.p.SortOrder)
             .Select(x => new PermissionItem(x.p.Key, x.p.Name, x.p.GroupKey, x.p.Status))
             .ToListAsync(cancellationToken);

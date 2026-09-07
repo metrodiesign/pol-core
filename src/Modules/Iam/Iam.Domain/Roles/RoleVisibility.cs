@@ -6,6 +6,8 @@ namespace Iam.Domain.Roles;
 /// <summary>
 /// The role rows a side can see (REQ-3.6/3.9): Platform sees exactly the Platform+shared (NULL
 /// <c>MerchantId</c>) rows; Merchant sees Merchant+shared rows plus its own <c>MerchantId</c>'s custom rows.
+/// A <see cref="Scope.Shared"/> role (always NULL <c>MerchantId</c>) is visible — and assignable — on BOTH
+/// sides: it is the one role set Tier 0 (workforce) and Tier 1 (agent/broker) hold in common.
 /// Defined ONCE, in the published-language module, so every reader — <c>Iam.Infrastructure</c>'s own store
 /// AND each side's assignment-support repository (<c>Admins</c>/<c>Merchants.Infrastructure</c>, which query
 /// <c>iam.Roles</c> directly for assignment validation) — applies the identical rule instead of re-deriving
@@ -15,8 +17,10 @@ public static class RoleVisibility
 {
     public static Expression<Func<Role, bool>> For(Scope scope, Guid? merchantId) => scope switch
     {
-        Scope.Platform => r => r.Scope == Scope.Platform && r.MerchantId == null,
-        Scope.Merchant => r => r.Scope == Scope.Merchant && (r.MerchantId == null || r.MerchantId == merchantId),
+        Scope.Platform => r => r.MerchantId == null && (r.Scope == Scope.Platform || r.Scope == Scope.Shared),
+        Scope.Merchant => r =>
+            (r.Scope == Scope.Merchant && (r.MerchantId == null || r.MerchantId == merchantId))
+            || (r.Scope == Scope.Shared && r.MerchantId == null),
         _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unknown Scope."),
     };
 }

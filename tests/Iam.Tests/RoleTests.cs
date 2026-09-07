@@ -32,13 +32,38 @@ public sealed class RoleTests
     [Fact]
     public void Create_rejects_a_permission_key_from_the_wrong_side()
     {
-        // payment.create is a Merchant-side key; granting it to a Platform-scope role is structurally impossible
-        // (REQ-6.6) rather than merely undocumented.
+        // roles.manage is a Merchant-side key; granting it to a Platform-scope role is structurally impossible
+        // (REQ-6.6) rather than merely undocumented — and vice versa for a Platform key on a Merchant role.
         Assert.Throws<ArgumentException>(() =>
-            Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Platform, null, ["payment.create"], Catalog));
+            Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Platform, null, ["roles.manage"], Catalog));
         Assert.Throws<ArgumentException>(() =>
             Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Merchant, MerchantId, ["txn.view"], Catalog));
     }
+
+    // The Shared side (group payment) is the one vocabulary both tiers hold: a Platform or Merchant role may
+    // carry it alongside its own side's keys, and a Shared role carries nothing else.
+    [Fact]
+    public void A_shared_key_is_grantable_on_either_side_but_a_shared_role_holds_shared_keys_only()
+    {
+        var platform = Role.Create("p", "P", null, null, RoleStatus.Active, Scope.Platform, null,
+            ["txn.view", "payment.create"], Catalog);
+        Assert.Equal(new HashSet<string> { "txn.view", "payment.create" }, platform.PermissionKeys.ToHashSet());
+
+        var merchant = Role.Create("m", "M", null, null, RoleStatus.Active, Scope.Merchant, MerchantId,
+            ["roles.view", "payment.create"], Catalog);
+        Assert.Equal(new HashSet<string> { "roles.view", "payment.create" }, merchant.PermissionKeys.ToHashSet());
+
+        var shared = Role.Create("s", "S", null, null, RoleStatus.Active, Scope.Shared, null,
+            ["payment.view", "payment.create", "payment.redirect"], Catalog);
+        Assert.Equal(Scope.Shared, shared.Scope);
+        Assert.Throws<ArgumentException>(() => shared.SetPermissions(["payment.view", "txn.view"], Catalog));
+        Assert.Throws<ArgumentException>(() => shared.SetPermissions(["payment.view", "roles.view"], Catalog));
+    }
+
+    [Fact]
+    public void Create_rejects_a_shared_role_with_a_merchant_id() =>
+        Assert.Throws<ArgumentException>(() =>
+            Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Shared, MerchantId, [], Catalog));
 
     [Fact]
     public void Create_rejects_a_blank_or_overlong_code_and_a_blank_name()
@@ -81,7 +106,7 @@ public sealed class RoleTests
         Assert.Equal(new HashSet<string> { "merchant.view", "user.view" }, role.PermissionKeys.ToHashSet());
 
         Assert.Throws<ArgumentException>(() => role.SetPermissions(["not.a.key"], Catalog));
-        Assert.Throws<ArgumentException>(() => role.SetPermissions(["payment.create"], Catalog)); // Merchant-side key
+        Assert.Throws<ArgumentException>(() => role.SetPermissions(["roles.manage"], Catalog)); // Merchant-side key
     }
 
     [Theory]

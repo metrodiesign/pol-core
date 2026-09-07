@@ -889,7 +889,7 @@ api.MapPost("/carts", async (
         value => value.CartId.ToString("D"), ct);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIdempotencyMutationMarker(),
         requiredMerchantQuery,
@@ -941,7 +941,7 @@ api.MapPost("/carts/{cartId:guid}/items", async (
     VersionEtags.Set(http, result.Value.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminEtagResponseMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -980,7 +980,7 @@ api.MapGet("/carts/{cartId:guid}", async (
         VersionEtags.Set(http, view.Version);
     return view is null ? Results.NotFound() : Results.Ok(view);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .RequirePermission(Keys.PaymentView)
     .WithMetadata(new AdminEtagResponseMarker("200"))
     .WithTags("ตะกร้าสินค้า")
     .WithName("GetCart")
@@ -1013,7 +1013,7 @@ api.MapDelete("/carts/{cartId:guid}/items/{itemId:guid}", async (
     VersionEtags.Set(http, result.Value.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1050,7 +1050,7 @@ api.MapPut("/carts/{cartId:guid}/items/{itemId:guid}", async (
     VersionEtags.Set(http, result.Value.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1084,7 +1084,7 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
     VersionEtags.Set(http, result.Value.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1139,7 +1139,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     return Results.Ok(result.Value);
 });
 createPaymentSession.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIdempotencyMutationMarker(),
         new AudienceRequestBodyMarker(
@@ -1227,7 +1227,7 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     return Results.Ok(result.Value);
 });
 startRedirect.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentRedirect).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentRedirect).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1235,7 +1235,7 @@ startRedirect.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
     .WithTags("การชำระเงิน")
     .WithName("StartPaymentRedirect")
     .WithSummary("เริ่ม redirect ไปยัง PSP")
-    .WithDescription("claim payment session แล้วสร้าง URL redirect ของ PSP Merchant Console ใช้สิทธิ์ payment.redirect; Admin Console ใช้ txn.manage พร้อม merchantId, If-Match และ Idempotency-Key หากไม่พบ -> 404, version หรือสถานะชนกัน -> 409")
+    .WithDescription("claim payment session แล้วสร้าง URL redirect ของ PSP ทั้ง Merchant Console และ Admin Console ใช้สิทธิ์ payment.redirect (role ใช้ร่วมกันสองระดับ); Admin Console ส่ง merchantId, If-Match และ Idempotency-Key หากไม่พบ -> 404, version หรือสถานะชนกัน -> 409")
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1267,7 +1267,7 @@ var getPaymentSession = api.MapGet("/payments/sessions/{paymentSessionId:guid}",
     return Results.Ok(AdminPaymentSession(view));
 });
 getPaymentSession.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .RequirePermission(Keys.PaymentView)
     .WithMetadata(
         new AdminEtagResponseMarker("200"),
         new AudienceResponseMarker("200", typeof(PaymentSessionView), typeof(AdminPaymentSessionResponse)))
@@ -1432,7 +1432,7 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     VersionEtags.Set(http, updated.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1482,7 +1482,7 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
     VersionEtags.Set(http, updated.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1548,7 +1548,7 @@ api.MapPost("/orders", async (
         value => value.OrderId.ToString("D"), ct);
     return Results.Created($"/api/v1/orders/{result.Value.OrderId}", result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
     .WithMetadata(new AdminIdempotencyMutationMarker())
     .WithTags("คำสั่งซื้อ")
     .WithName("CreateOrderFromCart")
@@ -1603,7 +1603,7 @@ api.MapGet("/orders", async (
     return Results.Ok(new PagedResult<AdminOrderListResponse>(
         result.Items.Select(AdminOrderList).ToArray(), result.Page, result.Limit, result.Total));
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .RequirePermission(Keys.PaymentView)
     .WithMetadata(
         new SfsQueryParamsMarker(100),
         optionalMerchantQuery,
@@ -1734,7 +1734,7 @@ api.MapGet("/orders/{orderId:guid}", async (
         session is null ? null : AdminPaymentSession(session), lifecycle,
         OrderCapabilities(result.Status), result.Version));
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .RequirePermission(Keys.PaymentView)
     .WithMetadata(
         new AdminEtagResponseMarker("200"),
         new AudienceResponseMarker("200", typeof(OrderDetailView), typeof(AdminOrderDetailResponse)))
@@ -1775,7 +1775,7 @@ api.MapGet("/reports/reconciliation", async (
     return Results.Ok(new ReconciliationView(totals.Select(x => new ReconciliationLine(
         x.Status.ToString(), x.Currency, x.Count, x.Total)).ToArray()));
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .RequirePermission(Keys.PaymentView)
     .WithMetadata(optionalMerchantQuery)
     .WithTags("คำสั่งซื้อ")
     .WithName("GetReconciliationReport")

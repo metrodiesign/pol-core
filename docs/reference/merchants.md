@@ -135,7 +135,7 @@ Merchant user can:
 - create/mutate/read Carts
 - create Order directly from Cart
 - create/read/redirect Payment session under IAM permissions
-- read/cancel own Orders and resend summary
+- read/cancel own Orders and resend summary — own = Orders this user initiated (`InitiatingMerchantUserId`); the runtime query filter hides every other agent's Orders in the same merchant (actor model 2026-09-06)
 
 No Checkout or policy route exists. Full cutover mapping:
 `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`.
