@@ -666,7 +666,7 @@ internal sealed class AdminPaymentsControlStore(
             // pinned secret has not been proven) is blocked from activating a new credential too, not only an
             // environment switch (AC-9.3) — task 9 remediation must clear it first (critical #12).
             if (await PlatformReadGuard.ReadAsync(token => db.PaymentSessions.IgnoreQueryFilters()
-                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0, token), ct))
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0 && x.PspExternalChargeId != null, token), ct))
                 throw new ConflictException(
                     "The merchant has an unresolved legacy payment session that must be remediated first.", "legacy_snapshot_blocked");
             await authorizationLease.VerifyAsync(intent.Access, ct);
@@ -831,7 +831,7 @@ internal sealed class AdminPaymentsControlStore(
             // An unresolved legacy Session (snapshot version 0 — a historical charge whose pinned secret has not
             // been proven) blocks the switch until task 9 remediation clears it (critical #12).
             if (await PlatformReadGuard.ReadAsync(token => db.PaymentSessions.IgnoreQueryFilters()
-                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0, token), ct))
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0 && x.PspExternalChargeId != null, token), ct))
                 throw new ConflictException(
                     "The merchant has an unresolved legacy payment session that must be remediated first.", "legacy_snapshot_blocked");
 

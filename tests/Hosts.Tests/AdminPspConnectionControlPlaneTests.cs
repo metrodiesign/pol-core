@@ -406,16 +406,37 @@ public sealed class AdminPspConnectionControlPlaneTests : IDisposable
         Assert.Equal("legacy_snapshot_blocked", conflict.Code);
     }
 
+    [Fact]
+    public async Task A_credential_change_is_not_blocked_by_a_legacy_v0_session_without_an_external_charge()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new RecordingAdapterFactory());
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+
+        // A snapshot-version-0 Session that never took a charge carries no unproven money (AC-9.2): it is
+        // upgraded to v1 by remediation, not a block — the credential change must proceed, not be 409'd.
+        await SeedLegacyV0SessionAsync(db, charged: false);
+        var refreshed = await store.GetConnectionAsync(created.PspConnectionId, MerchantId, Unrestricted, default);
+
+        var change = await store.RequestCredentialChangeAsync(new RequestPspCredentialChangeIntent(
+            created.PspConnectionId, MerchantId,
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" }, "MERCHANT-001",
+            refreshed!.Version, "change", "corr", Unrestricted), default);
+
+        Assert.NotEqual(Guid.Empty, change.ApprovalId);
+    }
+
     // A snapshot-version-0 session is never minted by Session.Create (and its rowversion is not insertable
     // through EF on SQLite), so it is written with raw SQL to reproduce a pre-existing legacy row.
-    private static async Task SeedLegacyV0SessionAsync(MerchantRuntimeDbContext db)
+    private static async Task SeedLegacyV0SessionAsync(MerchantRuntimeDbContext db, bool charged = true)
     {
         var table = db.Model.FindEntityType(typeof(Session))!.GetTableName();
         var sql = "INSERT INTO \"" + table + "\" "
             + "(\"Id\", \"MerchantId\", \"OrderId\", \"Method\", \"Psp\", \"Status\", \"PspExternalChargeId\", "
             + "\"CreatedAt\", \"UpdatedAt\", \"RowVersion\", \"AmountAmount\", \"AmountCurrency\", "
             + "\"RoutingSnapshotVersion\", \"Version\") "
-            + "VALUES ({0}, {1}, {2}, 'card', 1, 1, 'chrg_legacy', {3}, {3}, {4}, 100, 'THB', 0, 1)";
+            + "VALUES ({0}, {1}, {2}, 'card', 1, 1, " + (charged ? "'chrg_legacy'" : "NULL") + ", {3}, {3}, {4}, 100, 'THB', 0, 1)";
         await db.Database.ExecuteSqlRawAsync(sql, Guid.NewGuid(), MerchantId, Guid.NewGuid(), Now, new byte[8]);
     }
 

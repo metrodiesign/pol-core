@@ -184,6 +184,25 @@ public sealed class MerchantEnvironmentControlPlaneTests : IDisposable
     }
 
     [Fact]
+    public async Task A_switch_is_not_blocked_by_a_legacy_v0_session_without_an_external_charge()
+    {
+        await using var db = NewContext();
+        var store = Store(db);
+        var (twoCTwoP, omise, version) = await SeedTwoSandboxConnectionsAsync(store);
+        // A snapshot-version-0 session that never took a charge carries no unproven money (AC-9.2): it is
+        // upgraded to v1 by remediation, not a block — the switch must proceed, not 409 legacy_snapshot_blocked.
+        await SeedLegacyV0SessionAsync(db, charged: false);
+
+        var result = await store.RequestEnvironmentChangeAsync(LiveSwitch(
+            version, "switch-uncharged", omiseAck: true,
+            LiveCredential(twoCTwoP, "2c2p"), LiveCredential(omise, "omise")), default);
+
+        Assert.Equal("pending", result.Status);
+        var merchant = await db.Merchants.IgnoreQueryFilters().SingleAsync(x => x.Id == MerchantId);
+        Assert.Equal(PspEnvironment.Live, merchant.PendingPaymentEnvironment);
+    }
+
+    [Fact]
     public async Task A_connection_outside_the_merchant_is_validation_failed()
     {
         await using var db = NewContext();
@@ -225,14 +244,14 @@ public sealed class MerchantEnvironmentControlPlaneTests : IDisposable
 
     // A legacy snapshot-version-0 session is never minted by Session.Create (and its rowversion column is not
     // insertable through EF on SQLite), so it is written with raw SQL to reproduce a pre-existing legacy row.
-    private static async Task SeedLegacyV0SessionAsync(MerchantRuntimeDbContext db)
+    private static async Task SeedLegacyV0SessionAsync(MerchantRuntimeDbContext db, bool charged = true)
     {
         var table = db.Model.FindEntityType(typeof(Session))!.GetTableName();
         var sql = "INSERT INTO \"" + table + "\" "
-            + "(\"Id\", \"MerchantId\", \"OrderId\", \"Method\", \"Psp\", \"Status\", "
+            + "(\"Id\", \"MerchantId\", \"OrderId\", \"Method\", \"Psp\", \"Status\", \"PspExternalChargeId\", "
             + "\"CreatedAt\", \"UpdatedAt\", \"RowVersion\", \"AmountAmount\", \"AmountCurrency\", "
             + "\"RoutingSnapshotVersion\", \"Version\") "
-            + "VALUES ({0}, {1}, {2}, 'card', 1, 1, {3}, {3}, {4}, 100, 'THB', 0, 1)";
+            + "VALUES ({0}, {1}, {2}, 'card', 1, 1, " + (charged ? "'chrg_legacy'" : "NULL") + ", {3}, {3}, {4}, 100, 'THB', 0, 1)";
         await db.Database.ExecuteSqlRawAsync(sql, Guid.NewGuid(), MerchantId, Guid.NewGuid(), Now, new byte[8]);
     }
 
