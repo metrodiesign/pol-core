@@ -5622,3 +5622,62 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    DECLARE @var13 nvarchar(max);
+    SELECT @var13 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[txn].[InboundWebhookEvents]') AND [c].[name] = N'SignatureValid');
+    IF @var13 IS NOT NULL EXEC(N'ALTER TABLE [txn].[InboundWebhookEvents] DROP CONSTRAINT ' + @var13 + ';');
+    ALTER TABLE [txn].[InboundWebhookEvents] ALTER COLUMN [SignatureValid] bit NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    ALTER TABLE [txn].[InboundWebhookEvents] ADD [ExternalChargeId] varchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    ALTER TABLE [txn].[InboundWebhookEvents] ADD [VerificationMode] int NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    CREATE INDEX [IX_InboundWebhookEvents_PspConnectionId_ExternalChargeId_Status] ON [txn].[InboundWebhookEvents] ([PspConnectionId], [ExternalChargeId], [Status]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260907023022_InboundWebhookPendingMatch', N'10.0.8');
+END;
+
+COMMIT;
+GO
+

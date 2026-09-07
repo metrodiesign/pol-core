@@ -103,7 +103,8 @@ public sealed class StartRedirectHandlerTests
             confirmation,
             orders,
             new FakePaymentAuthorizationLocks(),
-            capabilities);
+            capabilities,
+            new FakeOutbox());
 
         return new Harness(handler, target, vault, unitOfWork, capabilities);
     }
@@ -382,7 +383,7 @@ public sealed class StartRedirectHandlerTests
                 OrderId, OrderAmount, PayableOrderStatus.Pending, PaymentSessionId: null,
                 PaymentChannel: PaymentMethods.Card, MerchantId: MerchantId,
                 InitiatingAudience: PaymentAudience.User, InitiatingMerchantUserId: Guid.NewGuid())),
-            new FakePaymentAuthorizationLocks(), new FakeEffectivePaymentCapabilities());
+            new FakePaymentAuthorizationLocks(), new FakeEffectivePaymentCapabilities(), new FakeOutbox());
 
         var command = new CreateSessionCommand(OrderId, MerchantId, PaymentMethods.Card);
         var first = await create.Handle(command, default);

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -112,6 +113,35 @@ public sealed class OmiseAdapter : PspAdapterBase
             ?? throw new PspAmbiguousException("Omise charge response missing authorize_uri (no hosted redirect).");
 
         return new PspCharge(id, authorizeUri);
+    }
+
+    /// <summary>Omise has no verifiable signature over the (payload, signature, secret) seam (HMAC deferred,
+    /// see class summary), so the sole authority is a server-side fetch-to-confirm with the pinned secret,
+    /// and a webhook that arrives before its charge binds is parked as a pending match (AC-8.3/8.4).</summary>
+    public override WebhookVerificationMode WebhookVerificationMode => WebhookVerificationMode.FetchConfirmOnly;
+
+    /// <summary>Reads the UNTRUSTED lookup keys from the event JSON WITHOUT trusting it (AC-8.1): the event
+    /// <c>id</c> and the <c>data.id</c> charge id the handler resolves the session by. A malformed or
+    /// over-long reference is a 400 <c>validation_failed</c>, never a 500 (adversarial #4).</summary>
+    public override PspWebhookReference ExtractWebhookReference(string rawPayload)
+    {
+        if (string.IsNullOrWhiteSpace(rawPayload))
+            throw new InvalidRequestException("Omise webhook payload is empty.", "validation_failed");
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawPayload);
+            var root = doc.RootElement;
+            var eventId = BoundedReference(GetString(root, "id"), "id");
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                throw new InvalidRequestException("Omise webhook reference is missing data.id.", "validation_failed");
+            var chargeId = BoundedReference(GetString(data, "id"), "data.id");
+            return new PspWebhookReference(eventId, chargeId);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidRequestException("Omise webhook reference could not be read.", "validation_failed");
+        }
     }
 
     public override bool VerifyWebhook(string rawPayload, string signature, string secret)

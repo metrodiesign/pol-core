@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -490,5 +491,51 @@ public sealed class TwoCTwoPAdapterTests
         var h = B64Url(System.Text.Encoding.UTF8.GetBytes(headerJson));
         var p = B64Url(System.Text.Encoding.UTF8.GetBytes(claimsJson));
         return h + "." + p + ".c2ln"; // signature segment is irrelevant; the alg guard rejects first
+    }
+
+    // ---- merchant-psp-settings task 8: webhook mode + bounded reference extraction ----
+
+    [Fact]
+    public void Webhook_verification_mode_is_signed_deterministic_reference()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        Assert.Equal(WebhookVerificationMode.SignedDeterministicReference, adapter.WebhookVerificationMode);
+    }
+
+    [Fact]
+    public void ExtractWebhookReference_reads_invoiceNo_and_tranRef_without_verifying()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        // Signed with a DIFFERENT key: extraction is untrusted and must not verify (AC-8.1).
+        var body = JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { invoiceNo = "INV1", tranRef = "T1" }), "a-different-key-aaaaaaaaaaaaaaaaaa"));
+
+        var reference = adapter.ExtractWebhookReference(body);
+
+        Assert.Equal("INV1", reference.ExternalChargeId); // = Session.Id the handler resolves by
+        Assert.Equal("T1", reference.ExternalEventId);
+    }
+
+    [Theory]
+    [InlineData("not a jwt at all")]
+    [InlineData("{\"payload\":\"not.a.jwt\"}")]
+    [InlineData("{\"payload\":123}")]
+    public void ExtractWebhookReference_maps_a_malformed_reference_to_400_never_500(string body)
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        var error = Assert.Throws<InvalidRequestException>(() => adapter.ExtractWebhookReference(body));
+        Assert.Equal("validation_failed", error.Code);
+    }
+
+    [Fact]
+    public void ExtractWebhookReference_rejects_an_over_bound_invoiceNo()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        var body = JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { invoiceNo = new string('x', 257), tranRef = "T1" }), Key));
+
+        var error = Assert.Throws<InvalidRequestException>(() => adapter.ExtractWebhookReference(body));
+        Assert.Equal("validation_failed", error.Code);
     }
 }

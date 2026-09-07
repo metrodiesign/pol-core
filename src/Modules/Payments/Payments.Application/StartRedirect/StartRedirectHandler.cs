@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Contracts;
 using Mediator;
 using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
@@ -6,6 +7,7 @@ using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Application.StartRedirect;
 
@@ -41,6 +43,7 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
     private readonly IPayableOrderReader _orders;
     private readonly IPaymentAuthorizationLockManager _authorizationLocks;
     private readonly IEffectivePaymentCapabilityResolver _capabilities;
+    private readonly IOutbox _outbox;
 
     public StartRedirectHandler(
         ISessionRepository sessions,
@@ -52,7 +55,8 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         PaymentConfirmationService confirmation,
         IPayableOrderReader orders,
         IPaymentAuthorizationLockManager authorizationLocks,
-        IEffectivePaymentCapabilityResolver capabilities)
+        IEffectivePaymentCapabilityResolver capabilities,
+        IOutbox outbox)
     {
         _sessions = sessions;
         _connections = connections;
@@ -64,6 +68,7 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         _orders = orders;
         _authorizationLocks = authorizationLocks;
         _capabilities = capabilities;
+        _outbox = outbox;
     }
 
     public async ValueTask<StartRedirectResult> Handle(
@@ -158,6 +163,14 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         }
 
         session.SetPspCharge(charge.ExternalChargeId, charge.RedirectUrl, _clock.UtcNow);
+        // Announce the bind so a fetch-confirm-only (Omise) webhook that was parked before this commit is
+        // re-driven (merchant-psp-settings AC-8.4). Only for fetch-confirm-only providers: a signed provider
+        // (2C2P) resolves its session deterministically and never parks a pending match, so it would write an
+        // outbox row with no consumer. Enqueued in the SAME save as the bind — atomic, references only.
+        if (_adapters.For(session.Psp).WebhookVerificationMode == WebhookVerificationMode.FetchConfirmOnly)
+            _outbox.Enqueue(new PspChargeBound(
+                Guid.CreateVersion7(), session.MerchantId, connection.Id, session.Id,
+                charge.ExternalChargeId, _clock.UtcNow));
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return new StartRedirectResult(charge.RedirectUrl);

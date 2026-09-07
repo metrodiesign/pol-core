@@ -1,4 +1,5 @@
 using System.Net;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -262,5 +263,49 @@ public sealed class OmiseAdapterTests
         Assert.Equal("evnt_test_1", evt.EventId);
         Assert.Equal("chrg_test_1", evt.ExternalChargeId);
         Assert.Equal(PspChargeStatus.Paid, evt.Status);
+    }
+
+    // ---- merchant-psp-settings task 8: webhook mode + bounded reference extraction ----
+
+    [Fact]
+    public void Webhook_verification_mode_is_fetch_confirm_only()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        Assert.Equal(WebhookVerificationMode.FetchConfirmOnly, adapter.WebhookVerificationMode);
+    }
+
+    [Fact]
+    public void ExtractWebhookReference_reads_event_id_and_charge_id()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        var reference = adapter.ExtractWebhookReference(
+            """{"object":"event","id":"evnt_test_1","data":{"id":"chrg_test_1","status":"successful"}}""");
+
+        Assert.Equal("evnt_test_1", reference.ExternalEventId);
+        Assert.Equal("chrg_test_1", reference.ExternalChargeId); // the charge id the handler resolves by
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("{\"object\":\"event\",\"id\":\"e1\"}")] // no data.id
+    [InlineData("{\"object\":\"event\",\"id\":\"e1\",\"data\":{}}")] // data present, no id
+    public void ExtractWebhookReference_maps_a_malformed_reference_to_400_never_500(string body)
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        var error = Assert.Throws<InvalidRequestException>(() => adapter.ExtractWebhookReference(body));
+        Assert.Equal("validation_failed", error.Code);
+    }
+
+    [Fact]
+    public void ExtractWebhookReference_rejects_an_over_bound_charge_id()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        var body = """{"object":"event","id":"e1","data":{"id":"CHARGE"}}"""
+            .Replace("CHARGE", new string('c', 257));
+
+        var error = Assert.Throws<InvalidRequestException>(() => adapter.ExtractWebhookReference(body));
+        Assert.Equal("validation_failed", error.Code);
     }
 }

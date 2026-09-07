@@ -1,15 +1,18 @@
 using BuildingBlocks.Application;
+using Contracts;
 using Microsoft.EntityFrameworkCore;
 using Payments.Application.AdminControlPlane;
 using Payments.Application.HandlePspWebhook;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Persistence.MerchantRuntime.Payments;
 
 internal sealed class InboundWebhookStore(
     MerchantRuntimeDbContext db,
     IUnitOfWork unitOfWork,
+    IOutbox outbox,
     IClock clock) : IInboundWebhookRecorder, IAdminInboundWebhookReader
 {
     public async Task RecordRejectedAsync(
@@ -46,6 +49,7 @@ internal sealed class InboundWebhookStore(
         string pspCode,
         string externalEventId,
         string payloadFingerprint,
+        WebhookVerificationMode mode,
         CancellationToken cancellationToken)
     {
         var existing = await FindEventAsync(connectionId, externalEventId, cancellationToken).ConfigureAwait(false);
@@ -53,7 +57,7 @@ internal sealed class InboundWebhookStore(
             return Claim(existing);
 
         var entity = InboundWebhookEvent.Receive(
-            connectionId, merchantId, pspCode, externalEventId, payloadFingerprint, clock.UtcNow);
+            connectionId, merchantId, pspCode, externalEventId, payloadFingerprint, mode, clock.UtcNow);
         db.Set<InboundWebhookEvent>().Add(entity);
         try
         {
@@ -69,6 +73,50 @@ internal sealed class InboundWebhookStore(
             return Claim(existing);
         }
     }
+
+    public async Task RecordPendingMatchAsync(
+        Guid connectionId,
+        Guid merchantId,
+        string pspCode,
+        string externalEventId,
+        string externalChargeId,
+        string payloadFingerprint,
+        CancellationToken cancellationToken)
+    {
+        // Idempotent per (connection, event id): a redelivery of the same event finds the existing pending
+        // row and enqueues nothing more, so three duplicate pre-bind webhooks leave ONE pending match and
+        // drive ONE rematch (adversarial #6).
+        if (await FindEventAsync(connectionId, externalEventId, cancellationToken).ConfigureAwait(false) is not null)
+            return;
+
+        var entity = InboundWebhookEvent.PendingMatch(
+            connectionId, merchantId, pspCode, externalEventId, externalChargeId, payloadFingerprint, clock.UtcNow);
+        db.Set<InboundWebhookEvent>().Add(entity);
+        // Enqueue the rematch request in the SAME unit of work as the pending row — one of the two directions
+        // that close the webhook/charge-bind race (AC-8.4). No raw payload, only bounded references (AC-8.6).
+        outbox.Enqueue(new InboundWebhookMatchRequested(
+            Guid.CreateVersion7(), merchantId, connectionId, externalChargeId, clock.UtcNow));
+        try
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ConflictException)
+        {
+            db.Entry(entity).State = EntityState.Detached;
+            if (await FindEventAsync(connectionId, externalEventId, cancellationToken).ConfigureAwait(false) is null)
+                throw;
+        }
+    }
+
+    public Task<IReadOnlyList<InboundWebhookEvent>> FindPendingMatchesAsync(
+        Guid connectionId,
+        string externalChargeId,
+        CancellationToken cancellationToken) =>
+        PlatformReadGuard.ReadAsync(async ct => (IReadOnlyList<InboundWebhookEvent>)await db.Set<InboundWebhookEvent>()
+            .Where(x => x.PspConnectionId == connectionId
+                && x.ExternalChargeId == externalChargeId
+                && x.Status == InboundWebhookStatus.PendingMatch)
+            .ToListAsync(ct).ConfigureAwait(false), cancellationToken);
 
     public async Task<InboundWebhookEvent> LoadAsync(Guid eventId, CancellationToken cancellationToken) => await PlatformReadGuard.ReadAsync(ct => db.Set<InboundWebhookEvent>()
                 .SingleOrDefaultAsync(x => x.Id == eventId, ct), cancellationToken)
@@ -99,7 +147,8 @@ internal sealed class InboundWebhookStore(
                 "delivered" => source.Where(x => x.Status == InboundWebhookStatus.Processed
                     || x.Status == InboundWebhookStatus.Duplicate),
                 "pending" => source.Where(x => x.Status == InboundWebhookStatus.Received
-                    || x.Status == InboundWebhookStatus.Ignored),
+                    || x.Status == InboundWebhookStatus.Ignored
+                    || x.Status == InboundWebhookStatus.PendingMatch),
                 "failed" => source.Where(x => x.Status == InboundWebhookStatus.Rejected),
                 _ when Enum.TryParse<InboundWebhookStatus>(status, true, out var parsed) =>
                     source.Where(x => x.Status == parsed),

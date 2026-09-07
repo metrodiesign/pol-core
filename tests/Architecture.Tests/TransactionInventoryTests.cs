@@ -29,6 +29,9 @@ public sealed class TransactionInventoryTests
     private static readonly Dictionary<string, int> ExpectedExecuteInTransactionAsyncSites = new()
     {
         ["src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs"] = 1, // row 21
+        // merchant-psp-settings task 8: the fetch-confirm-only (Omise) rematcher confirms a parked webhook and
+        // resolves its pending rows in one transaction — single-context (txn data plane only), no admin actor.
+        ["src/Modules/Payments/Payments.Application/HandlePspWebhook/InboundWebhookRematcher.cs"] = 1,
         // purchase-flow-completion design.md ("Expire + mint ใหม่" -> 2-phase SaveChanges in one transaction):
         // single-context (txn data plane only). Retiring an aged-out session and minting its replacement must
         // commit together, and the UPDATE must be sent before the INSERT or the filtered unique index rejects

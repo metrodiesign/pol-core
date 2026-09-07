@@ -768,15 +768,27 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     using var actorBinding = actorScope.Begin(merchantId.Value);
 
     var result = await mediator.Send(new HandlePspWebhookCommand(pspConnectionId, rawPayload, signature), ct);
-    return result.Outcome == WebhookOutcome.Rejected
-        ? Results.Problem(statusCode: StatusCodes.Status401Unauthorized)
-        : Results.Ok(new WebhookResponse(result.Outcome.ToString()));
+    // Signed webhook that failed verification -> 401; a fetch-confirm-only webhook parked before its charge
+    // bound -> 202; an unresolved/undecidable webhook (unbound charge, unreadable pinned secret, ambiguous
+    // fetch) -> 503 for provider retry; anything confirmed/ignored -> 200 (merchant-psp-settings AC-8.2/8.4/8.5).
+    return result.Outcome switch
+    {
+        WebhookOutcome.Rejected => Results.Problem(statusCode: StatusCodes.Status401Unauthorized,
+            extensions: new Dictionary<string, object?> { ["code"] = "webhook_signature_invalid" }),
+        WebhookOutcome.PendingMatch => Results.Json(new WebhookResponse("webhook_pending_match"),
+            statusCode: StatusCodes.Status202Accepted),
+        WebhookOutcome.Deferred => Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable,
+            extensions: new Dictionary<string, object?> { ["code"] = "webhook_verification_deferred" }),
+        _ => Results.Ok(new WebhookResponse(result.Outcome.ToString())),
+    };
 }).RequireRateLimiting(RateLimiting.PolicyName)
     .WithTags("Webhooks")
     .WithName("HandlePspWebhook")
     .WithSummary("Webhook callback จาก PSP")
     .WithDescription("ตรวจสอบลายเซ็นของ PSP, claim idempotency, ยืนยันการชำระเงิน แล้ว emit event PaymentPaid โดย route ตาม trusted connection id หากไม่พบ id -> 404, ลายเซ็นไม่ถูกต้อง -> 401")
     .Produces<WebhookResponse>(StatusCodes.Status200OK)
+    .Produces<WebhookResponse>(StatusCodes.Status202Accepted)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests)

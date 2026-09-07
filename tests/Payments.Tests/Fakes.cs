@@ -189,13 +189,36 @@ internal sealed class FakePspAdapter : IPspAdapter
     public Func<string, PspChargeConfirmation>? OnFetchCharge { get; init; }
 
     /// <summary>What <see cref="VerifyWebhook"/> answers. False by default so a test must opt in — a handler
-    /// that stopped verifying signatures cannot slip through on a permissive default.</summary>
+    /// that stopped verifying signatures cannot slip through on a permissive default. When
+    /// <see cref="OnVerifyWebhook"/> is set it wins, so a test can assert verification ran against a specific
+    /// (pinned) secret.</summary>
     public bool WebhookVerifies { get; init; }
+
+    /// <summary>Drives <see cref="VerifyWebhook"/> off the exact (payload, signature, secret) it received —
+    /// how a test proves the signature was checked with the SESSION-pinned secret, not another.</summary>
+    public Func<string, string, string, bool>? OnVerifyWebhook { get; init; }
+
+    /// <summary>This adapter's webhook verification mode. Defaults to the signed deterministic mode (2C2P);
+    /// a fetch-confirm-only (Omise) test sets it.</summary>
+    public WebhookVerificationMode Mode { get; init; } = WebhookVerificationMode.SignedDeterministicReference;
+
+    public WebhookVerificationMode WebhookVerificationMode => Mode;
+
+    /// <summary>The bounded reference <see cref="ExtractWebhookReference"/> yields. <see cref="OnExtractReference"/>
+    /// wins when set (e.g. to throw an <c>InvalidRequestException</c> for the malformed-reference case).</summary>
+    public PspWebhookReference? Reference { get; init; }
+    public Func<string, PspWebhookReference>? OnExtractReference { get; init; }
 
     /// <summary>The event <see cref="ParseWebhook"/> yields. Null (the default) throws.</summary>
     public WebhookEvent? ParsedWebhook { get; init; }
 
-    public bool VerifyWebhook(string rawPayload, string signature, string secret) => WebhookVerifies;
+    public PspWebhookReference ExtractWebhookReference(string rawPayload) =>
+        OnExtractReference?.Invoke(rawPayload)
+        ?? Reference
+        ?? throw new NotSupportedException("This fake never extracts references.");
+
+    public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
+        OnVerifyWebhook?.Invoke(rawPayload, signature, secret) ?? WebhookVerifies;
 
     public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
         OnFetchCharge is null
@@ -303,19 +326,35 @@ internal sealed class FakeVaultSecretStore : IVaultSecretStore
     /// <summary>Set to stand in for a vault that cannot hand back the secret (down, or the ref is gone).</summary>
     public Exception? RevealFails { get; init; }
 
+    /// <summary>Per-version plaintext, so a test can prove the SESSION-pinned version was read (not the
+    /// connection's current active one). A version absent here reads the shared <see cref="_secret"/>.</summary>
+    public Dictionary<Guid, string> VersionSecrets { get; } = [];
+
+    /// <summary>The version ids <see cref="ReadVersionForServerAsync"/> was asked for, in order — how a test
+    /// proves the pinned version drove the read (adversarial #1).</summary>
+    public List<Guid> VersionReads { get; } = [];
+
+    /// <summary>Version ids whose read must throw (a rotation/lease mid-flight the webhook must defer on).</summary>
+    public HashSet<Guid> UnreadableVersions { get; } = [];
+
     public Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
         Reveals++;
         return RevealFails is null ? Task.FromResult(_secret) : throw RevealFails;
     }
 
-    /// <summary>Versioned server-side read (the path a version-1 Session snapshot takes): returns the same
-    /// secret as <see cref="RevealAsync"/> and honours <see cref="RevealFails"/>, and counts as a reveal so
-    /// the "nothing was read on a refusal" assertions stay meaningful.</summary>
+    /// <summary>Versioned server-side read (the path a version-1 Session snapshot takes). Records the version
+    /// id, honours <see cref="RevealFails"/>/<see cref="UnreadableVersions"/>, returns the per-version secret
+    /// when one is registered, and counts as a reveal so "nothing was read on a refusal" stays meaningful.</summary>
     public Task<string> ReadVersionForServerAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken)
     {
         Reveals++;
-        return RevealFails is null ? Task.FromResult(_secret) : throw RevealFails;
+        VersionReads.Add(versionId);
+        if (RevealFails is not null)
+            throw RevealFails;
+        if (UnreadableVersions.Contains(versionId))
+            throw new InvalidOperationException("Vault secret version is not readable.");
+        return Task.FromResult(VersionSecrets.GetValueOrDefault(versionId, _secret));
     }
 
     public Task StoreAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken) =>

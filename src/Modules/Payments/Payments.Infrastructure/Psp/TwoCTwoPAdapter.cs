@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -99,6 +100,36 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         // invoiceNo is the durable correlation key, NOT the per-attempt paymentToken.
         return new PspCharge(invoiceNo, webPaymentUrl);
+    }
+
+    /// <summary>2C2P carries an HS256-signed JWT and a deterministic <c>invoiceNo = Session.Id</c>, so the
+    /// session is resolved from the reference and the signature verified with the pinned version before the
+    /// event is accepted (AC-8.2).</summary>
+    public override WebhookVerificationMode WebhookVerificationMode => WebhookVerificationMode.SignedDeterministicReference;
+
+    /// <summary>Reads the UNTRUSTED lookup keys from the body JWT WITHOUT verifying it (AC-8.1): the
+    /// <c>invoiceNo</c> is the deterministic <c>Session.Id</c> the handler resolves the session by, and
+    /// <c>tranRef</c> is the delivery event id. A malformed or over-long reference is a 400
+    /// <c>validation_failed</c>, never a 500 (adversarial #4), and nothing is retained.</summary>
+    public override PspWebhookReference ExtractWebhookReference(string rawPayload)
+    {
+        if (string.IsNullOrWhiteSpace(rawPayload))
+            throw new InvalidRequestException("2c2p webhook payload is empty.", "validation_failed");
+
+        JsonElement claims;
+        try
+        {
+            var jwt = ExtractPayloadJwt(rawPayload) ?? rawPayload;
+            claims = ReadJwtPayloadUnverified(jwt);
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
+        {
+            throw new InvalidRequestException("2c2p webhook reference could not be read.", "validation_failed");
+        }
+
+        var invoiceNo = BoundedReference(GetString(claims, "invoiceNo"), "invoiceNo");
+        var eventId = BoundedReference(GetString(claims, "tranRef") ?? invoiceNo, "tranRef");
+        return new PspWebhookReference(eventId, invoiceNo);
     }
 
     public override bool VerifyWebhook(string rawPayload, string signature, string secret)

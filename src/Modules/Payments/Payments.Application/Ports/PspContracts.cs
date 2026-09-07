@@ -28,3 +28,9 @@ public sealed record PspChargeConfirmation(PspChargeStatus Status, Money? Amount
 /// <summary>A parsed PSP webhook: the event id (for idempotency), the external charge it refers to,
 /// and the normalized status it claims. The claim is re-confirmed by a fetch before it is trusted.</summary>
 public sealed record WebhookEvent(string EventId, string ExternalChargeId, PspChargeStatus Status);
+
+/// <summary>The bounded, UNTRUSTED lookup keys pulled from a raw webhook body BEFORE any signature or
+/// fetch-to-confirm (merchant-psp-settings AC-8.1, design 721-733): the provider's own event id and the
+/// external charge/session reference the event points at. Used only to resolve the session that pins the
+/// secret version — never to change state. Every field is length-bounded by the extractor.</summary>
+public sealed record PspWebhookReference(string ExternalEventId, string ExternalChargeId);

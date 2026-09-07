@@ -1,3 +1,4 @@
+using BuildingBlocks.Application;
 using Payments.Domain;
 using Payments.Domain.Psp;
 using SharedKernel;
@@ -49,6 +50,20 @@ public interface IPspAdapter
     Task<PspCharge> CreateRedirectChargeAsync(
         Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
         CancellationToken cancellationToken);
+
+    /// <summary>How this adapter proves an inbound webhook (merchant-psp-settings AC-8.1). 2C2P is
+    /// <see cref="WebhookVerificationMode.SignedDeterministicReference"/>; Omise is
+    /// <see cref="WebhookVerificationMode.FetchConfirmOnly"/>. The default is the stricter signed mode so a
+    /// double that never states its mode still fails closed on signature; every real adapter overrides it.</summary>
+    WebhookVerificationMode WebhookVerificationMode => WebhookVerificationMode.SignedDeterministicReference;
+
+    /// <summary>Pulls the bounded, UNTRUSTED lookup keys from <paramref name="rawPayload"/> WITHOUT
+    /// verifying anything (AC-8.1, design 721-733). The result resolves the session that pins the secret
+    /// version; it must never change state before verify/fetch-to-confirm. A malformed or over-long
+    /// reference throws <see cref="InvalidRequestException"/> (400 <c>validation_failed</c>) — never a 500
+    /// (AC-8.4 adversarial #4) — and no payload is retained.</summary>
+    PspWebhookReference ExtractWebhookReference(string rawPayload) =>
+        throw new NotSupportedException("This PSP adapter does not implement webhook reference extraction.");
 
     /// <summary>Verifies a webhook signature against the raw payload using the connection's secret.</summary>
     bool VerifyWebhook(string rawPayload, string signature, string secret);

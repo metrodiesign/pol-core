@@ -3,6 +3,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Payments.Application.Ports;
 using Payments.Domain;
 using Payments.Domain.Psp;
@@ -46,6 +47,13 @@ public abstract class PspAdapterBase : IPspAdapter
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
         Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
         CancellationToken cancellationToken);
+
+    /// <summary>Abstract, not a default: the verification mode drives whether an event is trusted on its
+    /// signature or only on a fetch-to-confirm, so each real adapter must state its own next to the code
+    /// that honours it (same reason as <see cref="SupportedMethods"/>).</summary>
+    public abstract WebhookVerificationMode WebhookVerificationMode { get; }
+
+    public abstract PspWebhookReference ExtractWebhookReference(string rawPayload);
 
     public abstract bool VerifyWebhook(string rawPayload, string signature, string secret);
 
@@ -141,6 +149,23 @@ public abstract class PspAdapterBase : IPspAdapter
             throw new PspRejectedException(
                 $"{amount.Currency} amount {amount.Amount} is not representable at its {digits}-decimal minor unit.");
         return digits;
+    }
+
+    // ---- webhook reference bound ----
+
+    /// <summary>Bounds one untrusted reference field pulled from a raw webhook body (merchant-psp-settings
+    /// AC-8.1/8.4). A missing, blank or over-256-char value (the <c>ExternalEventId</c>/<c>ExternalChargeId</c>
+    /// column width) is a 400 <c>validation_failed</c>, never a 500 — so an over-long or malformed reference
+    /// cannot crash the ingest path or be stored (adversarial #4). Callers wrap their own parse in a
+    /// try/catch that maps JSON/format faults to the same exception.</summary>
+    protected static string BoundedReference(string? value, string field)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidRequestException($"Webhook {field} is missing.", "validation_failed");
+        value = value.Trim();
+        return value.Length <= 256
+            ? value
+            : throw new InvalidRequestException($"Webhook {field} exceeds the reference bound.", "validation_failed");
     }
 
     // ---- HS256 JWT (2C2P): alg-pinned, symmetric ----
