@@ -27,6 +27,20 @@ public sealed class PaymentSessionTests
         return session;
     }
 
+    // --- legacy snapshot upgrade (task 9 AC-9.2/9.3): only a version 0 row may be pinned ---
+
+    [Fact]
+    public void UpgradeLegacySnapshot_refuses_a_version_1_session()
+    {
+        // A session minted by Create is already version 1 with a complete, immutable snapshot — re-pinning it
+        // would move an attempt that a rotation/switch must never touch (REQ-2.8-2.10). Only pre-existing
+        // legacy version 0 rows can be upgraded, and those are never minted in code.
+        var session = NewSession();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            session.UpgradeLegacySnapshot(Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Live, At));
+    }
+
     // --- age (REQ-3.1): derived from CreatedAt, so no row can disagree with the rule ---
 
     [Theory]

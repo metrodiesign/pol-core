@@ -385,6 +385,40 @@ public sealed class AdminPspConnectionControlPlaneTests : IDisposable
         Assert.Equal("approval_pending", conflict.Code);   // AC-7.6 coupling guard
     }
 
+    [Fact]
+    public async Task A_credential_change_while_a_legacy_session_is_unresolved_is_legacy_snapshot_blocked()
+    {
+        await using var db = NewContext();
+        var store = Store(db, new RecordingAdapterFactory());
+        var created = (await store.CreateConnectionAsync(Intent("2c2p", [PaymentMethods.Card],
+            new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0001" }, "MERCHANT-001", "create"), default)).Connection;
+
+        // The merchant still has a snapshot-version-0 Session with an external charge whose historical secret
+        // has not been proven — task 9 remediation must clear it before a new credential can activate (AC-9.3,
+        // the same block task 7 puts on an environment switch).
+        await SeedLegacyV0SessionAsync(db);
+        var refreshed = await store.GetConnectionAsync(created.PspConnectionId, MerchantId, Unrestricted, default);
+
+        var conflict = await Assert.ThrowsAsync<ConflictException>(() => store.RequestCredentialChangeAsync(
+            new RequestPspCredentialChangeIntent(created.PspConnectionId, MerchantId,
+                new Dictionary<string, string> { ["secretKey"] = "2c2p-secret-key-0002" }, "MERCHANT-001",
+                refreshed!.Version, "change", "corr", Unrestricted), default));
+        Assert.Equal("legacy_snapshot_blocked", conflict.Code);
+    }
+
+    // A snapshot-version-0 session is never minted by Session.Create (and its rowversion is not insertable
+    // through EF on SQLite), so it is written with raw SQL to reproduce a pre-existing legacy row.
+    private static async Task SeedLegacyV0SessionAsync(MerchantRuntimeDbContext db)
+    {
+        var table = db.Model.FindEntityType(typeof(Session))!.GetTableName();
+        var sql = "INSERT INTO \"" + table + "\" "
+            + "(\"Id\", \"MerchantId\", \"OrderId\", \"Method\", \"Psp\", \"Status\", \"PspExternalChargeId\", "
+            + "\"CreatedAt\", \"UpdatedAt\", \"RowVersion\", \"AmountAmount\", \"AmountCurrency\", "
+            + "\"RoutingSnapshotVersion\", \"Version\") "
+            + "VALUES ({0}, {1}, {2}, 'card', 1, 1, 'chrg_legacy', {3}, {3}, {4}, 100, 'THB', 0, 1)";
+        await db.Database.ExecuteSqlRawAsync(sql, Guid.NewGuid(), MerchantId, Guid.NewGuid(), Now, new byte[8]);
+    }
+
     private static RoutingRuleInput Rule(string method, Guid connectionId) =>
         new(1, method, null, null, null, connectionId, null, true);
 

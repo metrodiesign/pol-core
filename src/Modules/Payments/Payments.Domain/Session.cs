@@ -240,4 +240,30 @@ public sealed class Session : AggregateRoot<Guid>
         UpdatedAt = occurredAt;
         Version++;
     }
+
+    /// <summary>
+    /// Upgrades a legacy snapshot version 0 row to the version 1 contract, pinning the connection, secret
+    /// version and environment that legacy remediation resolved (merchant-psp-settings task 9, design step
+    /// 5/8). Only a version 0 row may be upgraded — a version 1 snapshot is already immutable and never
+    /// re-pinned. Never mints a fresh snapshot; it only fills in the fields a pre-routing row lacked, so the
+    /// DB CHECK that a version 1 row carries every snapshot field holds after the write.
+    /// </summary>
+    public void UpgradeLegacySnapshot(
+        Guid pspConnectionId, Guid secretVersionId, PspEnvironment environment, DateTime occurredAt)
+    {
+        if (RoutingSnapshotVersion != 0)
+            throw new InvalidOperationException(
+                $"PaymentSession {Id} is not a legacy snapshot (version {RoutingSnapshotVersion}).");
+        if (pspConnectionId == Guid.Empty)
+            throw new ArgumentException("PspConnectionId is required.", nameof(pspConnectionId));
+        if (secretVersionId == Guid.Empty)
+            throw new ArgumentException("SecretVersionId is required.", nameof(secretVersionId));
+
+        PspConnectionId = pspConnectionId;
+        SecretVersionId = secretVersionId;
+        PspEnvironment = environment;
+        RoutingSnapshotVersion = 1;
+        UpdatedAt = occurredAt;
+        Version++;
+    }
 }

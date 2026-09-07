@@ -662,6 +662,13 @@ internal sealed class AdminPaymentsControlStore(
                 throw new ConflictException("A credential change is already pending for this connection.", "approval_pending");
             if (merchant.PendingPaymentEnvironmentApprovalId is not null)
                 throw new ConflictException("A payment environment change is pending for this merchant.", "approval_pending");
+            // A merchant with an unresolved legacy Session (snapshot version 0, a historical charge whose
+            // pinned secret has not been proven) is blocked from activating a new credential too, not only an
+            // environment switch (AC-9.3) — task 9 remediation must clear it first (critical #12).
+            if (await PlatformReadGuard.ReadAsync(token => db.PaymentSessions.IgnoreQueryFilters()
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0, token), ct))
+                throw new ConflictException(
+                    "The merchant has an unresolved legacy payment session that must be remediated first.", "legacy_snapshot_blocked");
             await authorizationLease.VerifyAsync(intent.Access, ct);
             EnsureVersion(connection.Version, intent.ExpectedVersion);
 

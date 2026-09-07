@@ -5681,3 +5681,26 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907033444_LegacyVaultExpiryRemediation'
+)
+BEGIN
+    UPDATE [merch].[VaultSecretVersions] SET [ExpiresAt] = NULL WHERE [State] IN (2, 3) AND [ExpiresAt] IS NOT NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907033444_LegacyVaultExpiryRemediation'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260907033444_LegacyVaultExpiryRemediation', N'10.0.8');
+END;
+
+COMMIT;
+GO
+

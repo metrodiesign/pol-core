@@ -3,20 +3,21 @@ namespace Payments.Infrastructure.Psp;
 /// <summary>
 /// Non-secret PSP endpoint + environment config, bound from the "Psp" configuration section
 /// (appsettings + env override), NEVER the vault. Secrets live only in the revealed JSON envelope
-/// (see <see cref="PspSecretEnvelope"/>). <see cref="UseSandbox"/> defaults to <c>true</c> so an
-/// unconfigured environment hits a PSP sandbox, never production — production is an explicit opt-in.
+/// (see <see cref="PspSecretEnvelope"/>). The endpoint family is no longer a global flag — it comes from the
+/// merchant's <c>PaymentEnvironment</c> pinned per call (REQ-2.3/2.4).
 /// </summary>
 public sealed class PspOptions
 {
     public const string SectionName = "Psp";
 
+    // NOTE: the old global "UseSandbox" flag is gone (merchant-psp-settings task 9, design step 13). It was
+    // already unread at runtime after task 2, and its one remaining use — bootstrapping existing merchants'
+    // PaymentEnvironment at cutover — is now an explicit argument to ILegacyPaymentRemediation, supplied by
+    // the operator. A "Psp:UseSandbox" key left in appsettings binds harmlessly (the options binder ignores
+    // unknown keys), so an old config still boots.
+
     /// <summary>Stable PSP code selected for customer payment links.</summary>
     public string DefaultCode { get; set; } = "2c2p";
-
-    /// <summary>RETIRED at runtime (merchant-psp-settings task 2): adapters no longer read this — the endpoint
-    /// family comes from the merchant's <c>PaymentEnvironment</c> pinned per call (REQ-2.3/2.4). Kept bound
-    /// only so task 9 can bootstrap existing merchants from the old global value before the key is removed.</summary>
-    public bool UseSandbox { get; set; } = true;
 
     /// <summary>This API's public origin (e.g. <c>https://api.example.com</c>), the base every
     /// per-connection backend-notification URL is derived from:

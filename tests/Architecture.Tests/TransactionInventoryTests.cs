@@ -73,6 +73,7 @@ public sealed class TransactionInventoryTests
         ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 15, // all Admin payment mutations lease-covered (incl. simple-routing set task 5, candidate credential test task 6, environment change task 7)
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs"] = 1, // request-scoped authorization snapshot
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs"] = 3, // backfill, cutover, rollback
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/LegacyPaymentRemediationService.cs"] = 2, // task 9 offline remediation: env backfill + per-merchant legacy-snapshot upgrade write phase
         ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsApprovalExecutor.cs"] = 3, // rows 38-39 + environment activation (task 7)
         ["src/Persistence/Persistence.MerchantRuntime/Idempotency/AdminOperationExecutor.cs"] = 3, // row 40: atomic flow + recoverable claim/result
         ["src/Persistence/Persistence.ControlPlane/Governance/ControlPlaneOperationExecutor.cs"] = 1, // row 41

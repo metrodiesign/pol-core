@@ -84,6 +84,7 @@ public static class MerchantRuntimePersistenceRegistration
             sp.GetRequiredService<AdminPaymentsControlStore>());
         services.AddScoped<IEffectivePaymentCapabilityResolver, EffectivePaymentCapabilityResolver>();
         services.AddScoped<IPaymentCapabilityMigration, PaymentCapabilityMigrationService>();
+        services.AddScoped<ILegacyPaymentRemediation, LegacyPaymentRemediationService>();
         services.AddScoped<IApprovalDecisionExecutor, AdminPaymentsApprovalExecutor>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<AdminPaymentSessionReader>();

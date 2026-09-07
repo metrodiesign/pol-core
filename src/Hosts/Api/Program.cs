@@ -114,6 +114,7 @@ using Api.Governance;
 using Api.ControlPlane;
 using Api.Merchants;
 using Api.Orders;
+using Api.PaymentCompatibility;
 using Api.Reporting;
 using Api.Persistence;
 using Api.Webhooks;
@@ -168,10 +169,13 @@ appConnString = new SqlConnectionStringBuilder(appConnString) { ApplicationName 
 builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All));
 
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
-// Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).
+// Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (the endpoint family is
+// pinned per call from the merchant's PaymentEnvironment, not a global flag).
 builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptions.SectionName));
 builder.Services.AddSingleton(sp => new DefaultPspSelection(Codes.FromCode(
     sp.GetRequiredService<IOptions<PspOptions>>().Value.DefaultCode)));
+// AC-9.4: records callers that still send the deprecated legacy `psp` field on create-session.
+builder.Services.AddSingleton<ILegacyPaymentCompatibilityTelemetry, LoggingLegacyPaymentCompatibilityTelemetry>();
 
 // Document-search upstream. Connection strings come from section SpDocument ONLY — no derive/
 // fallback (external-sim-separate-containers supersedes products-sp-gateway REQ-3.4: hippodb/
@@ -1117,6 +1121,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     IAdminOrderReader adminOrders,
     IAdminOperationExecutor operations,
     IMediator mediator,
+    ILegacyPaymentCompatibilityTelemetry legacyPspTelemetry,
     CancellationToken ct) =>
 {
     if (!IsAdminCommerceRequest(http))
@@ -1124,11 +1129,11 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
         if (body.MerchantId is not null)
             throw new InvalidRequestException(
                 "Merchant payment session forbids merchantId.", "validation_failed");
-        // AC-4.7: the legacy `psp` field is still accepted from the Merchant Console during the compatibility
-        // window (design 682-683) but never routes — the server selects the PSP. A caller that still sends it
-        // is flagged deprecated; the contract step that removes the field and its telemetry are task 9.
-        if (body.Psp is not null)
-            http.Response.Headers["Deprecation"] = "true";
+        // AC-4.7/AC-9.4: the legacy `psp` field is still accepted from the Merchant Console during the
+        // compatibility window (design 682-683) but never routes — the server selects the PSP. A caller that
+        // still sends it gets a Deprecation header and is counted so the cutover team can watch the signal
+        // fall to zero before the field is removed (design step 11-12).
+        LegacyPaymentCompatibility.FlagLegacyPsp(http.Response, body.Psp, legacyPspTelemetry);
         var merchantResult = await mediator.Send(new CreateSessionCommand(
             body.OrderId, actor.MerchantId, body.Method), ct);
         return Results.Ok(new CreatePaymentSessionResponse(merchantResult.PaymentSessionId));

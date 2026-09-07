@@ -59,6 +59,10 @@ public sealed class PlatformReadGuardCoverageTests
         ["src/Persistence/Persistence.MerchantRuntime/Payments/PaymentAuthorizationSqlLockManager.cs"] = ["*"],
         // Operator-only expand/backfill/cutover/rollback workflow; never reachable from request endpoints.
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs"] = ["*"],
+        // merchant-psp-settings task 9 offline remediation: operator-only, no HTTP route, never at boot. The
+        // reads (legacy version-0 session scan, connection/vault-version lookups, the tracked read-before-write
+        // reload in the upgrade transaction) run inside the cutover job, not on any request path.
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/LegacyPaymentRemediationService.cs"] = ["*"],
     };
 
     private static readonly Regex MethodDeclaration = new(
