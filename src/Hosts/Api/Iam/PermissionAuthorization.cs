@@ -33,6 +33,18 @@ internal static class AuthPolicyScheme
         _ => [],
     };
 
+    /// <summary>The permission sides a <see cref="RequiredPermission"/> key may belong to under a policy: the
+    /// policy's own side plus <see cref="Scope.Shared"/> (the role set both tiers hold); the dual-console
+    /// policy admits Shared only — a single-side key there would silently lock one audience out. Null = the
+    /// policy is not one this table knows.</summary>
+    public static IReadOnlySet<Scope>? GrantableSidesFor(string? policy) => policy switch
+    {
+        "admin" => new HashSet<Scope> { Scope.Platform, Scope.Shared },
+        "merchant-user" => new HashSet<Scope> { Scope.Merchant, Scope.Shared },
+        ConsoleSessionAuthentication.PolicyName => new HashSet<Scope> { Scope.Shared },
+        _ => null,
+    };
+
     public static IReadOnlyList<string> SecuritySchemeIdsFor(IEnumerable<object> metadata)
     {
         if (metadata.OfType<IAllowAnonymous>().Any())
@@ -151,7 +163,8 @@ internal static class PermissionParity
 
     /// <summary>Pure — unit-testable (REQ-5.1/5.4). For each gated (key, policy) pair: the key must be in
     /// <see cref="Keys.AllKeys"/>, the policy must be one <see cref="AuthPolicyScheme"/> recognizes, and the
-    /// key's own side (<see cref="Keys.KeySide"/>) must match the side that policy implies.</summary>
+    /// key's own side (<see cref="Keys.KeySide"/>) must be one that policy can grant
+    /// (<see cref="AuthPolicyScheme.GrantableSidesFor"/>: own side or Shared; dual-console Shared only).</summary>
     internal static IReadOnlyList<string> FindProblems(IEnumerable<(string Key, string? Policy)> gated)
     {
         var problems = new List<string>();
@@ -162,14 +175,14 @@ internal static class PermissionParity
                 problems.Add($"'{key}' is absent from the catalog.");
                 continue;
             }
-            var mapped = AuthPolicyScheme.For(policy);
-            if (mapped is null)
+            var grantable = AuthPolicyScheme.GrantableSidesFor(policy);
+            if (grantable is null)
             {
                 problems.Add($"'{key}' is gated under unrecognized policy '{policy}'.");
                 continue;
             }
-            if (Keys.KeySide[key] != mapped.Value.Side)
-                problems.Add($"'{key}' is {Keys.KeySide[key]}-side but gated under policy '{policy}' ({mapped.Value.Side}-side).");
+            if (!grantable.Contains(Keys.KeySide[key]))
+                problems.Add($"'{key}' is {Keys.KeySide[key]}-side but gated under policy '{policy}' ({string.Join("/", grantable)}-side).");
         }
         return problems;
     }

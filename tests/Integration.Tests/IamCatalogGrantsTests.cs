@@ -33,21 +33,24 @@ public sealed class IamCatalogGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        // Admin delivery spine leaves 7 groups / 26 keys / 4 roles / 33 grants.
+        // SharedRoleScope leaves 7 groups / 25 keys / 4 roles / 36 grants (txn.manage retired; platform_admin +3
+        // payment.*, platform_auditor +payment.view).
         Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
-        Assert.Equal(26, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
+        Assert.Equal(25, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Roles")));
-        Assert.Equal(33, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
+        Assert.Equal(36, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
 
-        Assert.Equal(18, await GrantCount(admin, PlatformAdminRoleId));
-        Assert.Equal(4, await GrantCount(admin, PlatformAuditorRoleId));
+        Assert.Equal(20, await GrantCount(admin, PlatformAdminRoleId));
+        Assert.Equal(5, await GrantCount(admin, PlatformAuditorRoleId));
         Assert.Equal(8, await GrantCount(admin, MerchantManagerRoleId));
         Assert.Equal(3, await GrantCount(admin, MerchantStaffRoleId));
 
         // The two anchors are Merchant/Platform as planned; all four seed roles are shared (MerchantId NULL) and
-        // Active (Status 1). Scope column: 1 = Platform, 2 = Merchant.
+        // Active (Status 1). Scope column: 1 = Platform, 2 = Merchant, 3 = Shared (merchant_staff — the role both
+        // tiers hold for the commerce features).
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'platform_admin'")));
         Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'merchant_manager'")));
+        Assert.Equal(3, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'merchant_staff'")));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
             "SELECT COUNT(*) FROM iam.Roles WHERE MerchantId IS NULL AND Status=1")));
     }

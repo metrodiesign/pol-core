@@ -63,6 +63,11 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     /// so an unbound actor sees zero rows everywhere in this context.</summary>
     internal Guid CurrentMerchant => _actor.HasActor ? _actor.MerchantId : Guid.Empty;
 
+    /// <summary>The bound merchant user (Tier 1 agent/broker), when the request carries one. Null for an
+    /// admin-bound ambient scope, a webhook/worker binding, or an unbound actor — those keep the merchant-wide
+    /// read. Read per query like <see cref="CurrentMerchant"/>, never snapshotted into the cached model.</summary>
+    internal Guid? CurrentMerchantUser => _actor.HasActor ? _actor.UserId : null;
+
     public DbSet<CartAggregate> Carts => Set<CartAggregate>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<OrderAggregate> Orders => Set<OrderAggregate>();

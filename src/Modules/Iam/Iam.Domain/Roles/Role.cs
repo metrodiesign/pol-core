@@ -81,8 +81,8 @@ public sealed class Role : AggregateRoot<Guid>
         RoleStatus status, Scope scope, Guid? merchantId,
         IEnumerable<string> permissionKeys, IReadOnlyDictionary<string, Scope> catalog)
     {
-        if (scope == Scope.Platform && merchantId is not null)
-            throw new ArgumentException("A Platform-scope role cannot carry a MerchantId.", nameof(merchantId));
+        if (scope != Scope.Merchant && merchantId is not null)
+            throw new ArgumentException($"A {scope}-scope role cannot carry a MerchantId.", nameof(merchantId));
 
         var role = new Role(Guid.NewGuid(), NormalizeCode(code), NormalizeName(name),
             Trim(description), Trim(color), status, scope, merchantId);
@@ -118,9 +118,10 @@ public sealed class Role : AggregateRoot<Guid>
     public void BumpVersion() => Version++;
 
     /// <summary>Replaces the granted permissions with the validated, de-duplicated subset of
-    /// <paramref name="catalog"/>'s keys. Any key outside the catalog, OR whose side does not match this role's
-    /// own <see cref="Scope"/>, is rejected (REQ-2.6/6.6); blanks/duplicates are dropped. Existing rows are kept
-    /// (so EF only writes the delta).</summary>
+    /// <paramref name="catalog"/>'s keys. Any key outside the catalog, OR whose side is neither this role's own
+    /// <see cref="Scope"/> nor <see cref="Scope.Shared"/>, is rejected (REQ-2.6/6.6) — a Shared role therefore
+    /// holds Shared keys only; blanks/duplicates are dropped. Existing rows are kept (so EF only writes the
+    /// delta).</summary>
     public void SetPermissions(IEnumerable<string> permissionKeys, IReadOnlyDictionary<string, Scope> catalog)
     {
         ArgumentNullException.ThrowIfNull(permissionKeys);
@@ -136,7 +137,7 @@ public sealed class Role : AggregateRoot<Guid>
         if (unknown.Count > 0)
             throw new ArgumentException($"Unknown permission keys: {string.Join(", ", unknown)}", nameof(permissionKeys));
 
-        var wrongSide = desired.Where(k => catalog[k] != Scope).ToList();
+        var wrongSide = desired.Where(k => catalog[k] != Scope && catalog[k] != Scope.Shared).ToList();
         if (wrongSide.Count > 0)
             throw new ArgumentException(
                 $"Permission key(s) outside this role's scope ({Scope}): {string.Join(", ", wrongSide)}", nameof(permissionKeys));

@@ -97,6 +97,7 @@ public sealed class PermissionParityTests
         ("merchants.users.approve", "admin"), ("merchants.users.reject", "admin"),
         ("merchants.users.view", "admin"),
         ("user.view", "admin"), ("user.manage", "admin"), ("user.roles", "admin"),
+        ("payment.view", "dual-console"), ("payment.create", "dual-console"), ("payment.redirect", "dual-console"),
     ];
 
     [Fact]
@@ -128,19 +129,35 @@ public sealed class PermissionParityTests
         Assert.Contains(ApiHost::Api.Iam.PermissionParity.FindProblems([("user.roles", null)]),
             p => p.Contains("unrecognized", StringComparison.Ordinal));
 
+    // A Shared key is the one role set both tiers hold: it passes under either console policy AND under
+    // dual-console, where a single-side key would lock one audience out.
+    [Fact]
+    public void A_shared_key_passes_parity_under_every_console_policy() =>
+        Assert.Empty(ApiHost::Api.Iam.PermissionParity.FindProblems(
+            [("payment.create", "admin"), ("payment.create", "merchant-user"), ("payment.create", "dual-console")]));
+
+    [Fact]
+    public void A_single_side_key_gated_under_the_dual_console_policy_is_flagged()
+    {
+        Assert.Contains(ApiHost::Api.Iam.PermissionParity.FindProblems([("txn.view", "dual-console")]),
+            p => p.Contains("txn.view", StringComparison.Ordinal));
+        Assert.Contains(ApiHost::Api.Iam.PermissionParity.FindProblems([("roles.view", "dual-console")]),
+            p => p.Contains("roles.view", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_valid_dual_console_permission_pair_passes_parity() =>
         Assert.Empty(ApiHost::Api.Iam.PermissionParity.FindAudienceProblems(
-            [("txn.manage", "payment.create", "dual-console")]));
+            [("merchants.users.view", "users.view", "dual-console")]));
 
     [Fact]
     public void A_swapped_dual_console_permission_pair_is_flagged() =>
         Assert.NotEmpty(ApiHost::Api.Iam.PermissionParity.FindAudienceProblems(
-            [("payment.create", "txn.manage", "dual-console")]));
+            [("users.view", "merchants.users.view", "dual-console")]));
 
     [Fact]
     public void An_audience_pair_on_a_single_console_policy_is_flagged() =>
         Assert.Contains(ApiHost::Api.Iam.PermissionParity.FindAudienceProblems(
-                [("txn.manage", "payment.create", "admin")]),
+                [("merchants.users.view", "users.view", "admin")]),
             p => p.Contains("dual-console", StringComparison.Ordinal));
 }

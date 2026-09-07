@@ -51,9 +51,9 @@ public sealed class OneBasedPersistenceContractTests : IDisposable
     }
 
     [Fact]
-    public void Role_scope_check_uses_platform_one_and_merchant_two_in_both_contexts()
+    public void Role_scope_check_uses_platform_one_merchant_two_and_shared_three_in_both_contexts()
     {
-        const string expected = "([Scope] = 1 AND [MerchantId] IS NULL) OR [Scope] = 2";
+        const string expected = "([Scope] IN (1, 3) AND [MerchantId] IS NULL) OR [Scope] = 2";
         foreach (var db in new DbContext[] { _owner, _controlPlane })
         {
             var role = db.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(Role));

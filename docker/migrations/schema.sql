@@ -5625,6 +5625,59 @@ GO
 BEGIN TRANSACTION;
 IF NOT EXISTS (
     SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906151900_SharedRoleScope'
+)
+BEGIN
+    ALTER TABLE [iam].[Roles] DROP CONSTRAINT [CK_Roles_ScopeMerchant];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906151900_SharedRoleScope'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [iam].[Roles] ADD CONSTRAINT [CK_Roles_ScopeMerchant] CHECK (([Scope] IN (1, 3) AND [MerchantId] IS NULL) OR [Scope] = 2)');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906151900_SharedRoleScope'
+)
+BEGIN
+    UPDATE iam.PermissionGroups SET Scope = 3 WHERE [Key] = 'payment';
+    UPDATE iam.Roles SET Scope = 3 WHERE Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND Code = 'merchant_staff';
+
+    DELETE FROM iam.RolePermissions WHERE PermissionKey = 'txn.manage';
+    DELETE FROM iam.Permissions WHERE [Key] = 'txn.manage';
+
+    INSERT INTO iam.RolePermissions (Id, RoleId, PermissionKey) VALUES
+      ('f9000000-0000-4000-8000-000000000005', '11111111-1111-1111-1111-111111111111', 'payment.view'),
+      ('f9000000-0000-4000-8000-000000000006', '11111111-1111-1111-1111-111111111111', 'payment.create'),
+      ('f9000000-0000-4000-8000-000000000007', '11111111-1111-1111-1111-111111111111', 'payment.redirect'),
+      ('f9000000-0000-4000-8000-000000000008', '55555555-5555-5555-5555-555555555555', 'payment.view');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906151900_SharedRoleScope'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260906151900_SharedRoleScope', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
     WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
 )
 BEGIN

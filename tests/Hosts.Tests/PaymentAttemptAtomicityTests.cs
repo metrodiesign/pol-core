@@ -21,6 +21,7 @@ namespace Hosts.Tests;
 public sealed class PaymentAttemptAtomicityTests : IDisposable
 {
     private static readonly Guid MerchantId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid AgentId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static readonly DateTime Now = new(2026, 8, 7, 4, 0, 0, DateTimeKind.Utc);
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
 
@@ -43,7 +44,7 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
             orderNo: "ORD6900000001",
             paymentChannel: PaymentMethods.Card,
             initiatingAudience: OrderInitiatingAudience.User,
-            initiatingMerchantUserId: Guid.NewGuid());
+            initiatingMerchantUserId: AgentId);
         await using (var seed = NewContext())
         {
             seed.Add(order);
@@ -101,7 +102,7 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
     private sealed class Actor : IActorContext
     {
         public Guid MerchantId => PaymentAttemptAtomicityTests.MerchantId;
-        public Guid? UserId => Guid.NewGuid();
+        public Guid? UserId => AgentId;
         public bool HasActor => true;
     }
 

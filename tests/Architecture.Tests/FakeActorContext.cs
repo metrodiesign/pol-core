@@ -10,10 +10,18 @@ internal sealed class FakeActorContext : IActorContext
 
     public static FakeActorContext For(Guid merchantId) => new(merchantId);
 
+    /// <summary>A merchant user (Tier 1 agent/broker) bound to its merchant — drives the per-user order floor.</summary>
+    public static FakeActorContext For(Guid merchantId, Guid userId) => new(merchantId, userId);
+
     private readonly Guid? _merchantId;
-    private FakeActorContext(Guid? merchantId) => _merchantId = merchantId;
+    private readonly Guid? _userId;
+    private FakeActorContext(Guid? merchantId, Guid? userId = null)
+    {
+        _merchantId = merchantId;
+        _userId = userId;
+    }
 
     public Guid MerchantId => _merchantId ?? throw new InvalidOperationException("No actor bound.");
-    public Guid? UserId => null;
+    public Guid? UserId => _userId;
     public bool HasActor => _merchantId.HasValue;
 }

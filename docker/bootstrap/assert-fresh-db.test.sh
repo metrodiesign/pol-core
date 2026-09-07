@@ -45,11 +45,11 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 25 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 26 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
-grep -qE 'iam\.Permissions expected 26 rows' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'iam\.Permissions expected 25 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"
-grep -qE 'iam\.RolePermissions expected 33 rows' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'iam\.RolePermissions expected 36 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM role-permission count missing"
 tenant_identity_assertions_present() { # $1=assertion SQL candidate
   local candidate="$1"
