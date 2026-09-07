@@ -410,6 +410,18 @@ def resolve_task_selector(tasks: Sequence[TaskBlock], selector: str) -> tuple[tu
     return tuple(task.task_id for task in tasks[first:last + 1]), ()
 
 
+# Thai EARS forms per .ai/shared/EARS.md (same grammar as the shared template's spec_trace.py):
+#   ubiquitous  : ระบบต้อง<พฤติกรรม>
+#   conditional : (เมื่อ|ขณะที่|ในกรณีที่|หาก)<เงื่อนไข> ระบบต้อง<พฤติกรรม>
+# A space after "ระบบต้อง" is optional; a behavior after it is mandatory.
+THAI_EARS_RE = re.compile(
+    r"^(?:"
+    r"ระบบต้อง\s*\S.*"
+    r"|(?:เมื่อ|ขณะที่|ในกรณีที่|หาก)\s*\S.*?\s+ระบบต้อง\s*\S.*"
+    r")$"
+)
+
+
 def _ears_ok(statement: str) -> bool:
     normalized = " ".join(statement.split())
     if re.fullmatch(r"THE SYSTEM SHALL\s+.+", normalized):
@@ -417,7 +429,9 @@ def _ears_ok(statement: str) -> bool:
     for word in ("WHEN", "WHILE", "WHERE"):
         if re.fullmatch(rf"{word}\s+.+\s+THE SYSTEM SHALL\s+.+", normalized):
             return True
-    return bool(re.fullmatch(r"IF\s+.+\s+THEN THE SYSTEM SHALL\s+.+", normalized))
+    if re.fullmatch(r"IF\s+.+\s+THEN THE SYSTEM SHALL\s+.+", normalized):
+        return True
+    return bool(THAI_EARS_RE.fullmatch(normalized))
 
 
 def _strip_wrapper(value: str, *, stop_before_checkbox: bool = False) -> str:
