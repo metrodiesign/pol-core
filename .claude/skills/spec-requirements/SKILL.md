@@ -12,58 +12,54 @@ Resolve the target spec folder: use $ARGUMENTS if given; otherwise use the
 feature folder created by /spec-new in this conversation. If neither identifies
 one and `.ai/specs/` holds several features, list them and ask — never guess.
 
-Derive mode (Design-First): trigger when the folder has a design.md but no
-requirements.md. If that design.md is still `> Status: draft`, warn in Thai and
-ask for confirmation first — and if I confirm, flip it to
-`> Status: approved <YYYY-MM-DD>` before deriving. Then derive the requirements
-FROM the design — each REQ cites the design section it comes from. While
-deriving, sync is one-way: design is upstream; if a derived requirement
-conflicts with the design, fix the requirement — or stop and ask if the design
-itself looks wrong. (Once both artifacts exist, normal two-way sync resumes per
-the constitution.) The derivation already maps each REQ to its design section,
-so backfill design.md AS PART OF WRITING the draft requirements — do NOT defer
-to approval: add the `## Requirement Traceability` table with columns
-`Design element | REQ | Section`, make every `Section` value exactly match a real
-`##` heading in the same design, update `## Testing Strategy` to cite the new REQ IDs, and re-stamp
-design.md's header `> Status: approved <original date>, amended <YYYY-MM-DD>`.
-Backfilling at draft time (not approval) guarantees that a downstream
-`/spec-tasks` — which may be the skill that flips requirements.md to approved —
-finds the table so `scripts/spec-trace.sh` passes; otherwise it hard-fails with
-no skill authorized to create it. If the derived requirements change during
-review, update the table to match before approval.
+โหมด derive (Design-First) ใช้เมื่อ folder มี `design.md` แต่ยังไม่มี
+`requirements.md` เท่านั้น หลัง resolve feature แล้วต้องรัน shared phase gate นี้ก่อน
+เขียนหรือ advance `requirements.md` รวมถึงก่อน backfill `design.md`:
+
+```bash
+python3 scripts/spec_contract.py gate phase --feature <feature> --phase requirements --workflow design-first
+```
+
+คำสั่งต้องคืน exit `0` ก่อนจึงทำต่อได้ หาก `design.md` missing, malformed, unknown
+หรือไม่ approved ให้หยุดตาม diagnostic ของ engine ทันที ห้ามใช้ conversation,
+checkbox หรือ code existence แทน approval และห้ามแก้ status ของ upstream เพื่อข้าม gate.
+
+เมื่อ gate ผ่าน ให้ derive requirements จาก design โดยแต่ละ REQ อ้าง section ต้นทาง
+ระหว่าง derive ให้ sync ทางเดียว: design เป็น upstream; ถ้า requirement ที่ derive มา
+ขัดกับ design ให้แก้ requirement หรือหยุดถามหาก design เองผิด การ derive นี้ต้อง backfill
+`## Requirement Traceability` (design element → REQ-x.y), ปรับ `## Testing Strategy`
+ให้ cite REQ IDs ใหม่ และคง canonical header ของ design เป็น
+`> Status: approved <original date>` พร้อมเพิ่ม annotation แยกบรรทัดเป็น
+`> Status-Note: amended <YYYY-MM-DD>` ในการเขียน draft รอบเดียวกัน ห้ามเลื่อนไปทำตอน
+approval หาก requirements เปลี่ยนระหว่าง review ให้ปรับ table ให้ตรงก่อน approval.
 
 Write `.ai/specs/<feature>/requirements.md` with this structure:
 
-  # ข้อกำหนด: <ชื่อฟีเจอร์>
+  # Requirements: <Feature Name>
   > Status: draft
 
-  ## ภาพรวม
+  ## Overview
+  <one paragraph tying this to product.md>
 
-  <หนึ่งย่อหน้าเชื่อมโยงงานกับ product.md>
+  ## REQ-1: <Capability, e.g. User Registration>
+  **User Story:** As a <role>, I want <goal>, so that <benefit>.
+  **Acceptance Criteria (EARS):**
+  - 1.1  THE SYSTEM SHALL <behavior>                               (ubiquitous)
+  - 1.2  WHEN <event> THE SYSTEM SHALL <behavior>                  (event-driven)
+  - 1.3  WHILE <state> THE SYSTEM SHALL <behavior>                 (state-driven)
+  - 1.4  WHERE <feature is included> THE SYSTEM SHALL <behavior>   (optional)
+  - 1.5  IF <error condition> THEN THE SYSTEM SHALL <response>     (error handling)
 
-  ## REQ-1: <ความสามารถ เช่น การลงทะเบียนผู้ใช้>
+  (repeat REQ-2, REQ-3, ...)
 
-  **ความต้องการของผู้ใช้:** ในฐานะ<บทบาท> ฉันต้องการ<เป้าหมาย> เพื่อให้<ประโยชน์>
-
-  **เกณฑ์การยอมรับ:**
-
-  - 1.1  ระบบต้อง<พฤติกรรม>                                  (ข้อกำหนดทั่วไป)
-  - 1.2  เมื่อ<เหตุการณ์> ระบบต้อง<พฤติกรรม>                  (ตอบสนองต่อเหตุการณ์)
-  - 1.3  ขณะที่<สถานะ> ระบบต้อง<พฤติกรรม>                     (ระหว่างอยู่ในสถานะ)
-  - 1.4  ในกรณีที่<เปิดใช้คุณสมบัตินี้> ระบบต้อง<พฤติกรรม>              (เมื่อเปิดใช้คุณสมบัติ)
-  - 1.5  หาก<เงื่อนไขผิดพลาด> ระบบต้อง<การตอบสนอง>        (จัดการข้อผิดพลาด)
-
-  (เพิ่ม REQ-2, REQ-3, ... ตามความสามารถที่ต้องการ)
-
-  ## กรณีพิเศษและคำถามที่ยังไม่ยุติ
-
-  <ประเด็นที่ยังไม่ชัดเจน>
+  ## Edge Cases & Open Questions
+  <anything ambiguous>
 
 Rules: every requirement is atomic, testable, and has a stable ID. One observable
 behavior per criterion — split compound criteria joined by "and"; reject
 subjective wording ("fast", "user-friendly", "looks good") unless quantified
 with a measurable threshold. Cover the happy path AND error/edge cases (use
-รูปประโยค “หาก… ระบบต้อง…” ตาม EARS.md).
+IF...THEN).
 
 When done: STOP. Show me a summary and ask me to review. In derive mode the
 design already exists, so suggest `/spec-tasks` next (or `/spec-analyze` first
