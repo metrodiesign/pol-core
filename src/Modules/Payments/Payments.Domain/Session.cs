@@ -28,6 +28,25 @@ public sealed class Session : AggregateRoot<Guid>
 
     public Code Psp { get; private set; }
 
+    /// <summary>The connection routing selected for this attempt, pinned at <see cref="Create"/> time so a
+    /// later settings change never moves the attempt (REQ-2.8-2.10). Null only on legacy snapshot version 0
+    /// rows that predate server-side routing authority.</summary>
+    public Guid? PspConnectionId { get; private set; }
+
+    /// <summary>The vault secret version this attempt is bound to. A rotation retires but keeps this version,
+    /// so the pinned attempt (and its webhook) still verifies against it (REQ-2.8-2.10). Null only on
+    /// legacy snapshot version 0.</summary>
+    public Guid? SecretVersionId { get; private set; }
+
+    /// <summary>The endpoint family (sandbox/live) pinned for this attempt. Null only on legacy snapshot
+    /// version 0.</summary>
+    public PspEnvironment? PspEnvironment { get; private set; }
+
+    /// <summary>Snapshot contract version: <c>1</c> once server-side routing pins connection, secret version
+    /// and environment; <c>0</c> is legacy-only and never minted by <see cref="Create"/> (a DB CHECK
+    /// forbids a version-1 row with any snapshot field null).</summary>
+    public byte RoutingSnapshotVersion { get; private set; }
+
     public SessionStatus Status { get; private set; }
 
     /// <summary>The PSP's own charge identifier, set once a hosted charge is attached. Kept verbatim.</summary>
@@ -58,6 +77,9 @@ public sealed class Session : AggregateRoot<Guid>
         Money amount,
         string method,
         Code psp,
+        Guid pspConnectionId,
+        Guid secretVersionId,
+        PspEnvironment environment,
         DateTime createdAt)
         : base(id)
     {
@@ -66,6 +88,10 @@ public sealed class Session : AggregateRoot<Guid>
         Amount = amount;
         Method = method;
         Psp = psp;
+        PspConnectionId = pspConnectionId;
+        SecretVersionId = secretVersionId;
+        PspEnvironment = environment;
+        RoutingSnapshotVersion = 1;
         Status = SessionStatus.Created;
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
@@ -73,8 +99,11 @@ public sealed class Session : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Creates a new <see cref="SessionStatus.Created"/> session, binding order, amount, method, PSP
-    /// and merchant up-front so there is no attach-race when the charge is later created (PLAN #15).
+    /// Creates a new <see cref="SessionStatus.Created"/> session, binding order, amount, method, merchant
+    /// and the routing snapshot (connection, secret version, environment) up-front so there is no
+    /// attach-race when the charge is later created (PLAN #15) and no settings change can move an attempt
+    /// once it exists (REQ-2.8-2.10). The snapshot is always version 1 and complete — version 0 exists only
+    /// as pre-existing legacy rows, never minted here.
     /// </summary>
     public static Session Create(
         Guid merchantId,
@@ -82,6 +111,9 @@ public sealed class Session : AggregateRoot<Guid>
         Money amount,
         string method,
         Code psp,
+        Guid pspConnectionId,
+        Guid secretVersionId,
+        PspEnvironment environment,
         DateTime createdAt)
     {
         if (merchantId == Guid.Empty)
@@ -89,8 +121,14 @@ public sealed class Session : AggregateRoot<Guid>
         if (orderId == Guid.Empty)
             throw new ArgumentException("OrderId is required.", nameof(orderId));
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        if (pspConnectionId == Guid.Empty)
+            throw new ArgumentException("PspConnectionId is required.", nameof(pspConnectionId));
+        if (secretVersionId == Guid.Empty)
+            throw new ArgumentException("SecretVersionId is required.", nameof(secretVersionId));
 
-        return new Session(Guid.NewGuid(), merchantId, orderId, amount, method.Trim(), psp, createdAt);
+        return new Session(
+            Guid.NewGuid(), merchantId, orderId, amount, method.Trim(), psp,
+            pspConnectionId, secretVersionId, environment, createdAt);
     }
 
     /// <summary>
@@ -199,6 +237,32 @@ public sealed class Session : AggregateRoot<Guid>
                 $"PaymentSession {Id} cannot be marked Expired from terminal status {Status}.");
 
         Status = SessionStatus.Expired;
+        UpdatedAt = occurredAt;
+        Version++;
+    }
+
+    /// <summary>
+    /// Upgrades a legacy snapshot version 0 row to the version 1 contract, pinning the connection, secret
+    /// version and environment that legacy remediation resolved (merchant-psp-settings task 9, design step
+    /// 5/8). Only a version 0 row may be upgraded — a version 1 snapshot is already immutable and never
+    /// re-pinned. Never mints a fresh snapshot; it only fills in the fields a pre-routing row lacked, so the
+    /// DB CHECK that a version 1 row carries every snapshot field holds after the write.
+    /// </summary>
+    public void UpgradeLegacySnapshot(
+        Guid pspConnectionId, Guid secretVersionId, PspEnvironment environment, DateTime occurredAt)
+    {
+        if (RoutingSnapshotVersion != 0)
+            throw new InvalidOperationException(
+                $"PaymentSession {Id} is not a legacy snapshot (version {RoutingSnapshotVersion}).");
+        if (pspConnectionId == Guid.Empty)
+            throw new ArgumentException("PspConnectionId is required.", nameof(pspConnectionId));
+        if (secretVersionId == Guid.Empty)
+            throw new ArgumentException("SecretVersionId is required.", nameof(secretVersionId));
+
+        PspConnectionId = pspConnectionId;
+        SecretVersionId = secretVersionId;
+        PspEnvironment = environment;
+        RoutingSnapshotVersion = 1;
         UpdatedAt = occurredAt;
         Version++;
     }

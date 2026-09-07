@@ -69,21 +69,20 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
                 NullLogger<PaymentConfirmationService>.Instance);
             var handler = new CreateSessionHandler(
                 new PayableOrderReader(db),
-                connections,
-                adapters,
                 sessions,
                 confirmation,
                 new AvailableDocuments(),
                 unitOfWork,
                 clock,
                 new NoOpAuthorizationLocks(),
-                new AllowCapabilities());
+                new AllowCapabilities(),
+                new FixedRoute());
 
             // SQLite cannot generate SQL Server rowversion for PaymentSession. Its NOT NULL insert failure
             // occurs after Order.AttachPaymentAttempt, inside the shared transaction.
             await Assert.ThrowsAsync<DbUpdateException>(async () =>
                 await handler.Handle(new CreateSessionCommand(
-                    order.Id, MerchantId, PaymentMethods.Card, Code.TwoCTwoP), default));
+                    order.Id, MerchantId, PaymentMethods.Card), default));
         }
 
         await using var verify = NewContext();
@@ -137,10 +136,11 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
             public Code Psp => Code.TwoCTwoP;
             public IReadOnlySet<string> SupportedMethods { get; } = new HashSet<string> { PaymentMethods.Card };
             public Task<PspCharge> CreateRedirectChargeAsync(
-                Payments.Domain.Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken) =>
+                Payments.Domain.Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken) =>
                 throw new NotSupportedException();
             public Task<PspChargeConfirmation> FetchChargeAsync(
-                string externalChargeId, string secret, CancellationToken cancellationToken) =>
+                string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
                 throw new NotSupportedException();
             public bool VerifyWebhook(string rawPayload, string signature, string secret) => false;
             public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
@@ -148,6 +148,14 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
 
         private static readonly IPspAdapter Instance = new Adapter();
         public IPspAdapter For(Code psp) => psp == Code.TwoCTwoP ? Instance : throw new ArgumentOutOfRangeException(nameof(psp));
+    }
+
+    private sealed class FixedRoute : IPaymentRouteSelector
+    {
+        public Task<PspRouteSelection> SelectAsync(
+            Guid merchantId, Guid orderId, string method, CancellationToken cancellationToken) =>
+            Task.FromResult(new PspRouteSelection(
+                Guid.NewGuid(), Code.TwoCTwoP, Guid.NewGuid(), PspEnvironment.Sandbox));
     }
 
     private sealed class AvailableDocuments : IDocumentSaleProbe

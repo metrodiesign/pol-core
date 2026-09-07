@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -29,13 +30,11 @@ public sealed class TwoCTwoPAdapterTests
 
     private static (TwoCTwoPAdapter Adapter, StubHttpMessageHandler Handler) Build(
         Func<HttpRequestMessage, string, HttpResponseMessage> responder,
-        bool useSandbox = true,
         string publicBaseUrl = PublicBaseUrl)
     {
         var handler = new StubHttpMessageHandler(responder);
         var options = Options.Create(new PspOptions
         {
-            UseSandbox = useSandbox,
             PublicBaseUrl = publicBaseUrl,
             TwoCTwoP = { FrontendReturnUrl = FrontendReturnUrl },
         });
@@ -43,7 +42,7 @@ public sealed class TwoCTwoPAdapterTests
     }
 
     private static Session MakeSession(decimal amount = 250.09m, string currency = "THB", string method = "card") =>
-        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.TwoCTwoP, DateTime.UtcNow);
+        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, DateTime.UtcNow);
 
     private static HttpResponseMessage PaymentTokenOk(string webPaymentUrl) =>
         StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
@@ -68,7 +67,7 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { merchantID = "M123", respCode = "2002" }), Key)));
         var (adapter, handler) = Build((_, _) => inquiry);
 
-        var result = await adapter.TestConnectionAsync(Secret, CancellationToken.None);
+        var result = await adapter.TestConnectionAsync(Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal("authenticated", result.Code);
         Assert.Single(handler.Calls);
@@ -84,7 +83,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, _) = Build((_, _) => inquiry);
 
         await Assert.ThrowsAsync<PspRejectedException>(() =>
-            adapter.TestConnectionAsync(Secret, CancellationToken.None));
+            adapter.TestConnectionAsync(Secret, PspEnvironment.Sandbox, CancellationToken.None));
     }
 
     [Fact]
@@ -93,7 +92,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession();
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         // The durable correlation key is invoiceNo (= session.Id 'N'), NOT the per-attempt paymentToken.
         Assert.Equal(session.Id.ToString("N"), charge.ExternalChargeId);
@@ -110,7 +109,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession((decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(expectedAmount, claims.GetProperty("amount").GetDecimal().ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -128,7 +127,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession(1234.50m, "THB");
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(session.Amount.Amount, claims.GetProperty("amount").GetDecimal());
@@ -144,7 +143,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession();
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(
@@ -154,7 +153,7 @@ public sealed class TwoCTwoPAdapterTests
 
         // A second connection must get a DIFFERENT callback URL — a constant would pass the assertion above.
         var other = Guid.Parse("2f1c8d34-5b6a-4e7f-8a90-b1c2d3e4f506");
-        await adapter.CreateRedirectChargeAsync(MakeSession(), other, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(MakeSession(), other, Secret, PspEnvironment.Sandbox, CancellationToken.None);
         var secondClaims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[1].Body));
         Assert.Equal(
             $"{PublicBaseUrl}/api/v1/webhooks/{other:D}",
@@ -170,7 +169,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build(
             (_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"), publicBaseUrl: PublicBaseUrl + "/");
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(
@@ -191,7 +190,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession(method: method);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(
@@ -210,7 +209,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         var refusal = await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
 
         Assert.Contains(method, refusal.Message, StringComparison.Ordinal); // names the method, not a generic 500
         Assert.Equal(0, handler.CallCount);
@@ -225,7 +224,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -237,7 +236,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -250,7 +249,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, _) = Build((_, _) => declined);
 
         await Assert.ThrowsAsync<PspRejectedException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
     }
 
     [Fact]
@@ -307,7 +306,7 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode }), Key)));
         var (adapter, handler) = Build((_, _) => inquiry);
 
-        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal(expected, confirmed.Status);
         Assert.EndsWith("/payment/4.3/paymentInquiry", handler.Calls[0].Uri!.AbsolutePath);
@@ -325,7 +324,7 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "0000", amount, currencyCode = currency }), Key)));
         var (adapter, _) = Build((_, _) => inquiry);
 
-        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal(Money.Of((decimal)amount, currency), confirmed.Amount);
     }
@@ -349,7 +348,7 @@ public sealed class TwoCTwoPAdapterTests
         var inquiry = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(claims, Key)));
         var (adapter, _) = Build((_, _) => inquiry);
 
-        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Null(confirmed.Amount);
         Assert.Equal(PspChargeStatus.Paid, confirmed.Status);
@@ -368,7 +367,7 @@ public sealed class TwoCTwoPAdapterTests
                     JsonSerializer.Serialize(new { respCode = "0000" }), Key)));
         });
 
-        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         Assert.Equal(PspChargeStatus.Paid, confirmed.Status);
         Assert.Equal(3, handler.CallCount); // 2 transient + 1 success
@@ -381,7 +380,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
 
         await Assert.ThrowsAsync<PspAmbiguousException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
 
         Assert.Equal(1, handler.CallCount); // single-shot: a retry could double-charge
     }
@@ -401,7 +400,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, _) = Build((_, _) => new HttpResponseMessage(status));
 
         var thrown = await Assert.ThrowsAnyAsync<InvalidOperationException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
 
         Assert.Equal(refused, thrown is PspRejectedException);
         Assert.Equal(!refused, thrown is PspAmbiguousException); // never a bare InvalidOperationException
@@ -416,7 +415,7 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "0000" }), Key)));
         var (adapter, handler) = Build((_, _) => inquiry);
 
-        await adapter.FetchChargeAsync("INV-XYZ", Secret, CancellationToken.None);
+        await adapter.FetchChargeAsync("INV-XYZ", Secret, PspEnvironment.Sandbox, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal("INV-XYZ", claims.GetProperty("invoiceNo").GetString());
@@ -448,7 +447,7 @@ public sealed class TwoCTwoPAdapterTests
 
         // Ambiguous, not rejected: a response we cannot verify says nothing about whether a charge exists.
         await Assert.ThrowsAsync<PspAmbiguousException>(
-            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, PspEnvironment.Sandbox, CancellationToken.None));
     }
 
     [Fact]
@@ -461,7 +460,7 @@ public sealed class TwoCTwoPAdapterTests
         // The regression review PR #168 called out: an unverifiable INQUIRY response must be classified
         // ambiguous (the customer surface answers pending), never escape as a definitive-looking failure.
         await Assert.ThrowsAsync<PspAmbiguousException>(
-            () => adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None));
+            () => adapter.FetchChargeAsync("INV1", Secret, PspEnvironment.Sandbox, CancellationToken.None));
     }
 
     [Fact]
@@ -472,7 +471,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{\"unexpected\":true}"));
 
         await Assert.ThrowsAsync<PspAmbiguousException>(
-            () => adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None));
+            () => adapter.FetchChargeAsync("INV1", Secret, PspEnvironment.Sandbox, CancellationToken.None));
     }
 
     [Fact]
@@ -492,5 +491,51 @@ public sealed class TwoCTwoPAdapterTests
         var h = B64Url(System.Text.Encoding.UTF8.GetBytes(headerJson));
         var p = B64Url(System.Text.Encoding.UTF8.GetBytes(claimsJson));
         return h + "." + p + ".c2ln"; // signature segment is irrelevant; the alg guard rejects first
+    }
+
+    // ---- merchant-psp-settings task 8: webhook mode + bounded reference extraction ----
+
+    [Fact]
+    public void Webhook_verification_mode_is_signed_deterministic_reference()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        Assert.Equal(WebhookVerificationMode.SignedDeterministicReference, adapter.WebhookVerificationMode);
+    }
+
+    [Fact]
+    public void ExtractWebhookReference_reads_invoiceNo_and_tranRef_without_verifying()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        // Signed with a DIFFERENT key: extraction is untrusted and must not verify (AC-8.1).
+        var body = JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { invoiceNo = "INV1", tranRef = "T1" }), "a-different-key-aaaaaaaaaaaaaaaaaa"));
+
+        var reference = adapter.ExtractWebhookReference(body);
+
+        Assert.Equal("INV1", reference.ExternalChargeId); // = Session.Id the handler resolves by
+        Assert.Equal("T1", reference.ExternalEventId);
+    }
+
+    [Theory]
+    [InlineData("not a jwt at all")]
+    [InlineData("{\"payload\":\"not.a.jwt\"}")]
+    [InlineData("{\"payload\":123}")]
+    public void ExtractWebhookReference_maps_a_malformed_reference_to_400_never_500(string body)
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        var error = Assert.Throws<InvalidRequestException>(() => adapter.ExtractWebhookReference(body));
+        Assert.Equal("validation_failed", error.Code);
+    }
+
+    [Fact]
+    public void ExtractWebhookReference_rejects_an_over_bound_invoiceNo()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+        var body = JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { invoiceNo = new string('x', 257), tranRef = "T1" }), Key));
+
+        var error = Assert.Throws<InvalidRequestException>(() => adapter.ExtractWebhookReference(body));
+        Assert.Equal("validation_failed", error.Code);
     }
 }

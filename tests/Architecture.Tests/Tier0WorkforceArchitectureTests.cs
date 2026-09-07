@@ -406,8 +406,8 @@ public sealed partial class Tier0WorkforceArchitectureTests
         Assert.Contains("approved tenant-registry design", rollout, StringComparison.Ordinal);
         Assert.Contains("Email เป็น optional non-unique contact", oidc, StringComparison.Ordinal);
         Assert.Contains("ไม่มี supported endpoint", oidc, StringComparison.Ordinal);
-        Assert.Contains("26 migrations", deploy, StringComparison.Ordinal);
-        Assert.Contains("20260906151900_SharedRoleScope", local, StringComparison.Ordinal);
+        Assert.Contains("31 migrations", deploy, StringComparison.Ordinal);
+        Assert.Contains("20260907033444_LegacyVaultExpiryRemediation", local, StringComparison.Ordinal);
         Assert.Contains("identityApprovalReference", reference, StringComparison.Ordinal);
         Assert.Contains("immutable tenant-aware tuple", appsettings, StringComparison.Ordinal);
 

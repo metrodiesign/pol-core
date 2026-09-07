@@ -61,6 +61,7 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Payments/PaymentAuthorizationSqlLockManager.cs", // merchant-user-payment-method-access: transaction-owned global/merchant applocks with explicit merchant key
         "src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs", // canonical resolver: exact subject, merchant, method, provider and account predicates
         "src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs", // operator-only deterministic backfill/cutover/rollback under exclusive global lock
+        "src/Persistence/Persistence.MerchantRuntime/Payments/LegacyPaymentRemediationService.cs", // merchant-psp-settings task 9: operator-only, no HTTP route, never at boot — the environment backfill is a bounded ExecuteSqlInterpolated UPDATE keyed by "PaymentEnvironmentUpdatedAt = CreatedAt" (never-switched) under the global exclusive lock; the per-merchant snapshot upgrade uses IgnoreQueryFilters to reach legacy version-0 rows across the merchant during the offline cutover
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantUserRepositories.cs", // merchant-user UoW: transaction-owned payment-authorization applock with explicit merchant key
     ];
 

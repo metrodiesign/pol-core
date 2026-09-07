@@ -140,6 +140,8 @@ public sealed class PermissionGateSitesTests
         new("POST", "/api/v1/originators/{originatorId:guid}/enable", "admin", "merchant.manage"),
         new("POST", "/api/v1/originators/{originatorId:guid}/disable", "admin", "merchant.manage"),
         new("DELETE", "/api/v1/originators/{originatorId:guid}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/merchant-settings/{merchantId:guid}", "admin", "settings.manage"),
+        new("POST", "/api/v1/payments/merchant-settings/{merchantId:guid}/environment-change-requests", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/psp-connections", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/psp-connections/{connectionId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/psp-connections", "admin", "settings.manage"),
@@ -152,12 +154,15 @@ public sealed class PermissionGateSitesTests
         new("PUT", "/api/v1/payments/psp-connections/{connectionId:guid}/methods/{method}/options/{option}", "admin", "merchant.manage"),
         new("POST", "/api/v1/payments/psp-connections/{connectionId:guid}/test", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/psp-connections/{connectionId:guid}/credential-change-requests", "admin", "settings.manage"),
+        new("POST", "/api/v1/payments/psp-connections/{connectionId:guid}/credential-change-requests/{approvalId:guid}/test", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/routing-rulesets", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/routing-rulesets/{rulesetId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/routing-rulesets", "admin", "settings.manage"),
         new("PUT", "/api/v1/payments/routing-rulesets/{rulesetId:guid}", "admin", "settings.manage"),
         new("DELETE", "/api/v1/payments/routing-rulesets/{rulesetId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/routing-rulesets/{rulesetId:guid}/activation-requests", "admin", "settings.manage"),
+        new("GET", "/api/v1/payments/merchant-settings/{merchantId:guid}/simple-routing", "admin", "settings.manage"),
+        new("PUT", "/api/v1/payments/merchant-settings/{merchantId:guid}/simple-routing", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/transactions", "admin", "txn.view"),
         new("GET", "/api/v1/payments/transactions/{paymentSessionId:guid}", "admin", "txn.view"),
         new("GET", "/api/v1/payments/transactions/export", "admin", "txn.export"),
@@ -240,7 +245,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_142_active_gate_sites_are_pinned() => Assert.Equal(142, Sites.Length);
+    public void Exactly_147_active_gate_sites_are_pinned() => Assert.Equal(147, Sites.Length);
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

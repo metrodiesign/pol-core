@@ -130,7 +130,7 @@ public sealed class OrderVisibilityFloorTests : IDisposable
 
     private async Task<Guid> SeedSessionAsync(Guid merchantId, Guid orderId)
     {
-        var session = PaymentSession.Create(merchantId, orderId, Money.Of(15000m, "THB"), "card", Code.Omise, DateTime.UtcNow);
+        var session = PaymentSession.Create(merchantId, orderId, Money.Of(15000m, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, DateTime.UtcNow);
         using var writer = NewContext(FakeActorContext.For(merchantId));
         writer.Add(session);
         await writer.SaveChangesAsync();

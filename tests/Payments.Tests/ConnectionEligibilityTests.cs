@@ -1,5 +1,6 @@
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Tests;
 
@@ -101,8 +102,8 @@ public sealed class ConnectionEligibilityTests
         var candidate = Guid.NewGuid();
         var approval = Guid.NewGuid();
 
-        connection.SetInitialSecretVersion(active);
-        connection.StageSecretVersion(candidate, approval);
+        connection.SetInitialSecretVersion(active, PspEnvironment.Sandbox);
+        connection.StageSecretVersion(candidate, approval, PspEnvironment.Sandbox);
 
         Assert.Equal(active, connection.ActiveSecretVersionId);
         Assert.Equal(candidate, connection.PendingSecretVersionId);
@@ -119,9 +120,9 @@ public sealed class ConnectionEligibilityTests
     public void A_second_pending_secret_is_rejected()
     {
         var connection = NewConnection();
-        connection.StageSecretVersion(Guid.NewGuid(), Guid.NewGuid());
+        connection.StageSecretVersion(Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox);
 
         Assert.Throws<InvalidOperationException>(() =>
-            connection.StageSecretVersion(Guid.NewGuid(), Guid.NewGuid()));
+            connection.StageSecretVersion(Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox));
     }
 }

@@ -110,7 +110,8 @@ public sealed class GovernanceStoreTests : IAsyncLifetime
         await _store.DecideAsync(new DecisionIntent(
             approvalId, ApprovalDecision.Approve, "checked", 1, "v1", "key", "corr", Access(checker)), default);
         var report = new ApprovalExecutionReported(
-            Guid.NewGuid(), approvalId, checker, true, false, "activated", "v2", "corr-3", _clock.UtcNow);
+            Guid.NewGuid(), approvalId, checker, true, false, "activated", "v2",
+            null, "api-client-secret", "client-1", "corr-3", _clock.UtcNow);
 
         await _store.ReceiveAsync(report, default);
         await _store.ReceiveAsync(report, default);

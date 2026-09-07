@@ -85,6 +85,19 @@ public sealed class AdminApprovalWriteAuthorizerTests
         Assert.False(floor.CanWrite(typeof(Connection), WriteOperation.Insert, MerchantB));
         Assert.False(floor.CanWrite(typeof(RoutingRuleset), WriteOperation.Delete, MerchantB));
     }
+
+    [Fact]
+    public void Payment_security_foundation_allows_only_required_lease_and_execution_operations()
+    {
+        var floor = new AdminApprovalWriteAuthorizer(
+            new StubAdminScope(bound: true, AccessibleMerchants.Of(new HashSet<Guid> { MerchantA })));
+        var leaseRow = Type.GetType(
+            "Persistence.MerchantRuntime.Payments.AdminAuthorizationLeaseRow, Persistence.MerchantRuntime")!;
+
+        Assert.True(floor.CanWrite(leaseRow, WriteOperation.Update, Guid.Empty));
+        Assert.False(floor.CanWrite(leaseRow, WriteOperation.Insert, Guid.Empty));
+        Assert.False(floor.CanWrite(leaseRow, WriteOperation.Delete, Guid.Empty));
+    }
 }
 
 /// <summary>

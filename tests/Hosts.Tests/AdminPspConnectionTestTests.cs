@@ -8,6 +8,7 @@ using Payments.Domain;
 using Payments.Domain.Psp;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Payments;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -43,12 +44,13 @@ public sealed class AdminPspConnectionTestTests : IDisposable
             new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
             new MissingVault(),
             new UnusedEnvelopeFactory(),
-            adapters);
+            adapters,
+            AllowLease.Instance);
 
         var failure = await Assert.ThrowsAsync<PspConnectionTestFailedException>(() => store.TestConnectionAsync(
             new TestPspConnectionIntent(
                 connection.Id, MerchantId, connection.Version, "probe-missing-secret",
-                new AdminPaymentsAccess(ActorId, true, new HashSet<Guid>())),
+                new AdminPaymentsAccess(ActorId, 0, true, new HashSet<Guid>())),
             default));
 
         Assert.Equal("failed", failure.Connection.Health);
@@ -73,7 +75,7 @@ public sealed class AdminPspConnectionTestTests : IDisposable
             await seed.SaveChangesAsync();
         }
 
-        var access = new AdminPaymentsAccess(ActorId, true, new HashSet<Guid>());
+        var access = new AdminPaymentsAccess(ActorId, 0, true, new HashSet<Guid>());
         RoutingRulesetView created;
         await using (var createDb = NewContext())
         {
@@ -91,16 +93,38 @@ public sealed class AdminPspConnectionTestTests : IDisposable
         Assert.Equal(10, Assert.Single(replaced.Rules).Priority);
     }
 
+    [Fact]
+    public async Task Authorization_lease_denial_rolls_back_routing_creation()
+    {
+        var connection = Connection.Create(
+            MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "routing-secret", Now);
+        await using var db = NewContext();
+        db.Merchants.Add(Merchant.CreateWithId(
+            MerchantId, "vcommerce", "Merchant", null, "TH", "THB", ["card"], "{}", Now));
+        db.PspConnections.Add(connection);
+        await db.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<AccessDeniedException>(() => Store(db, DenyLease.Instance)
+            .CreateRulesetAsync(new CreateRoutingRulesetIntent(
+                MerchantId, "Denied", [Rule(connection.Id, 1)],
+                new AdminPaymentsAccess(ActorId, 0, true, new HashSet<Guid>())), default));
+
+        Assert.Equal("authorization_stale", error.Code);
+        Assert.Empty(await db.RoutingRulesets.ToListAsync());
+    }
+
     private static RoutingRuleInput Rule(Guid connectionId, int priority) =>
         new(priority, "card", null, 1m, 9999m, connectionId, null, false);
 
-    private static AdminPaymentsControlStore Store(MerchantRuntimeDbContext db) => new(
+    private static AdminPaymentsControlStore Store(
+        MerchantRuntimeDbContext db, IMerchantRuntimeAuthorizationLease? lease = null) => new(
         db,
         new FixedClock(),
         new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
         new MissingVault(),
         new UnusedEnvelopeFactory(),
-        new UnusedAdapterFactory());
+        new UnusedAdapterFactory(),
+        lease ?? AllowLease.Instance);
 
     private MerchantRuntimeDbContext NewContext() => new(
         new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
@@ -123,6 +147,19 @@ public sealed class AdminPspConnectionTestTests : IDisposable
     private sealed class FixedClock : IClock
     {
         public DateTime UtcNow => Now;
+    }
+
+    private sealed class AllowLease : IMerchantRuntimeAuthorizationLease
+    {
+        public static readonly AllowLease Instance = new();
+        public Task VerifyAsync(AdminPaymentsAccess access, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class DenyLease : IMerchantRuntimeAuthorizationLease
+    {
+        public static readonly DenyLease Instance = new();
+        public Task VerifyAsync(AdminPaymentsAccess access, CancellationToken cancellationToken) =>
+            Task.FromException(new AccessDeniedException("Authorization changed.", "authorization_stale"));
     }
 
     private sealed class MissingVault : IVaultSecretStore
@@ -157,19 +194,20 @@ public sealed class AdminPspConnectionTestTests : IDisposable
         public Code Psp => Code.TwoCTwoP;
         public IReadOnlySet<string> SupportedMethods { get; } = new HashSet<string> { PaymentMethods.Card };
 
-        public Task<PspProbeResult> TestConnectionAsync(string secret, CancellationToken ct)
+        public Task<PspProbeResult> TestConnectionAsync(string secret, PspEnvironment environment, CancellationToken ct)
         {
             ProbeWasCalled = true;
             throw new InvalidOperationException("Adapter must not run without a vault secret.");
         }
 
         public Task<PspCharge> CreateRedirectChargeAsync(
-            Session session, Guid pspConnectionId, string secret, CancellationToken ct) =>
+            Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken ct) =>
             throw new NotSupportedException();
         public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
             throw new NotSupportedException();
         public Task<PspChargeConfirmation> FetchChargeAsync(
-            string externalChargeId, string secret, CancellationToken ct) =>
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken ct) =>
             throw new NotSupportedException();
         public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }

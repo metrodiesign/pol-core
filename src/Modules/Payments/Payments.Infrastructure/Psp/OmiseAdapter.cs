@@ -1,10 +1,12 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Infrastructure.Psp;
 
@@ -34,16 +36,19 @@ public sealed class OmiseAdapter : PspAdapterBase
 
     public override Code Psp => Code.Omise;
 
-    /// <summary>Card only today: PromptPay via Payment Links+ is deferred (see class summary) and
-    /// installment was never wired, so both are refused up-front rather than at the charge call.</summary>
+    /// <summary>EMPTY until a dependency spec records sandbox evidence (merchant-psp-settings REQ-5.11/5.12):
+    /// the card path below is implemented but its hosted-3DS field set is contract-unverified (see the
+    /// ponytail note in <see cref="CreateCardChargeAsync"/>), PromptPay via Payment Links+ is deferred and
+    /// installment was never wired. The connection can still be created and probed (credentials are
+    /// managed independently of methods); enabling any Omise account method fails closed (REQ-5.5).</summary>
     public override IReadOnlySet<string> SupportedMethods { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
+        new HashSet<string>(StringComparer.Ordinal);
 
     public override async Task<PspProbeResult> TestConnectionAsync(
-        string secret, CancellationToken cancellationToken)
+        string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
-        GuardKeyEnvironment(creds.SecretKey);
+        GuardKeyEnvironment(creds.SecretKey, environment);
         var body = await SendWithRetryAsync(() =>
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"{Options.Omise.ApiBaseUrl}/account");
@@ -61,10 +66,11 @@ public sealed class OmiseAdapter : PspAdapterBase
     /// endpoint from the dashboard, not from the charge request, so the per-connection callback URL is an ops
     /// step in the deploy runbook rather than a request field (REQ-4.5).</summary>
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
-        GuardKeyEnvironment(creds.SecretKey);
+        GuardKeyEnvironment(creds.SecretKey, environment);
 
         var method = session.Method.Trim().ToLowerInvariant();
         return method switch
@@ -109,6 +115,35 @@ public sealed class OmiseAdapter : PspAdapterBase
         return new PspCharge(id, authorizeUri);
     }
 
+    /// <summary>Omise has no verifiable signature over the (payload, signature, secret) seam (HMAC deferred,
+    /// see class summary), so the sole authority is a server-side fetch-to-confirm with the pinned secret,
+    /// and a webhook that arrives before its charge binds is parked as a pending match (AC-8.3/8.4).</summary>
+    public override WebhookVerificationMode WebhookVerificationMode => WebhookVerificationMode.FetchConfirmOnly;
+
+    /// <summary>Reads the UNTRUSTED lookup keys from the event JSON WITHOUT trusting it (AC-8.1): the event
+    /// <c>id</c> and the <c>data.id</c> charge id the handler resolves the session by. A malformed or
+    /// over-long reference is a 400 <c>validation_failed</c>, never a 500 (adversarial #4).</summary>
+    public override PspWebhookReference ExtractWebhookReference(string rawPayload)
+    {
+        if (string.IsNullOrWhiteSpace(rawPayload))
+            throw new InvalidRequestException("Omise webhook payload is empty.", "validation_failed");
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawPayload);
+            var root = doc.RootElement;
+            var eventId = BoundedReference(GetString(root, "id"), "id");
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                throw new InvalidRequestException("Omise webhook reference is missing data.id.", "validation_failed");
+            var chargeId = BoundedReference(GetString(data, "id"), "data.id");
+            return new PspWebhookReference(eventId, chargeId);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidRequestException("Omise webhook reference could not be read.", "validation_failed");
+        }
+    }
+
     public override bool VerifyWebhook(string rawPayload, string signature, string secret)
     {
         // HMAC deferred (see class summary) — this is a well-formedness gate only, NOT an authenticity
@@ -144,11 +179,11 @@ public sealed class OmiseAdapter : PspAdapterBase
     }
 
     public override async Task<PspChargeConfirmation> FetchChargeAsync(
-        string externalChargeId, string secret, CancellationToken cancellationToken)
+        string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(externalChargeId);
         var creds = ParseSecret(secret);
-        GuardKeyEnvironment(creds.SecretKey);
+        GuardKeyEnvironment(creds.SecretKey, environment);
 
         var body = await SendWithRetryAsync(() =>
         {
@@ -187,15 +222,15 @@ public sealed class OmiseAdapter : PspAdapterBase
         }
     }
 
-    /// <summary>Fails fast if the key's test/live prefix disagrees with UseSandbox — a sandbox config with
-    /// a live key (or vice versa) is a latent double-charge/auth bug. Names the mismatch, never the key.
-    /// Rejected, not ambiguous: it runs before the request goes out (REQ-7.5).</summary>
-    private void GuardKeyEnvironment(string secretKey)
+    /// <summary>Fails fast if the key's test/live prefix disagrees with the caller's pinned environment — a
+    /// sandbox merchant with a live key (or vice versa) is a latent double-charge/auth bug (REQ-2.5/4.8).
+    /// Names the mismatch, never the key. Rejected, not ambiguous: it runs before the request goes out.</summary>
+    private static void GuardKeyEnvironment(string secretKey, PspEnvironment environment)
     {
-        var isTestKey = secretKey.StartsWith("skey_test_", StringComparison.Ordinal);
-        if (isTestKey != Options.UseSandbox)
+        if (!OmiseSecretKeys.MatchesEnvironment(secretKey, environment))
             throw new PspRejectedException(
-                $"Omise key environment mismatch: UseSandbox={Options.UseSandbox} but the secret key is {(isTestKey ? "test" : "live")}.");
+                $"Omise key environment mismatch: environment is {environment.ToCode()} but the secret key is "
+                + $"{(OmiseSecretKeys.IsTestKey(secretKey) ? "test" : "live")}.");
     }
 
     private static AuthenticationHeaderValue BasicAuth(string secretKey) =>

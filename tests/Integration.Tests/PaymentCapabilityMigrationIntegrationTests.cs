@@ -195,9 +195,9 @@ public sealed class PaymentCapabilityMigrationIntegrationTests
                 .BackfillAsync(ActorId, default);
 
             var paymentsAccess = new AdminPaymentsAccess(
-                ActorId, false, new HashSet<Guid> { fixture.MerchantId });
+                ActorId, 0, false, new HashSet<Guid> { fixture.MerchantId });
             var payments = new AdminPaymentsControlStore(
-                db, new FixedClock(), unitOfWork, null!, null!, adapters, locks);
+                db, new FixedClock(), unitOfWork, null!, null!, adapters, AllowLease.Instance, locks);
             var promptPay = await payments.GetMerchantMethodAsync(
                 fixture.MerchantId, PaymentMethods.PromptPay, paymentsAccess, default);
             Assert.NotNull(promptPay);
@@ -326,6 +326,12 @@ public sealed class PaymentCapabilityMigrationIntegrationTests
         public DateTime UtcNow => new(2026, 8, 18, 0, 0, 0, DateTimeKind.Utc);
     }
 
+    private sealed class AllowLease : IMerchantRuntimeAuthorizationLease
+    {
+        public static readonly AllowLease Instance = new();
+        public Task VerifyAsync(AdminPaymentsAccess access, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
     private sealed class AllowWrites : IWriteAuthorizer
     {
         public static readonly AllowWrites Instance = new();
@@ -351,12 +357,13 @@ public sealed class PaymentCapabilityMigrationIntegrationTests
         public Code Psp { get; } = psp;
         public IReadOnlySet<string> SupportedMethods { get; } = methods.ToHashSet(StringComparer.Ordinal);
         public Task<PspCharge> CreateRedirectChargeAsync(
-            Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken) =>
+            Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken) =>
             throw new NotSupportedException();
         public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
             throw new NotSupportedException();
         public Task<PspChargeConfirmation> FetchChargeAsync(
-            string externalChargeId, string secret, CancellationToken cancellationToken) =>
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
         public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }

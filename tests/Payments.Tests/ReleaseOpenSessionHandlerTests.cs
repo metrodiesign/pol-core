@@ -29,7 +29,7 @@ public sealed class ReleaseOpenSessionHandlerTests
 
     private static Session NewSession(bool withCharge)
     {
-        var session = Session.Create(MerchantId, OrderId, Amount, PaymentMethods.Card, Code.TwoCTwoP, Created);
+        var session = Session.Create(MerchantId, OrderId, Amount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         session.BeginRedirect(Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Created);

@@ -71,7 +71,8 @@ internal sealed class ApiClientApprovalExecutor(
     {
         var result = new ApprovalExecutionReported(
             Guid.CreateVersion7(), decision.ApprovalId, decision.CheckerId,
-            succeeded, Unknown: false, outcome, $"v{version}", decision.CorrelationId, clock.UtcNow);
+            succeeded, Unknown: false, outcome, $"v{version}", decision.MerchantId,
+            decision.TargetType, decision.TargetId, decision.CorrelationId, clock.UtcNow);
         db.GovernanceOutboxMessages.Add(GovernanceOutboxMessage.Create(
             result.EventId, GovernanceScopeKind.Merchant, decision.MerchantId,
             ApprovalExecutionReported.EventType, ApprovalExecutionReported.SchemaVersion,

@@ -9,6 +9,7 @@ using Payments.Domain.Capabilities;
 using Payments.Domain.Psp;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Payments;
+using SharedKernel;
 
 namespace Integration.Tests;
 
@@ -58,7 +59,7 @@ public sealed class PaymentAccountCapabilityIntegrationTests
                     """);
             }
 
-            var access = new AdminPaymentsAccess(ActorId, false, new HashSet<Guid> { merchantId });
+            var access = new AdminPaymentsAccess(ActorId, 0, false, new HashSet<Guid> { merchantId });
             await using var db = NewContext(database, merchantId);
             var store = Store(db, supportsAll: true);
             var merchantIntent = new SetMerchantPaymentCapabilityIntent(
@@ -118,7 +119,7 @@ public sealed class PaymentAccountCapabilityIntegrationTests
                     """);
             }
 
-            var access = new AdminPaymentsAccess(ActorId, false, new HashSet<Guid> { merchantId });
+            var access = new AdminPaymentsAccess(ActorId, 0, false, new HashSet<Guid> { merchantId });
             await using (var db = NewContext(database, merchantId))
             {
                 var store = Store(db, supportsAll: true);
@@ -201,7 +202,8 @@ public sealed class PaymentAccountCapabilityIntegrationTests
 
     private static AdminPaymentsControlStore Store(MerchantRuntimeDbContext db, bool supportsAll) => new(
         db, new FixedClock(), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
-        null!, null!, new AdapterFactory(supportsAll), new PaymentAuthorizationSqlLockManager(db));
+        null!, null!, new AdapterFactory(supportsAll), AllowLease.Instance,
+        new PaymentAuthorizationSqlLockManager(db));
 
     private sealed class Actor(Guid merchantId) : IActorContext
     {
@@ -221,6 +223,12 @@ public sealed class PaymentAccountCapabilityIntegrationTests
         public DateTime UtcNow => Now;
     }
 
+    private sealed class AllowLease : IMerchantRuntimeAuthorizationLease
+    {
+        public static readonly AllowLease Instance = new();
+        public Task VerifyAsync(AdminPaymentsAccess access, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
     private sealed class AdapterFactory(bool supportsAll) : IPspAdapterFactory
     {
         public IPspAdapter For(Code psp) => new Adapter(psp, supportsAll);
@@ -234,12 +242,13 @@ public sealed class PaymentAccountCapabilityIntegrationTests
                 StringComparer.Ordinal)
             : new HashSet<string>([PaymentMethods.Card], StringComparer.Ordinal);
         public Task<PspCharge> CreateRedirectChargeAsync(
-            Payments.Domain.Session session, Guid pspConnectionId, string secret, CancellationToken ct) =>
+            Payments.Domain.Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken ct) =>
             throw new NotSupportedException();
         public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
             throw new NotSupportedException();
         public Task<PspChargeConfirmation> FetchChargeAsync(
-            string externalChargeId, string secret, CancellationToken ct) => throw new NotSupportedException();
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken ct) => throw new NotSupportedException();
         public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }
 }

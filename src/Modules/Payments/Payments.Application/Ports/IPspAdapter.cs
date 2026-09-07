@@ -1,5 +1,7 @@
+using BuildingBlocks.Application;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Application.Ports;
 
@@ -14,17 +16,26 @@ public interface IPspAdapter
     Code Psp { get; }
 
     /// <summary>
-    /// The canonical <see cref="PaymentMethods"/> codes this adapter can actually honour today. Distinct
-    /// from a connection's <c>EnabledMethods</c>, which is the company's commercial arrangement with the
-    /// PSP: a method may be commercially enabled while our adapter cannot yet drive it, and admitting it
-    /// would silently charge the customer through a different channel. The intersection of the two is the
-    /// real eligibility.
+    /// The canonical <see cref="PaymentMethods"/> codes this adapter has PROVEN against the PSP sandbox
+    /// (merchant-psp-settings REQ-5.4/5.11): a method is listed only once its redirect -> webhook ->
+    /// fetch-to-confirm contract has sandbox evidence, and is removed from nothing else. Distinct from the
+    /// catalog (<c>cfg.PaymentProviderMethods</c>, what the PSP offers) and from an account method row
+    /// (what the merchant has enabled): the control plane requires all three, so implemented-but-unverified
+    /// code can never charge a customer (REQ-5.5 fail-closed, REQ-5.12 opens it by editing this set).
     /// </summary>
     IReadOnlySet<string> SupportedMethods { get; }
 
-    /// <summary>Runs a read-only authenticated provider probe. No fake success and no charge creation.</summary>
-    Task<PspProbeResult> TestConnectionAsync(string secret, CancellationToken cancellationToken) =>
+    /// <summary>Runs a read-only authenticated provider probe against <paramref name="environment"/>'s
+    /// endpoint family. No fake success and no charge creation (REQ-7.1/7.2).</summary>
+    Task<PspProbeResult> TestConnectionAsync(
+        string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
         throw new NotSupportedException("This PSP adapter does not implement a connection probe.");
+
+    /// <summary>The per-connection backend-notification URL a PSP must call back on
+    /// (<c>{PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}</c>). Safe to display: carries no secret
+    /// (REQ-11.1). The default is the route alone (no origin) for adapters/doubles that do not know the
+    /// public base URL; the real adapters override it with the absolute URL.</summary>
+    string CallbackUrlFor(Guid pspConnectionId) => $"/api/v1/webhooks/{pspConnectionId:D}";
 
     /// <summary>
     /// Creates a hosted charge for the session and returns its external id + hosted redirect URL.
@@ -33,9 +44,26 @@ public interface IPspAdapter
     /// backend-notification URL a PSP calls back on must carry (<c>/api/v1/webhooks/{pspConnectionId}</c>),
     /// so a confirmation reaches the handler and stays isolated to that company. Only the id is passed —
     /// an adapter has no business seeing the connection's secret ref or enabled methods.
+    /// <paramref name="environment"/> selects the sandbox/live endpoint family PER CALL (never from host
+    /// config) so merchants in different environments share one runtime (REQ-2.3/2.4).
     /// </summary>
     Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken);
+
+    /// <summary>How this adapter proves an inbound webhook (merchant-psp-settings AC-8.1). 2C2P is
+    /// <see cref="WebhookVerificationMode.SignedDeterministicReference"/>; Omise is
+    /// <see cref="WebhookVerificationMode.FetchConfirmOnly"/>. The default is the stricter signed mode so a
+    /// double that never states its mode still fails closed on signature; every real adapter overrides it.</summary>
+    WebhookVerificationMode WebhookVerificationMode => WebhookVerificationMode.SignedDeterministicReference;
+
+    /// <summary>Pulls the bounded, UNTRUSTED lookup keys from <paramref name="rawPayload"/> WITHOUT
+    /// verifying anything (AC-8.1, design 721-733). The result resolves the session that pins the secret
+    /// version; it must never change state before verify/fetch-to-confirm. A malformed or over-long
+    /// reference throws <see cref="InvalidRequestException"/> (400 <c>validation_failed</c>) — never a 500
+    /// (AC-8.4 adversarial #4) — and no payload is retained.</summary>
+    PspWebhookReference ExtractWebhookReference(string rawPayload) =>
+        throw new NotSupportedException("This PSP adapter does not implement webhook reference extraction.");
 
     /// <summary>Verifies a webhook signature against the raw payload using the connection's secret.</summary>
     bool VerifyWebhook(string rawPayload, string signature, string secret);
@@ -44,7 +72,8 @@ public interface IPspAdapter
     /// collected (fetch-to-confirm). Never trusts the webhook body alone. The amount is what lets the
     /// caller check the collection against the order that backs it — see
     /// <see cref="PspChargeConfirmation"/> for why it is nullable.</summary>
-    Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken);
+    Task<PspChargeConfirmation> FetchChargeAsync(
+        string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken);
 
     /// <summary>Parses a verified webhook payload into the normalized <see cref="WebhookEvent"/>.</summary>
     WebhookEvent ParseWebhook(string rawPayload);

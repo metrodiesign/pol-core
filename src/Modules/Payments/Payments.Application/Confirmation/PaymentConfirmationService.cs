@@ -132,8 +132,15 @@ public sealed class PaymentConfirmationService
 
         access ??= await ResolveAccessAsync(session, cancellationToken).ConfigureAwait(false);
 
+        // Fetch-to-confirm on the PINNED snapshot, not the connection's current active environment: a
+        // credential rotation or environment switch after this attempt was created must not move it
+        // (merchant-psp-settings AC-4.3/8.2/8.3). The pinned secret and the pinned environment come from one
+        // source — the session snapshot — so a v1 attempt whose connection has since flipped still fetches
+        // against the endpoint family it was charged on. Falls back to the connection's active environment
+        // only for a legacy version-0 session that never pinned one.
+        var environment = session.PspEnvironment ?? access.Connection.ActiveSecretEnvironment;
         var confirmed = await _adapters.For(session.Psp)
-            .FetchChargeAsync(chargeId, access.Secret, cancellationToken)
+            .FetchChargeAsync(chargeId, access.Secret, environment, cancellationToken)
             .ConfigureAwait(false);
 
         return confirmed.Status switch
@@ -278,9 +285,16 @@ public sealed class PaymentConfirmationService
             ?? throw new InvalidOperationException(
                 $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
 
-        var secret = connection.ActiveSecretVersionId is { } versionId
-            ? await _vault.ReadVersionForServerAsync(session.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
-            : await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+        // Reveal the version the SESSION pinned, not the connection's current active version: a rotation
+        // retires but keeps the pinned version readable, so this attempt keeps verifying/fetching against
+        // the secret it was created with (merchant-psp-settings AC-4.3/6.5). Secret and environment must
+        // come from one source — the pinned version reads under the pinned environment above. A legacy
+        // version-0 session (no pinned version) falls back to the connection's active version / ref.
+        var secret = session.SecretVersionId is { } pinnedVersion
+            ? await _vault.ReadVersionForServerAsync(session.MerchantId, pinnedVersion, cancellationToken).ConfigureAwait(false)
+            : connection.ActiveSecretVersionId is { } versionId
+                ? await _vault.ReadVersionForServerAsync(session.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
+                : await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
 
         return new PspAccess(connection, secret);
     }

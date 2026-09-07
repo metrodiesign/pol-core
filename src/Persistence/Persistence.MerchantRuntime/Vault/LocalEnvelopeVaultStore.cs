@@ -173,7 +173,8 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             .SingleOrDefaultAsync(x => x.Id == versionId && x.MerchantId == merchantId, ct), cancellationToken)
             ?? throw new KeyNotFoundException("Vault secret version was not found.");
         if (version.State is VaultSecretVersionState.Discarded
-            || version.ExpiresAt is { } expiry && expiry <= _clock.UtcNow)
+            || version.State is VaultSecretVersionState.Staged
+                && version.ExpiresAt is { } expiry && expiry <= _clock.UtcNow)
             throw new InvalidOperationException("Vault secret version is not readable.");
 
         var masterKey = _keyring.ResolveOrNull(version.SecretKey)
@@ -218,6 +219,13 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
         await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions.IgnoreQueryFilters().AsNoTracking()
             .Where(x => x.Id == versionId && x.MerchantId == merchantId)
             .Select(x => x.Hint).SingleOrDefaultAsync(ct), cancellationToken);
+
+    public async Task<DateTime?> StagedVersionExpiresAtAsync(
+        Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => x.Id == versionId && x.MerchantId == merchantId
+                && x.State == VaultSecretVersionState.Staged)
+            .Select(x => x.ExpiresAt).SingleOrDefaultAsync(ct), cancellationToken);
 
     private async Task<VaultSecretVersion> LoadVersionAsync(
         Guid merchantId, Guid versionId, CancellationToken cancellationToken)

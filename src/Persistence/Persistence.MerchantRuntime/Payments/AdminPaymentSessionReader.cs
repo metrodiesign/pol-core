@@ -2,18 +2,27 @@ using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
 using Payments.Application;
+using Payments.Application.Capabilities;
 using Payments.Application.Ports;
-using Payments.Application.Ports.Psp;
 using Payments.Domain;
 using Payments.Domain.Psp;
 using Payments.Domain.Routing;
+using SharedKernel;
 
 namespace Persistence.MerchantRuntime.Payments;
 
+/// <summary>
+/// Reads admin payment-session resources and — as <see cref="IPaymentRouteSelector"/> — is the single
+/// server-side routing authority for every audience (REQ-6.8-6.18). It resolves a connection from the
+/// merchant's active ruleset (primary before fallback) and refuses when nothing is eligible; there is no
+/// deployment default (REQ-6.18). Local eligibility only: enabled state, environment match, a credential
+/// reference and the two-level method policy, which it delegates to
+/// <see cref="IEffectivePaymentCapabilityResolver"/> so account-and-merchant policy (REQ-5.15) is decided
+/// in exactly one place and never re-implemented against the raw tables.
+/// </summary>
 internal sealed class AdminPaymentSessionReader(
     MerchantRuntimeDbContext db,
-    DefaultPspSelection defaultPsp,
-    IPspAdapterFactory adapterFactory) : IAdminPaymentSessionReader, IAdminPaymentRoutingSelector
+    IEffectivePaymentCapabilityResolver capabilities) : IAdminPaymentSessionReader, IPaymentRouteSelector
 {
     public async Task<AdminPaymentSessionResource?> ResolveAsync(
         Guid paymentSessionId,
@@ -28,7 +37,7 @@ internal sealed class AdminPaymentSessionReader(
         return row is not null && (unrestricted || accessibleMerchantIds.Contains(row.MerchantId)) ? row : null;
     }
 
-    public async Task<Code> SelectAsync(
+    public async Task<PspRouteSelection> SelectAsync(
         Guid merchantId, Guid orderId, string method, CancellationToken cancellationToken)
     {
         method = PaymentMethods.Normalize(method);
@@ -36,12 +45,20 @@ internal sealed class AdminPaymentSessionReader(
             .SingleOrDefaultAsync(x => x.Id == orderId && x.MerchantId == merchantId, ct), cancellationToken)
             ?? throw new NotFoundException("Order was not found.");
 
+        var merchantEnvironment = await PlatformReadGuard.ReadAsync(ct => db.Merchants.IgnoreQueryFilters()
+            .AsNoTracking().Where(x => x.Id == merchantId).Select(x => (PspEnvironment?)x.PaymentEnvironment)
+            .SingleOrDefaultAsync(ct), cancellationToken)
+            ?? throw new NotFoundException("Merchant was not found.");
+
         var active = await PlatformReadGuard.ReadAsync(ct => db.RoutingRulesets.IgnoreQueryFilters().AsNoTracking()
             .Include(x => x.Rules)
             .SingleOrDefaultAsync(x => x.MerchantId == merchantId && x.Status == RoutingRulesetStatus.Active, ct),
             cancellationToken);
+
+        // REQ-6.18: no active ruleset covering the method is a refusal, never a deployment default.
         if (active is null)
-            return await SelectDefaultAsync(merchantId, method, cancellationToken);
+            throw new ConflictException(
+                "No active routing rule can serve this payment.", "routing_unavailable");
 
         var matching = active.Rules.Where(x => x.Enabled
                 && (x.Method == "any" || x.Method == method)
@@ -50,42 +67,52 @@ internal sealed class AdminPaymentSessionReader(
                 && (x.MaxAmount == null || order.Amount.Amount <= x.MaxAmount))
             .OrderBy(x => x.Priority)
             .ToArray();
+
+        // Primary first, then fallback, in priority order — the fallback is used ONLY here, before any PSP
+        // call. Once a charge request is in flight there is no failover (REQ-6.10, handled at StartRedirect).
         foreach (var rule in matching)
         {
-            foreach (var id in new Guid?[] { rule.TargetConnectionId, rule.FallbackConnectionId })
+            foreach (var id in new[] { rule.TargetConnectionId, rule.FallbackConnectionId })
             {
-                if (id is null)
+                if (id is not { } connectionId)
                     continue;
-                var connection = await PlatformReadGuard.ReadAsync(ct => db.Set<Connection>().IgnoreQueryFilters().AsNoTracking()
-                    .SingleOrDefaultAsync(x => x.Id == id && x.MerchantId == merchantId, ct), cancellationToken);
-                if (connection is not null && Eligible(connection, method))
-                    return connection.Psp;
+                var connection = await PlatformReadGuard.ReadAsync(ct => db.Set<Connection>().IgnoreQueryFilters()
+                    .AsNoTracking().SingleOrDefaultAsync(x => x.Id == connectionId && x.MerchantId == merchantId, ct),
+                    cancellationToken);
+                if (connection is not null
+                    && await EligibleAsync(connection, method, merchantEnvironment, cancellationToken))
+                    return new PspRouteSelection(
+                        connection.Id, connection.Psp, connection.ActiveSecretVersionId!.Value,
+                        connection.ActiveSecretEnvironment);
             }
         }
 
-        throw new ConflictException("No active routing rule can serve this payment.", "routing_unavailable");
+        throw new ConflictException(
+            "No active routing rule can serve this payment.", "routing_unavailable");
     }
 
-    private async Task<Code> SelectDefaultAsync(
-        Guid merchantId, string method, CancellationToken cancellationToken)
+    /// <summary>
+    /// Local, PSP-free eligibility (REQ-6.14-6.16): the connection is enabled (REQ-3.5), holds a credential
+    /// reference and its active credential's environment matches the merchant's, and the method is enabled at
+    /// BOTH the provider account and the merchant policy (REQ-5.15) — the last decided by the shared
+    /// capability resolver, whose <c>QualifyingAccountId</c> is this connection. Never touches health
+    /// (REQ-6.15) and never probes the PSP (REQ-6.16).
+    /// </summary>
+    private async Task<bool> EligibleAsync(
+        Connection connection, string method, PspEnvironment merchantEnvironment, CancellationToken ct)
     {
-        var connection = await PlatformReadGuard.ReadAsync(ct => db.Set<Connection>().IgnoreQueryFilters().AsNoTracking()
-            .SingleOrDefaultAsync(x => x.MerchantId == merchantId && x.Psp == defaultPsp.Psp, ct), cancellationToken);
-        if (connection is null || !Eligible(connection, method))
-            throw new ConflictException("Default PSP routing is unavailable.", "routing_unavailable");
-        return connection.Psp;
-    }
-
-    private bool Eligible(Connection connection, string method)
-    {
-        try
-        {
-            connection.EnsureEligible(method);
-            return adapterFactory.For(connection.Psp).SupportedMethods.Contains(method);
-        }
-        catch (InvalidOperationException)
-        {
+        if (!connection.IsEnabled)
             return false;
-        }
+        if (connection.ActiveSecretVersionId is null)
+            return false;
+        if (connection.ActiveSecretEnvironment != merchantEnvironment)
+            return false;
+
+        var decision = await capabilities.ResolveMethodAsync(
+            new ResolvePaymentMethod(
+                new PaymentCapabilitySubject(connection.MerchantId, PaymentAudience.PlatformAdmin, null),
+                method, connection.Psp.ToCode()),
+            ct);
+        return decision.Allowed && decision.QualifyingAccountId == connection.Id;
     }
 }

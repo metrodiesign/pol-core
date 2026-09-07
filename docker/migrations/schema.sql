@@ -5354,6 +5354,277 @@ GO
 BEGIN TRANSACTION;
 IF NOT EXISTS (
     SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906121417_MerchantPspSecurityFoundation'
+)
+BEGIN
+    CREATE TABLE [txn].[ApprovalExecutionRecords] (
+        [EventId] uniqueidentifier NOT NULL,
+        [ApprovalId] uniqueidentifier NOT NULL,
+        [MerchantId] uniqueidentifier NOT NULL,
+        [TargetType] nvarchar(64) NOT NULL,
+        [TargetId] nvarchar(200) NOT NULL,
+        [Decision] nvarchar(16) NOT NULL,
+        [State] int NOT NULL,
+        [Outcome] nvarchar(120) NULL,
+        [CreatedAt] datetime2 NOT NULL,
+        [CompletedAt] datetime2 NULL,
+        CONSTRAINT [PK_ApprovalExecutionRecords] PRIMARY KEY ([EventId])
+    );
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906121417_MerchantPspSecurityFoundation'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_ApprovalExecutionRecords_ApprovalId] ON [txn].[ApprovalExecutionRecords] ([ApprovalId]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906121417_MerchantPspSecurityFoundation'
+)
+BEGIN
+    CREATE INDEX [IX_ApprovalExecutionRecords_MerchantId_CreatedAt] ON [txn].[ApprovalExecutionRecords] ([MerchantId], [CreatedAt]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906121417_MerchantPspSecurityFoundation'
+)
+BEGIN
+    GRANT SELECT, INSERT ON txn.ApprovalExecutionRecords TO pol_app;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906121417_MerchantPspSecurityFoundation'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260906121417_MerchantPspSecurityFoundation', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [ActiveSecretEnvironment] int NOT NULL DEFAULT 1;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [PendingSecretEnvironment] int NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [PendingSecretTestResult] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [PendingSecretTestedAt] datetime2 NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [WebhookRegisteredAt] datetime2 NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [WebhookRegisteredBy] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [txn].[PspConnections] ADD [WebhookRegistrationHash] nchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [merch].[Merchants] ADD [PaymentEnvironment] int NOT NULL DEFAULT 1;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [merch].[Merchants] ADD [PaymentEnvironmentUpdatedAt] datetime2 NOT NULL DEFAULT (SYSUTCDATETIME());
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    UPDATE merch.Merchants SET PaymentEnvironmentUpdatedAt = CreatedAt;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [merch].[Merchants] ADD [PendingPaymentEnvironment] int NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    ALTER TABLE [merch].[Merchants] ADD [PendingPaymentEnvironmentApprovalId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [merch].[Merchants] ADD CONSTRAINT [CK_Merchants_PendingPaymentEnvironment] CHECK (([PendingPaymentEnvironment] IS NULL AND [PendingPaymentEnvironmentApprovalId] IS NULL) OR ([PendingPaymentEnvironment] IS NOT NULL AND [PendingPaymentEnvironmentApprovalId] IS NOT NULL))');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906123608_MerchantPaymentEnvironment'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260906123608_MerchantPaymentEnvironment', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [PspConnectionId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [PspEnvironment] int NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [RoutingSnapshotVersion] tinyint NOT NULL DEFAULT CAST(0 AS tinyint);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    ALTER TABLE [txn].[PaymentSessions] ADD [SecretVersionId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [txn].[PaymentSessions] ADD CONSTRAINT [CK_PaymentSessions_RoutingSnapshotV1] CHECK ([RoutingSnapshotVersion] <> 1 OR ([PspConnectionId] IS NOT NULL AND [SecretVersionId] IS NOT NULL AND [PspEnvironment] IS NOT NULL))');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260906143227_PaymentSessionRoutingSnapshot'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260906143227_PaymentSessionRoutingSnapshot', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
     WHERE [MigrationId] = N'20260906151900_SharedRoleScope'
 )
 BEGIN
@@ -5399,6 +5670,88 @@ IF NOT EXISTS (
 BEGIN
     INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20260906151900_SharedRoleScope', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    DECLARE @var13 nvarchar(max);
+    SELECT @var13 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[txn].[InboundWebhookEvents]') AND [c].[name] = N'SignatureValid');
+    IF @var13 IS NOT NULL EXEC(N'ALTER TABLE [txn].[InboundWebhookEvents] DROP CONSTRAINT ' + @var13 + ';');
+    ALTER TABLE [txn].[InboundWebhookEvents] ALTER COLUMN [SignatureValid] bit NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    ALTER TABLE [txn].[InboundWebhookEvents] ADD [ExternalChargeId] varchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    ALTER TABLE [txn].[InboundWebhookEvents] ADD [VerificationMode] int NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    CREATE INDEX [IX_InboundWebhookEvents_PspConnectionId_ExternalChargeId_Status] ON [txn].[InboundWebhookEvents] ([PspConnectionId], [ExternalChargeId], [Status]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907023022_InboundWebhookPendingMatch'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260907023022_InboundWebhookPendingMatch', N'10.0.8');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907033444_LegacyVaultExpiryRemediation'
+)
+BEGIN
+    UPDATE [merch].[VaultSecretVersions] SET [ExpiresAt] = NULL WHERE [State] IN (2, 3) AND [ExpiresAt] IS NOT NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260907033444_LegacyVaultExpiryRemediation'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260907033444_LegacyVaultExpiryRemediation', N'10.0.8');
 END;
 
 COMMIT;

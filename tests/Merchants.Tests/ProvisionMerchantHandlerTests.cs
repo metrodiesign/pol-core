@@ -5,6 +5,7 @@ using Payments.Domain.Psp;
 using Payments.Infrastructure.Psp;
 using Merchants.Application.ProvisionMerchant;
 using Merchants.Domain;
+using SharedKernel;
 
 namespace Merchants.Tests;
 
@@ -50,11 +51,12 @@ public sealed class ProvisionMerchantHandlerTests
         public Code Psp { get; } = psp;
         public IReadOnlySet<string> SupportedMethods { get; } = methods.ToHashSet(StringComparer.Ordinal);
         public Task<PspCharge> CreateRedirectChargeAsync(
-            Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken) =>
+            Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken) =>
             throw new NotSupportedException();
         public bool VerifyWebhook(string rawPayload, string signature, string secret) => false;
         public Task<PspChargeConfirmation> FetchChargeAsync(
-            string externalChargeId, string secret, CancellationToken cancellationToken) =>
+            string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
         public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }

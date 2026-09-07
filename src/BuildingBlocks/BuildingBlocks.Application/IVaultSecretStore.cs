@@ -50,4 +50,10 @@ public interface IVaultSecretStore
         Task.FromException(new NotSupportedException("Versioned vault storage is not implemented."));
     Task<string?> MaskedVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
         Task.FromException<string?>(new NotSupportedException("Versioned vault storage is not implemented."));
+
+    /// <summary>The expiry of a STAGED candidate version, or null when the version is not staged (active or
+    /// retired versions never expire) or does not exist. The credential-rotation executor reads this to fail an
+    /// approval whose candidate outlived its 24h window (REQ-8, candidate expiry) rather than blaming the probe.</summary>
+    Task<DateTime?> StagedVersionExpiresAtAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        Task.FromException<DateTime?>(new NotSupportedException("Versioned vault storage is not implemented."));
 }

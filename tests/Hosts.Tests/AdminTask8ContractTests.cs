@@ -53,6 +53,9 @@ public sealed class AdminTask8ContractTests
         AssertNoProperties<ApiClientView>("Secret", "SecretHash", "Ticket", "Credential");
         AssertNoProperties<WebhookEndpointView>("SigningSecret", "Secret", "ProtectedSecret");
         AssertNoProperties<InboundWebhookEventView>("RawPayload", "Payload", "Signature", "Headers");
+        // merchant-psp-settings AC-8.6: the rematch outbox events carry bounded references only.
+        AssertNoProperties<Contracts.InboundWebhookMatchRequested>("RawPayload", "Payload", "Signature", "Secret", "Headers");
+        AssertNoProperties<Contracts.PspChargeBound>("RawPayload", "Payload", "Signature", "Secret", "Headers");
     }
 
     private static void AssertNoProperties<T>(params string[] forbidden)

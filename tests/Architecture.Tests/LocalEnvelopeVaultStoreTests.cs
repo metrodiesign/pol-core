@@ -166,6 +166,65 @@ public sealed class LocalEnvelopeVaultStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Expired_staged_version_is_not_readable()
+    {
+        var keyring = SingleKeyring(RandomKey());
+        await using var db = NewContext();
+        var store = NewStore(db, new FixedClock(Now), keyring);
+        var versionId = await store.StageVersionAsync(
+            Merchant, "candidate", "staged-secret", "****cret", Now.AddMinutes(-1), default);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.ReadVersionForServerAsync(Merchant, versionId, default));
+    }
+
+    [Fact]
+    public async Task Activation_clears_expiry_and_active_then_retired_version_remains_readable()
+    {
+        var keyring = SingleKeyring(RandomKey());
+        await using var db = NewContext();
+        var store = NewStore(db, new FixedClock(Now), keyring);
+        var versionId = await store.StageVersionAsync(
+            Merchant, "approved", "approved-secret", "****cret", Now.AddHours(24), default);
+        await store.ActivateVersionAsync(Merchant, versionId, default);
+        await db.SaveChangesAsync();
+
+        var active = await db.VaultSecretVersions.AsNoTracking().SingleAsync(x => x.Id == versionId);
+        Assert.Null(active.ExpiresAt);
+        Assert.Equal("approved-secret", await NewStore(db, new FixedClock(Now.AddDays(2)), keyring)
+            .ReadVersionForServerAsync(Merchant, versionId, default));
+
+        await store.RetireVersionAsync(Merchant, versionId, default);
+        await db.SaveChangesAsync();
+        Assert.Equal("approved-secret", await NewStore(db, new FixedClock(Now.AddDays(3)), keyring)
+            .ReadVersionForServerAsync(Merchant, versionId, default));
+    }
+
+    [Fact]
+    public async Task Legacy_retired_version_with_past_expiry_remains_readable_but_discarded_does_not()
+    {
+        var keyring = SingleKeyring(RandomKey());
+        await using var db = NewContext();
+        var store = NewStore(db, new FixedClock(Now), keyring);
+        var retiredId = await store.StageVersionAsync(
+            Merchant, "legacy", "legacy-secret", "****cret", Now.AddHours(24), default);
+        await store.ActivateVersionAsync(Merchant, retiredId, default);
+        await store.RetireVersionAsync(Merchant, retiredId, default);
+        var discardedId = await store.StageVersionAsync(
+            Merchant, "discarded", "discarded-secret", "****cret", Now.AddHours(24), default);
+        await store.DiscardVersionAsync(Merchant, discardedId, default);
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE VaultSecretVersions SET ExpiresAt = {Now.AddDays(-1)} WHERE Id = {retiredId}");
+
+        Assert.Equal("legacy-secret", await NewStore(db, new FixedClock(Now.AddDays(2)), keyring)
+            .ReadVersionForServerAsync(Merchant, retiredId, default));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.ReadVersionForServerAsync(Merchant, discardedId, default));
+    }
+
+    [Fact]
     public async Task A_blob_written_under_an_old_key_id_still_reveals_after_the_active_key_rolls()
     {
         var oldKey = RandomKey();

@@ -27,8 +27,18 @@ public sealed class StartRedirectHandlerTests
 
     private const string SecretRef = "psp/secret-ref/merchant-1";
 
-    private static Connection NewConnection(string enabledMethods = "card,promptpay") =>
-        Connection.Create(MerchantId, Code.TwoCTwoP, enabledMethods, SecretRef, Now);
+    // The routing snapshot every session here pins, and the connection every harness holds, share this id so
+    // start-redirect resolves the pinned connection (REQ-2.8): a connection with a random id would 404 the
+    // pinned lookup. The connection id is forced with the same reflection the Disabled helper uses.
+    private static readonly Guid ConnectionId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    private static readonly Guid SecretVersionId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+
+    private static Connection NewConnection(string enabledMethods = "card,promptpay")
+    {
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, enabledMethods, SecretRef, Now);
+        typeof(Connection).GetProperty(nameof(Connection.Id))!.SetValue(connection, ConnectionId);
+        return connection;
+    }
 
     /// <summary>Reproduces a connection an admin turned off the only way that state exists in production (EF
     /// materialising such a row) — see ConnectionEligibilityTests; Connection has no Disable().</summary>
@@ -39,7 +49,7 @@ public sealed class StartRedirectHandlerTests
     }
 
     private static Session CreatedSession(string method = PaymentMethods.Card) =>
-        Session.Create(MerchantId, OrderId, OrderAmount, method, Code.TwoCTwoP, Now);
+        Session.Create(MerchantId, OrderId, OrderAmount, method, Code.TwoCTwoP, ConnectionId, SecretVersionId, PspEnvironment.Sandbox, Now);
 
     private sealed record Harness(
         StartRedirectHandler Handler,
@@ -93,7 +103,8 @@ public sealed class StartRedirectHandlerTests
             confirmation,
             orders,
             new FakePaymentAuthorizationLocks(),
-            capabilities);
+            capabilities,
+            new FakeOutbox());
 
         return new Harness(handler, target, vault, unitOfWork, capabilities);
     }
@@ -185,8 +196,10 @@ public sealed class StartRedirectHandlerTests
     {
         var harness = NewHarness(connections: [Disabled(NewConnection())]);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await harness.Start());
+        // AC-4.6 / design 826: the pre-claim eligibility recheck surfaces as 409 payment_capability_unavailable.
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () => await harness.Start());
 
+        Assert.Equal("payment_capability_unavailable", ex.Code);
         Assert.Contains("disabled", ex.Message, StringComparison.Ordinal);
         AssertNothingWasClaimed(harness);
     }
@@ -198,8 +211,10 @@ public sealed class StartRedirectHandlerTests
         // the recheck this session would still reach the PSP on a channel the company no longer enables.
         var harness = NewHarness(connections: [NewConnection(enabledMethods: PaymentMethods.PromptPay)]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await harness.Start());
+        // AC-4.6 / design 826: a method the pinned connection no longer enables is 409 payment_capability_unavailable.
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () => await harness.Start());
 
+        Assert.Equal("payment_capability_unavailable", ex.Code);
         AssertNothingWasClaimed(harness);
     }
 
@@ -336,8 +351,6 @@ public sealed class StartRedirectHandlerTests
                 OrderId, OrderAmount, PayableOrderStatus.Pending, PaymentChannel: PaymentMethods.Card,
                 MerchantId: MerchantId, InitiatingAudience: Payments.Application.Capabilities.PaymentAudience.User,
                 InitiatingMerchantUserId: Guid.NewGuid())),
-            connections,
-            adapters,
             sessions,
             new PaymentConfirmationService(
                 connections,
@@ -352,7 +365,8 @@ public sealed class StartRedirectHandlerTests
             unitOfWork,
             clock,
             new FakePaymentAuthorizationLocks(),
-            new FakeEffectivePaymentCapabilities());
+            new FakeEffectivePaymentCapabilities(),
+            new FakePaymentRouteSelector { ConnectionId = ConnectionId });
         var redirectVault = new FakeVaultSecretStore();
         var redirectConfirmation = new PaymentConfirmationService(
             connections,
@@ -369,9 +383,9 @@ public sealed class StartRedirectHandlerTests
                 OrderId, OrderAmount, PayableOrderStatus.Pending, PaymentSessionId: null,
                 PaymentChannel: PaymentMethods.Card, MerchantId: MerchantId,
                 InitiatingAudience: PaymentAudience.User, InitiatingMerchantUserId: Guid.NewGuid())),
-            new FakePaymentAuthorizationLocks(), new FakeEffectivePaymentCapabilities());
+            new FakePaymentAuthorizationLocks(), new FakeEffectivePaymentCapabilities(), new FakeOutbox());
 
-        var command = new CreateSessionCommand(OrderId, MerchantId, PaymentMethods.Card, Code.TwoCTwoP);
+        var command = new CreateSessionCommand(OrderId, MerchantId, PaymentMethods.Card);
         var first = await create.Handle(command, default);
 
         await Assert.ThrowsAsync<PspRejectedException>(async () =>
@@ -413,6 +427,27 @@ public sealed class StartRedirectHandlerTests
             Assert.Null(harness.Session.RedirectUrl);
             Assert.Equal(1, harness.UnitOfWork.SaveCount); // the claim only — no Failed transition was written
         }
+    }
+
+    [Fact]
+    public async Task A_timeout_after_the_PSP_call_keeps_the_pinned_connection_and_never_fails_over()
+    {
+        // AC-4.5 / REQ-6.10: primary/fallback selection happens ONCE, before create — start-redirect drives
+        // only the session's pinned connection. An ambiguous timeout leaves the claim standing on the SAME
+        // PSP; there is no fallback path here, so the charge is attempted exactly once and the PSP is never
+        // switched. A re-selection now would carry a new idempotency key at the PSP — a second charge.
+        var attempts = 0;
+        var harness = NewHarness(onCharge: _ =>
+        {
+            attempts++;
+            throw new TaskCanceledException("The request was canceled due to a timeout.");
+        });
+
+        await Assert.ThrowsAsync<TaskCanceledException>(async () => await harness.Start());
+
+        Assert.Equal(1, attempts); // one charge attempt only — no failover to another connection
+        Assert.Equal(Code.TwoCTwoP, harness.Session.Psp); // the pinned PSP is unchanged
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status); // claim intact
     }
 
     [Fact]

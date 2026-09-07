@@ -16,6 +16,8 @@ using Payments.Domain.Capabilities;
 using Payments.Domain.Psp;
 using Payments.Domain.Routing;
 using Persistence.MerchantRuntime.Payments.Capabilities;
+using SharedKernel;
+using Merchant = Merchants.Domain.Merchant;
 
 namespace Persistence.MerchantRuntime.Payments;
 
@@ -26,15 +28,28 @@ internal sealed class AdminPaymentsControlStore(
     IVaultSecretStore vault,
     IPspSecretEnvelopeFactory envelopeFactory,
     IPspAdapterFactory adapterFactory,
+    IMerchantRuntimeAuthorizationLease authorizationLease,
     PaymentAuthorizationSqlLockManager? authorizationLocks = null,
     IEffectivePaymentCapabilityResolver? effectiveResolver = null)
-    : IAdminPaymentsControlStore, IAccountPaymentCapabilityControlStore
+    : IAdminPaymentsControlStore, IAccountPaymentCapabilityControlStore, ISimpleRoutingControlStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private PaymentAuthorizationSqlLockManager AuthorizationLocks { get; } =
         authorizationLocks ?? new PaymentAuthorizationSqlLockManager(db);
     private IEffectivePaymentCapabilityResolver EffectiveResolver => effectiveResolver
         ?? new EffectivePaymentCapabilityResolver(db, unitOfWork, AuthorizationLocks, adapterFactory);
+
+    public async Task<MerchantPaymentSettingsView?> GetMerchantPaymentSettingsAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        if (!await MerchantExistsForAccessAsync(merchantId, access, cancellationToken))
+            return null;
+        var merchant = await PlatformReadGuard.ReadAsync(ct => db.Merchants.IgnoreQueryFilters().AsNoTracking()
+            .SingleAsync(x => x.Id == merchantId, ct), cancellationToken);
+        return new MerchantPaymentSettingsView(
+            merchant.Id, merchant.PaymentEnvironment.ToCode(), merchant.PendingPaymentEnvironment?.ToCode(),
+            merchant.PendingPaymentEnvironmentApprovalId, merchant.PaymentEnvironmentUpdatedAt, merchant.Version);
+    }
 
     public async Task<PagedResult<PspConnectionView>> ListConnectionsAsync(
         PspConnectionQuery query, CancellationToken cancellationToken)
@@ -148,6 +163,7 @@ internal sealed class AdminPaymentsControlStore(
             if (prior is not null)
                 return new PaymentCapabilityMutationResult<AccountPaymentCapabilityView>(
                     Replay<AccountPaymentCapabilityView>(prior), true);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
 
             var connection = await LoadConnectionAsync(intent.PspConnectionId, snapshot.MerchantId, ct);
             var provider = await LoadProviderAsync(connection.Psp, ct);
@@ -204,6 +220,7 @@ internal sealed class AdminPaymentsControlStore(
             if (prior is not null)
                 return new PaymentCapabilityMutationResult<AccountPaymentCapabilityView>(
                     Replay<AccountPaymentCapabilityView>(prior), true);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
 
             var connection = await LoadConnectionAsync(intent.PspConnectionId, snapshot.MerchantId, ct);
             var provider = await LoadProviderAsync(connection.Psp, ct);
@@ -271,10 +288,10 @@ internal sealed class AdminPaymentsControlStore(
         var row = await PlatformReadGuard.ReadAsync(ct => db.MerchantPaymentMethods
             .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
                 x.MerchantId == merchantId && x.PaymentMethodId == MethodId(code), ct), cancellationToken);
-        var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+        var decision = await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
             new PaymentCapabilitySubject(merchantId, PaymentAudience.PlatformAdmin, null), code, null),
-            cancellationToken)).Allowed;
-        return MerchantPolicyView(merchantId, code, row, effective);
+            cancellationToken);
+        return MerchantPolicyView(merchantId, code, row, decision);
     }
 
     public Task<PaymentCapabilityMutationResult<MerchantPaymentMethodView>> SetMerchantMethodAsync(
@@ -296,6 +313,7 @@ internal sealed class AdminPaymentsControlStore(
             if (prior is not null)
                 return new PaymentCapabilityMutationResult<MerchantPaymentMethodView>(
                     Replay<MerchantPaymentMethodView>(prior), true);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
 
             var row = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
                 .IgnoreQueryFilters().SingleOrDefaultAsync(x => x.MerchantId == intent.MerchantId
@@ -323,10 +341,10 @@ internal sealed class AdminPaymentsControlStore(
             await ProjectMerchantMethodsAsync(
                 intent.MerchantId, method, intent.Enabled, ct);
             await unitOfWork.SaveChangesAsync(ct);
-            var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+            var decision = await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
                 new PaymentCapabilitySubject(intent.MerchantId, PaymentAudience.PlatformAdmin, null), method, null),
-                ct)).Allowed;
-            var view = MerchantPolicyView(intent.MerchantId, method, row, effective);
+                ct);
+            var view = MerchantPolicyView(intent.MerchantId, method, row, decision);
             var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
                 "payment.merchant-method.set", intent.IdempotencyKey, intentHash);
             operation.Succeed(200, JsonSerializer.Serialize(view, Json), $"{intent.MerchantId:D}:{method}");
@@ -395,6 +413,7 @@ internal sealed class AdminPaymentsControlStore(
             if (prior is not null)
                 return new PaymentCapabilityMutationResult<MerchantUserPaymentMethodView>(
                     Replay<MerchantUserPaymentMethodView>(prior), true);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
 
             var row = await PlatformReadGuard.ReadAsync(token => db.MerchantUserPaymentMethods
                 .IgnoreQueryFilters().SingleOrDefaultAsync(x => x.MerchantId == intent.MerchantId
@@ -467,11 +486,14 @@ internal sealed class AdminPaymentsControlStore(
         {
             EnsureAccess(intent.Access, intent.MerchantId);
             await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
-            await EnsureMerchantExistsAsync(intent.MerchantId, ct);
+            var merchant = await LoadMerchantAsync(intent.MerchantId, ct);
+            var environment = merchant.PaymentEnvironment;
             var psp = ParsePsp(intent.Psp);
             var methods = ValidateMethods(psp, intent.EnabledMethods);
             var provider = await LoadProviderAsync(psp, ct);
             ValidateConfig(intent.Config);
+            // Allowlist/size/prefix checks run BEFORE the envelope is built and before any vault write (REQ-4.7-4.11).
+            ValidateSecretFields(psp, intent.Secrets, intent.PspMerchantId, environment);
             var envelope = envelopeFactory.Build(new PspSecretInput(psp, intent.Secrets, intent.PspMerchantId));
             var intentHash = Hash(new
             {
@@ -486,16 +508,23 @@ internal sealed class AdminPaymentsControlStore(
                 "psp.create", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return new PspConnectionMutationResult(await ReplayConnectionAsync(prior, ct), true);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            // One record per (MerchantId, Psp) regardless of enabled state: re-enable the existing one
+            // instead of creating a twin (REQ-3.1/3.7/3.9). Checked here for a named 409; the unique index
+            // stays as the floor.
+            if (await PlatformReadGuard.ReadAsync(token => db.PspConnections.IgnoreQueryFilters()
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.Psp == psp, token), ct))
+                throw new ConflictException("A PSP connection for this provider already exists.", "psp_connection_exists");
 
             var connection = Connection.Create(intent.MerchantId, psp, string.Join(',', methods),
                 $"psp-connection-{Guid.CreateVersion7():N}", clock.UtcNow,
-                ConnectionMetadata(intent.PspMerchantId, intent.Config, envelope.Hints));
+                ConnectionMetadata(intent.PspMerchantId, intent.Config, envelope.Hints), environment);
             connection.BindPaymentProvider(provider.PaymentProviderId);
             var secretName = $"psp-connection-{connection.Id:N}";
             var candidate = await vault.StageVersionAsync(intent.MerchantId, secretName,
                 envelope.EnvelopeJson, JsonSerializer.Serialize(envelope.Hints, Json), null, ct);
             await vault.ActivateVersionAsync(intent.MerchantId, candidate, ct);
-            connection.SetInitialSecretVersion(candidate);
+            connection.SetInitialSecretVersion(candidate, environment);
             db.PspConnections.Add(connection);
             await SyncAccountMethodsAsync(connection, provider, methods, intent.Access.ActorId, ct);
             var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
@@ -528,6 +557,7 @@ internal sealed class AdminPaymentsControlStore(
                 "psp.update", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return new PspConnectionMutationResult(await ReplayConnectionAsync(prior, ct), true);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
             EnsureVersion(connection.Version, intent.ExpectedVersion);
 
             var provider = await LoadProviderAsync(connection.Psp, ct);
@@ -571,7 +601,8 @@ internal sealed class AdminPaymentsControlStore(
             var secret = snapshot.ActiveSecretVersionId is { } versionId
                 ? await vault.ReadVersionForServerAsync(intent.MerchantId, versionId, cancellationToken)
                 : await vault.RevealAsync(intent.MerchantId, snapshot.SecretRefName, cancellationToken);
-            await adapterFactory.For(snapshot.Psp).TestConnectionAsync(secret, cancellationToken);
+            await adapterFactory.For(snapshot.Psp).TestConnectionAsync(
+                secret, snapshot.ActiveSecretEnvironment, cancellationToken);
             succeeded = true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -579,14 +610,20 @@ internal sealed class AdminPaymentsControlStore(
             succeeded = false;
         }
 
-        var current = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, cancellationToken);
-        EnsureVersion(current.Version, intent.ExpectedVersion);
-        current.RecordTest(succeeded, succeeded ? "authenticated" : "probe_failed", clock.UtcNow);
-        var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
-            "psp.test", intent.IdempotencyKey, intentHash);
-        var view = await ProjectConnectionAsync(current, cancellationToken);
-        operation.Succeed(succeeded ? 200 : 502, JsonSerializer.Serialize(view, Json), current.Id.ToString("D"));
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        var view = await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            var current = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, ct);
+            EnsureVersion(current.Version, intent.ExpectedVersion);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            current.RecordTest(succeeded, succeeded ? "authenticated" : "probe_failed", clock.UtcNow);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "psp.test", intent.IdempotencyKey, intentHash);
+            var result = await ProjectConnectionAsync(current, ct);
+            operation.Succeed(succeeded ? 200 : 502, JsonSerializer.Serialize(result, Json), current.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return result;
+        }, cancellationToken);
         if (!succeeded)
             throw new PspConnectionTestFailedException(view);
         return new PspConnectionMutationResult(view, false);
@@ -597,7 +634,13 @@ internal sealed class AdminPaymentsControlStore(
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
             var connection = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, ct);
+            var merchant = await LoadMerchantAsync(intent.MerchantId, ct);
+            // A rotation targets the merchant's CURRENT environment; switching environments is task 7's
+            // environment-change request, which stages every connection at once (REQ-2.11/2.16).
+            var environment = merchant.PaymentEnvironment;
+            ValidateSecretFields(connection.Psp, intent.Secrets, intent.PspMerchantId, environment);
             var envelope = envelopeFactory.Build(new PspSecretInput(connection.Psp, intent.Secrets, intent.PspMerchantId));
             var intentHash = Hash(new
             {
@@ -611,6 +654,22 @@ internal sealed class AdminPaymentsControlStore(
                 "psp.credential-change", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return Replay<PspCredentialChangeResult>(prior);
+            // A single-connection rotation cannot start while another approval already owns this connection's
+            // credential (AC-6.1) or while a merchant-wide environment change is pending (AC-7.6 coupling): the
+            // environment switch stages every connection, so a lone credential change would race it. Guard state
+            // BEFORE the ETag check so a caller holding a fresh ETag still sees approval_pending, not state_conflict.
+            if (connection.PendingApprovalId is not null)
+                throw new ConflictException("A credential change is already pending for this connection.", "approval_pending");
+            if (merchant.PendingPaymentEnvironmentApprovalId is not null)
+                throw new ConflictException("A payment environment change is pending for this merchant.", "approval_pending");
+            // A merchant with an unresolved legacy Session (snapshot version 0, a historical charge whose
+            // pinned secret has not been proven) is blocked from activating a new credential too, not only an
+            // environment switch (AC-9.3) — task 9 remediation must clear it first (critical #12).
+            if (await PlatformReadGuard.ReadAsync(token => db.PaymentSessions.IgnoreQueryFilters()
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0 && x.PspExternalChargeId != null, token), ct))
+                throw new ConflictException(
+                    "The merchant has an unresolved legacy payment session that must be remediated first.", "legacy_snapshot_blocked");
+            await authorizationLease.VerifyAsync(intent.Access, ct);
             EnsureVersion(connection.Version, intent.ExpectedVersion);
 
             var secretName = $"psp-connection-{connection.Id:N}";
@@ -618,7 +677,7 @@ internal sealed class AdminPaymentsControlStore(
                 envelope.EnvelopeJson, JsonSerializer.Serialize(envelope.Hints, Json),
                 clock.UtcNow.AddHours(24), ct);
             var approvalId = Guid.CreateVersion7();
-            connection.StageSecretVersion(candidate, approvalId);
+            connection.StageSecretVersion(candidate, approvalId, environment);
             var targetVersion = $"v{connection.Version}";
             var result = new PspCredentialChangeResult(approvalId, candidate, "pending", false);
             var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
@@ -628,6 +687,179 @@ internal sealed class AdminPaymentsControlStore(
                 Guid.CreateVersion7(), approvalId, "merchant", intent.MerchantId,
                 "psp.credential.change", "settings.manage", intent.Access.ActorId,
                 "psp-credential-version", connection.Id.ToString("D"), targetVersion,
+                intent.CorrelationId, clock.UtcNow));
+            await unitOfWork.SaveChangesAsync(ct);
+            return result;
+        }, cancellationToken);
+
+    public async Task<PspConnectionMutationResult> TestCandidateCredentialAsync(
+        TestPspCandidateCredentialIntent intent, CancellationToken cancellationToken)
+    {
+        EnsureAccess(intent.Access, intent.MerchantId);
+        var intentHash = Hash(new { intent.ConnectionId, intent.MerchantId, intent.ApprovalId, intent.ExpectedVersion });
+        var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+            "psp.credential-test", intent.IdempotencyKey, intentHash, cancellationToken);
+        if (prior is not null)
+        {
+            var replay = await ReplayConnectionAsync(prior, cancellationToken);
+            if (prior.HttpStatus == 502)
+                throw new PspConnectionTestFailedException(replay);
+            return new PspConnectionMutationResult(replay, true);
+        }
+
+        var snapshot = await PlatformReadGuard.ReadAsync(ct => db.PspConnections.IgnoreQueryFilters()
+            .AsNoTracking().SingleOrDefaultAsync(
+                x => x.Id == intent.ConnectionId && x.MerchantId == intent.MerchantId, ct), cancellationToken)
+            ?? throw new NotFoundException("PSP connection was not found.");
+        EnsureVersion(snapshot.Version, intent.ExpectedVersion);
+        if (snapshot.PendingApprovalId != intent.ApprovalId || snapshot.PendingSecretVersionId is not { } candidateId)
+            throw new NotFoundException("The credential change request was not found.");
+        var candidateEnvironment = snapshot.PendingSecretEnvironment ?? snapshot.ActiveSecretEnvironment;
+
+        // Probe the STAGED candidate against ITS target environment. Read-only: never activates and never
+        // touches the active credential's health (REQ-7.10). A thrown probe is the only failure signal (a
+        // failure-shaped result would read as authenticated), matching the active-test path.
+        var succeeded = false;
+        try
+        {
+            var secret = await vault.ReadVersionForServerAsync(intent.MerchantId, candidateId, cancellationToken);
+            await adapterFactory.For(snapshot.Psp).TestConnectionAsync(secret, candidateEnvironment, cancellationToken);
+            succeeded = true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            succeeded = false;
+        }
+
+        var view = await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            var current = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, ct);
+            // compare-after-probe (critical #18): any concurrent approve/reject/test bumps Version, so a stale
+            // probe result is discarded rather than written. The pending checks are a defensive echo of that.
+            EnsureVersion(current.Version, intent.ExpectedVersion);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            if (current.PendingApprovalId != intent.ApprovalId || current.PendingSecretVersionId != candidateId)
+                throw new ConcurrencyConflictException("The credential candidate changed during the test.");
+            current.RecordPendingSecretTest(succeeded, clock.UtcNow);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "psp.credential-test", intent.IdempotencyKey, intentHash);
+            var result = await ProjectConnectionAsync(current, ct);
+            operation.Succeed(succeeded ? 200 : 502, JsonSerializer.Serialize(result, Json), current.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return result;
+        }, cancellationToken);
+        if (!succeeded)
+            throw new PspConnectionTestFailedException(view);
+        return new PspConnectionMutationResult(view, false);
+    }
+
+    public Task<EnvironmentChangeResult> RequestEnvironmentChangeAsync(
+        RequestEnvironmentChangeIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            // Unknown environment code is malformed input (400), decided before touching state (REQ-2.6).
+            var target = ParseEnvironment(intent.TargetEnvironment);
+            var merchant = await LoadMerchantForUpdateAsync(intent.MerchantId, ct);
+            if (target == merchant.PaymentEnvironment)
+                throw new InvalidRequestException(
+                    "The merchant already uses the requested payment environment.", "validation_failed");
+
+            var connections = await PlatformReadGuard.ReadAsync(token => db.PspConnections.IgnoreQueryFilters()
+                .Where(x => x.MerchantId == intent.MerchantId).ToListAsync(token), ct);
+
+            // Map the body's credentials to this merchant's connections. A body entry that names an unknown or
+            // out-of-scope connection, or names one twice, is malformed input (400) — checked before any 409.
+            var byId = new Dictionary<Guid, EnvironmentChangeConnectionCredential>();
+            foreach (var entry in intent.Connections)
+            {
+                if (connections.All(c => c.Id != entry.PspConnectionId))
+                    throw new InvalidRequestException(
+                        $"Connection '{entry.PspConnectionId:D}' does not belong to this merchant.", "validation_failed");
+                if (!byId.TryAdd(entry.PspConnectionId, entry))
+                    throw new InvalidRequestException(
+                        $"Connection '{entry.PspConnectionId:D}' appears more than once.", "validation_failed");
+            }
+
+            // Validate every provided credential at the TARGET environment and build its envelope BEFORE any
+            // vault write (REQ-4.7-4.11). Envelopes are kept so a fingerprint feeds the idempotency hash.
+            var staged = new List<(Connection Connection, PspSecretEnvelopeResult Envelope)>();
+            foreach (var connection in connections.OrderBy(c => c.Id))
+            {
+                if (!byId.TryGetValue(connection.Id, out var entry))
+                    continue;
+                ValidateSecretFields(connection.Psp, entry.Secrets, entry.PspMerchantId, target);
+                var envelope = envelopeFactory.Build(new PspSecretInput(connection.Psp, entry.Secrets, entry.PspMerchantId));
+                staged.Add((connection, envelope));
+            }
+
+            var intentHash = Hash(new
+            {
+                intent.MerchantId,
+                target = target.ToCode(),
+                intent.ExpectedVersion,
+                connections = staged.Select(x => new
+                {
+                    connectionId = x.Connection.Id,
+                    secretFingerprint = SecretIntentFingerprint(x.Envelope.EnvelopeJson),
+                }).ToList(),
+            });
+            var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+                "payment.environment-change", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return Replay<EnvironmentChangeResult>(prior);
+
+            // Every connection must be re-credentialed for the target — a partial switch would leave a mixed
+            // sandbox/live state (REQ-2.16). Missing one is a named 409, not a silent partial stage.
+            if (staged.Count != connections.Count)
+                throw new ConflictException(
+                    "Every connection must supply a credential for the target environment.",
+                    "environment_credentials_incomplete");
+            // Omise live requires the admin to confirm the callback URL is registered at the dashboard (REQ-11.2).
+            if (target == PspEnvironment.Live
+                && connections.Any(c => c.Psp == Code.Omise) && !intent.OmiseWebhookRegistered)
+                throw new ConflictException(
+                    "The Omise callback URL must be acknowledged as registered before going live.", "webhook_not_ready");
+            // Guard the pending state BEFORE the ETag so a caller holding a fresh ETag still sees approval_pending,
+            // not state_conflict (precedent: the single-connection credential change).
+            if (merchant.PendingPaymentEnvironmentApprovalId is not null)
+                throw new ConflictException("A payment environment change is already pending for this merchant.", "approval_pending");
+            if (connections.Any(c => c.PendingApprovalId is not null))
+                throw new ConflictException("A credential change is pending for one of this merchant's connections.", "approval_pending");
+            // An unresolved legacy Session (snapshot version 0 — a historical charge whose pinned secret has not
+            // been proven) blocks the switch until task 9 remediation clears it (critical #12).
+            if (await PlatformReadGuard.ReadAsync(token => db.PaymentSessions.IgnoreQueryFilters()
+                    .AnyAsync(x => x.MerchantId == intent.MerchantId && x.RoutingSnapshotVersion == 0 && x.PspExternalChargeId != null, token), ct))
+                throw new ConflictException(
+                    "The merchant has an unresolved legacy payment session that must be remediated first.", "legacy_snapshot_blocked");
+
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            EnsureVersion(merchant.Version, intent.ExpectedVersion);
+
+            var approvalId = Guid.CreateVersion7();
+            foreach (var (connection, envelope) in staged)
+            {
+                var secretName = $"psp-connection-{connection.Id:N}";
+                var candidate = await vault.StageVersionAsync(intent.MerchantId, secretName,
+                    envelope.EnvelopeJson, JsonSerializer.Serialize(envelope.Hints, Json),
+                    clock.UtcNow.AddHours(24), ct);
+                connection.StageSecretVersion(candidate, approvalId, target);
+                if (target == PspEnvironment.Live && connection.Psp == Code.Omise)
+                    connection.AcknowledgeWebhookRegistration(
+                        adapterFactory.For(connection.Psp).CallbackUrlFor(connection.Id), intent.Access.ActorId, clock.UtcNow);
+            }
+            merchant.StagePaymentEnvironment(target, approvalId);
+            var result = new EnvironmentChangeResult(
+                approvalId, intent.MerchantId, target.ToCode(), staged.Count, "pending", false);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "payment.environment-change", intent.IdempotencyKey, intentHash);
+            operation.Succeed(202, JsonSerializer.Serialize(result, Json), approvalId.ToString("D"));
+            EnqueueApproval(new ApprovalRequested(
+                Guid.CreateVersion7(), approvalId, "merchant", intent.MerchantId,
+                "psp.environment.change", "settings.manage", intent.Access.ActorId,
+                "merchant-environment", intent.MerchantId.ToString("D"), $"v{merchant.Version}",
                 intent.CorrelationId, clock.UtcNow));
             await unitOfWork.SaveChangesAsync(ct);
             return result;
@@ -666,53 +898,67 @@ internal sealed class AdminPaymentsControlStore(
         return row is null || !access.Allows(row.MerchantId) ? null : ProjectRuleset(row);
     }
 
-    public async Task<RoutingRulesetView> CreateRulesetAsync(
-        CreateRoutingRulesetIntent intent, CancellationToken cancellationToken)
-    {
-        EnsureAccess(intent.Access, intent.MerchantId);
-        await ValidateRulesAsync(intent.MerchantId, intent.Rules, cancellationToken);
-        var entity = RoutingRuleset.Create(intent.MerchantId, intent.Name, Specs(intent.Rules), clock.UtcNow);
-        db.RoutingRulesets.Add(entity);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return ProjectRuleset(entity);
-    }
+    public Task<RoutingRulesetView> CreateRulesetAsync(
+        CreateRoutingRulesetIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            await ValidateRulesAsync(intent.MerchantId, intent.Rules, ct);
+            var entity = RoutingRuleset.Create(intent.MerchantId, intent.Name, Specs(intent.Rules), clock.UtcNow);
+            db.RoutingRulesets.Add(entity);
+            await unitOfWork.SaveChangesAsync(ct);
+            return ProjectRuleset(entity);
+        }, cancellationToken);
 
-    public async Task<RoutingRulesetView> ReplaceRulesetAsync(
-        ReplaceRoutingRulesetIntent intent, CancellationToken cancellationToken)
-    {
-        EnsureAccess(intent.Access, intent.MerchantId);
-        var entity = await LoadRulesetAsync(intent.RulesetId, intent.MerchantId, cancellationToken);
-        EnsureVersion(entity.Version, intent.ExpectedVersion);
-        await ValidateRulesAsync(intent.MerchantId, intent.Rules, cancellationToken);
-        entity.Replace(intent.Name, Specs(intent.Rules), clock.UtcNow);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return ProjectRuleset(entity);
-    }
+    public Task<RoutingRulesetView> ReplaceRulesetAsync(
+        ReplaceRoutingRulesetIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            var entity = await LoadRulesetAsync(intent.RulesetId, intent.MerchantId, ct);
+            EnsureVersion(entity.Version, intent.ExpectedVersion);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+            await ValidateRulesAsync(intent.MerchantId, intent.Rules, ct);
+            entity.Replace(intent.Name, Specs(intent.Rules), clock.UtcNow);
+            await unitOfWork.SaveChangesAsync(ct);
+            return ProjectRuleset(entity);
+        }, cancellationToken);
 
-    public async Task DeleteRulesetAsync(
+    public Task DeleteRulesetAsync(
         Guid rulesetId, Guid merchantId, long expectedVersion, AdminPaymentsAccess access,
-        CancellationToken cancellationToken)
-    {
-        EnsureAccess(access, merchantId);
-        var entity = await LoadRulesetAsync(rulesetId, merchantId, cancellationToken);
-        EnsureVersion(entity.Version, expectedVersion);
-        if (entity.Status != RoutingRulesetStatus.Draft)
-            throw new InvalidOperationException("Only draft routing rulesets can be deleted.");
-        db.RoutingRulesets.Remove(entity);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-    }
+        CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(access, merchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(merchantId, ct);
+            var entity = await LoadRulesetAsync(rulesetId, merchantId, ct);
+            EnsureVersion(entity.Version, expectedVersion);
+            await authorizationLease.VerifyAsync(access, ct);
+            if (entity.Status != RoutingRulesetStatus.Draft)
+                throw new InvalidOperationException("Only draft routing rulesets can be deleted.");
+            db.RoutingRulesets.Remove(entity);
+            await unitOfWork.SaveChangesAsync(ct);
+            return true;
+        }, cancellationToken);
 
     public Task<RoutingActivationResult> RequestActivationAsync(
         RequestRoutingActivationIntent intent, CancellationToken cancellationToken) =>
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
             var entity = await LoadRulesetAsync(intent.RulesetId, intent.MerchantId, ct);
             EnsureVersion(entity.Version, intent.ExpectedVersion);
             var input = entity.Rules.Select(x => new RoutingRuleInput(
                 x.Priority, x.Method, x.OriginatorId, x.MinAmount, x.MaxAmount,
                 x.TargetConnectionId, x.FallbackConnectionId, x.Enabled)).ToList();
             await ValidateRulesAsync(intent.MerchantId, input, ct);
+            // REQ-6.17 / AC-5.4: every merchant-level enabled method must have a primary before activation.
+            // Enforced here because this is the single activation path both the simple and advanced pages use.
+            await EnsureRoutingCoverageAsync(intent.MerchantId, entity, ct);
             var intentHash = Hash(new
             {
                 intent.RulesetId,
@@ -723,6 +969,7 @@ internal sealed class AdminPaymentsControlStore(
                 "routing.activation", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return Replay<RoutingActivationResult>(prior);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
 
             var approvalId = Guid.CreateVersion7();
             entity.RequestActivation(approvalId, clock.UtcNow);
@@ -739,6 +986,186 @@ internal sealed class AdminPaymentsControlStore(
             return result;
         }, cancellationToken);
 
+    private const string SimpleRoutingName = "Simple routing";
+
+    public async Task<SimpleRoutingView?> GetSimpleRoutingAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        if (!await MerchantExistsForAccessAsync(merchantId, access, cancellationToken))
+            return null;
+        // Every LIVE ruleset (draft, pending-approval or active — not superseded history): the page is
+        // read-only if ANY of them carries an advanced predicate, including one already sent for activation.
+        var rulesets = await PlatformReadGuard.ReadAsync(ct => db.RoutingRulesets.IgnoreQueryFilters()
+            .AsNoTracking().Include(x => x.Rules)
+            .Where(x => x.MerchantId == merchantId && x.Status != RoutingRulesetStatus.Superseded)
+            .ToListAsync(ct), cancellationToken);
+        var advancedReadOnly = rulesets.Any(x => x.Rules.Any(IsAdvancedRule));
+        // Resolve "the draft" deterministically; PUT resolves it the same way, so a second draft appearing
+        // shifts the resolution and the stale ETag turns into a 409 state_conflict.
+        var draft = rulesets.Where(x => x.Status == RoutingRulesetStatus.Draft)
+            .OrderBy(x => x.Id).FirstOrDefault();
+        var display = draft
+            ?? rulesets.FirstOrDefault(x => x.Status == RoutingRulesetStatus.PendingApproval)
+            ?? rulesets.FirstOrDefault(x => x.Status == RoutingRulesetStatus.Active);
+        var rows = advancedReadOnly || display is null
+            ? (IReadOnlyList<SimpleRoutingRuleView>)[]
+            : display.Rules.OrderBy(r => r.Priority)
+                .Select(r => new SimpleRoutingRuleView(r.Method, r.TargetConnectionId, r.FallbackConnectionId))
+                .ToList();
+        // Version is the draft's (the write target); 0 when no draft exists yet, even if a pending/active
+        // ruleset is shown for context — a PUT still creates a fresh draft against ETag 0.
+        return new SimpleRoutingView(
+            merchantId, draft?.Id, display is null ? "none" : RulesetStatusCode(display.Status),
+            advancedReadOnly, rows, draft?.Version ?? 0);
+    }
+
+    public Task<SimpleRoutingView> SetSimpleRoutingAsync(
+        SetSimpleRoutingIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            // Scan every LIVE ruleset (draft, pending-approval or active) — a pending-approval advanced
+            // ruleset must still make the page read-only, or a simple PUT could create a draft that then
+            // supersedes it. Superseded history is excluded.
+            var rulesets = await PlatformReadGuard.ReadAsync(token => db.RoutingRulesets.IgnoreQueryFilters()
+                .Include(x => x.Rules)
+                .Where(x => x.MerchantId == intent.MerchantId && x.Status != RoutingRulesetStatus.Superseded)
+                .ToListAsync(token), ct);
+
+            // Advanced guard BEFORE the ETag check: an advanced-rule merchant is always read-only from the
+            // simple page whatever ETag it presents, so no advanced ruleset is ever mutated here.
+            if (rulesets.Any(x => x.Rules.Any(IsAdvancedRule)))
+                throw new ConflictException(
+                    "Routing carries advanced rules and is read-only from the simple settings page.",
+                    "advanced_routing_read_only");
+
+            var draft = rulesets.Where(x => x.Status == RoutingRulesetStatus.Draft)
+                .OrderBy(x => x.Id).FirstOrDefault();
+
+            // Idempotency replay BEFORE the ETag check (same order as the other mutations here): a genuine
+            // retry returns the stored result, and a same-key/different-intent request is a reuse conflict
+            // rather than a stale-ETag one.
+            var intentHash = Hash(new { intent.MerchantId, intent.ExpectedVersion, Rows = intent.Rules });
+            var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+                "routing.simple-set", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return Replay<SimpleRoutingView>(prior);
+            EnsureVersion(draft?.Version ?? 0, intent.ExpectedVersion);
+            await authorizationLease.VerifyAsync(intent.Access, ct);
+
+            var specs = await BuildSimpleSpecsAsync(intent.MerchantId, intent.Rules, ct);
+            if (draft is null)
+            {
+                draft = RoutingRuleset.Create(intent.MerchantId, SimpleRoutingName, specs, clock.UtcNow);
+                db.RoutingRulesets.Add(draft);
+            }
+            else
+            {
+                draft.Replace(draft.Name, specs, clock.UtcNow);
+            }
+
+            var view = ProjectSimpleRouting(draft, advancedReadOnly: false);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "routing.simple-set", intent.IdempotencyKey, intentHash);
+            operation.Succeed(200, JsonSerializer.Serialize(view, Json), draft.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return view;
+        }, cancellationToken);
+
+    private static bool IsAdvancedRule(RoutingRule rule) =>
+        rule.Method == "any" || rule.OriginatorId is not null
+        || rule.MinAmount is not null || rule.MaxAmount is not null;
+
+    private static SimpleRoutingView ProjectSimpleRouting(RoutingRuleset draft, bool advancedReadOnly) => new(
+        draft.MerchantId, draft.Id, RulesetStatusCode(draft.Status), advancedReadOnly,
+        draft.Rules.OrderBy(r => r.Priority)
+            .Select(r => new SimpleRoutingRuleView(r.Method, r.TargetConnectionId, r.FallbackConnectionId)).ToList(),
+        draft.Version);
+
+    /// <summary>Turns simple rows into full specs, emitting <c>validation_failed</c> at the request boundary
+    /// BEFORE the domain guards (which throw bare <see cref="ArgumentException"/> without a code). Rejects a
+    /// non-canonical method (incl. <c>any</c>), a duplicate method, an empty/equal primary/fallback (AC-5.3
+    /// #8), and a connection that is unknown, out of the merchant, disabled, in the wrong environment (AC-5.3
+    /// #9) or without the method enabled at both the account and the merchant policy level (AC-5.3).</summary>
+    private async Task<IReadOnlyList<RoutingRuleSpec>> BuildSimpleSpecsAsync(
+        Guid merchantId, IReadOnlyList<SimpleRoutingRuleRow> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0)
+            throw new InvalidRequestException("At least one routing row is required.", "validation_failed");
+        var merchant = await LoadMerchantAsync(merchantId, ct);
+        var specs = new List<RoutingRuleSpec>(rows.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var priority = 1;
+        foreach (var row in rows)
+        {
+            var method = NormalizeMethod(row.Method);
+            if (!seen.Add(method))
+                throw new InvalidRequestException("A method appears more than once.", "validation_failed");
+            if (row.PrimaryConnectionId == Guid.Empty)
+                throw new InvalidRequestException("A routing row requires a primary connection.", "validation_failed");
+            if (row.FallbackConnectionId == row.PrimaryConnectionId)
+                throw new InvalidRequestException("Primary and fallback connections must differ.", "validation_failed");
+            await ValidateSimpleEligibleAsync(merchantId, row.PrimaryConnectionId, method, merchant.PaymentEnvironment, ct);
+            if (row.FallbackConnectionId is { } fallback)
+                await ValidateSimpleEligibleAsync(merchantId, fallback, method, merchant.PaymentEnvironment, ct);
+            specs.Add(new RoutingRuleSpec(
+                priority++, method, null, null, null, row.PrimaryConnectionId, row.FallbackConnectionId, true));
+        }
+        return specs;
+    }
+
+    private async Task ValidateSimpleEligibleAsync(
+        Guid merchantId, Guid connectionId, string method, PspEnvironment environment, CancellationToken ct)
+    {
+        var connection = await PlatformReadGuard.ReadAsync(token => db.PspConnections.IgnoreQueryFilters()
+            .AsNoTracking().SingleOrDefaultAsync(x => x.Id == connectionId && x.MerchantId == merchantId, token), ct);
+        if (connection is null)
+            throw new InvalidRequestException("Routing connection is unknown for the merchant.", "validation_failed");
+        if (!connection.IsEnabled)
+            throw new InvalidRequestException("Routing connection is disabled.", "validation_failed");
+        if (connection.ActiveSecretVersionId is null)
+            throw new InvalidRequestException("Routing connection has no active credential.", "validation_failed");
+        if (connection.ActiveSecretEnvironment != environment)
+            throw new InvalidRequestException(
+                "Routing connection environment does not match the merchant payment environment.", "validation_failed");
+        var provider = await LoadProviderAsync(connection.Psp, ct);
+        var methods = await ProjectConnectionMethodsAsync(connection, provider, ct);
+        if (!methods.Any(x => x.Method == method && x.Available))
+            throw new InvalidRequestException(
+                "Routing connection does not have the method enabled at the account level.", "validation_failed");
+        if (!await MerchantMethodEnabledAsync(merchantId, method, ct))
+            throw new InvalidRequestException(
+                "The method is not enabled at the merchant policy level.", "validation_failed");
+    }
+
+    private async Task<bool> MerchantMethodEnabledAsync(Guid merchantId, string method, CancellationToken ct)
+    {
+        var methodId = MethodId(method);
+        var row = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods.IgnoreQueryFilters()
+            .AsNoTracking().SingleOrDefaultAsync(x => x.MerchantId == merchantId && x.PaymentMethodId == methodId, token), ct);
+        return row?.IsEnabled == true;
+    }
+
+    /// <summary>REQ-6.17 / AC-5.4: every merchant-level enabled method must be covered by an enabled rule with
+    /// a primary connection (its own method or the catch-all <c>any</c>), else the activation is refused.</summary>
+    private async Task EnsureRoutingCoverageAsync(Guid merchantId, RoutingRuleset ruleset, CancellationToken ct)
+    {
+        var enabledMethodIds = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
+            .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == merchantId && x.IsEnabled)
+            .Select(x => x.PaymentMethodId).ToListAsync(token), ct);
+        foreach (var methodId in enabledMethodIds)
+        {
+            var code = MethodCode(methodId);
+            if (code is null)
+                continue;
+            var covered = ruleset.Rules.Any(r => r.Enabled
+                && (r.Method == code || r.Method == "any") && r.TargetConnectionId != Guid.Empty);
+            if (!covered)
+                throw new ConflictException("An enabled merchant method has no primary route.", "routing_incomplete");
+        }
+    }
+
     private async Task ValidateRulesAsync(Guid merchantId, IReadOnlyList<RoutingRuleInput> rules, CancellationToken ct)
     {
         var specs = Specs(rules);
@@ -752,11 +1179,12 @@ internal sealed class AdminPaymentsControlStore(
         if (connections.Count != connectionIds.Count)
             throw new InvalidRequestException("Routing references an unknown PSP connection.", "routing_invalid");
 
+        var merchant = await LoadMerchantAsync(merchantId, ct);
         foreach (var rule in specs.Where(x => x.Enabled))
         {
-            ValidateEligible(connections.Single(x => x.Id == rule.TargetConnectionId), rule.Method);
+            await ValidateEligibleAsync(connections.Single(x => x.Id == rule.TargetConnectionId), rule.Method, merchant.PaymentEnvironment, ct);
             if (rule.FallbackConnectionId is { } fallback)
-                ValidateEligible(connections.Single(x => x.Id == fallback), rule.Method);
+                await ValidateEligibleAsync(connections.Single(x => x.Id == fallback), rule.Method, merchant.PaymentEnvironment, ct);
         }
 
         var originatorIds = specs.Where(x => x.OriginatorId.HasValue).Select(x => x.OriginatorId!.Value).ToHashSet();
@@ -770,24 +1198,94 @@ internal sealed class AdminPaymentsControlStore(
         }
     }
 
-    private void ValidateEligible(Connection connection, string method)
+    /// <summary>Local routing eligibility (REQ-6.6/6.7/6.14): enabled connection, a credential reference in
+    /// the merchant's environment, and — from the NORMALIZED account-method rows, never the CSV projection
+    /// (REQ-5.8) — an enabled account method the adapter has sandbox evidence for. Health is deliberately
+    /// not consulted (REQ-6.15) and no probe is run (REQ-6.16).</summary>
+    private async Task ValidateEligibleAsync(
+        Connection connection, string method, PspEnvironment environment, CancellationToken ct)
     {
         if (!connection.IsEnabled)
             throw new InvalidRequestException("Routing references a disabled PSP connection.", "routing_invalid");
-        var adapter = adapterFactory.For(connection.Psp);
-        if (method == "any")
-        {
-            if (!connection.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Any(adapter.SupportedMethods.Contains))
-                throw new InvalidRequestException("Routing connection has no eligible method.", "routing_invalid");
-            return;
-        }
-        if (!connection.Supports(method) || !adapter.SupportedMethods.Contains(method))
-            throw new InvalidRequestException("Routing connection does not support the selected method.", "routing_invalid");
+        if (connection.ActiveSecretVersionId is null)
+            throw new InvalidRequestException("Routing connection has no active credential.", "routing_invalid");
+        if (connection.ActiveSecretEnvironment != environment)
+            throw new InvalidRequestException(
+                "Routing connection credential environment does not match the merchant payment environment.", "routing_invalid");
+        var provider = await LoadProviderAsync(connection.Psp, ct);
+        var methods = await ProjectConnectionMethodsAsync(connection, provider, ct);
+        var eligible = method == "any"
+            ? methods.Any(x => x.Available)
+            : methods.Any(x => x.Method == method && x.Available);
+        if (!eligible)
+            throw new InvalidRequestException(
+                method == "any"
+                    ? "Routing connection has no eligible method."
+                    : "Routing connection does not support the selected method.", "routing_invalid");
     }
+
+    private static readonly string[] CanonicalMethods =
+        [PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment];
+
+    /// <summary>Per canonical method: the account-level switch, adapter evidence and the backend decision
+    /// with its first blocking reason (REQ-5.4/5.5/5.11/5.16). The console renders this; it never infers
+    /// availability per provider on its own.</summary>
+    private async Task<IReadOnlyList<PspConnectionMethodView>> ProjectConnectionMethodsAsync(
+        Connection connection, ProviderCatalogRow provider, CancellationToken ct)
+    {
+        // Tracked rows win over the snapshot: create/update project the view inside the same transaction,
+        // before SaveChanges, so rows added or flipped a moment ago are only in the change tracker.
+        var rows = (await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+                .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == connection.MerchantId
+                    && x.PspConnectionId == connection.Id).ToListAsync(token), ct))
+            .Where(x => db.MerchantProviderAccountMethods.Local.All(local => local.Id != x.Id))
+            .Concat(db.MerchantProviderAccountMethods.Local.Where(x =>
+                x.MerchantId == connection.MerchantId && x.PspConnectionId == connection.Id))
+            .ToList();
+        var adapter = adapterFactory.For(connection.Psp);
+        var result = new List<PspConnectionMethodView>(CanonicalMethods.Length);
+        foreach (var method in CanonicalMethods)
+        {
+            var catalog = await LoadProviderMethodAsync(provider, method, ct);
+            var row = catalog is null ? null : rows.SingleOrDefault(x => x.PaymentMethodId == catalog.PaymentMethodId);
+            var accountEnabled = row?.IsEnabled == true;
+            var verified = adapter.SupportedMethods.Contains(method);
+            var denial = AccountMethodDenial(connection, provider, catalog, verified, accountEnabled);
+            result.Add(new PspConnectionMethodView(method, accountEnabled, verified, denial is null, denial));
+        }
+        return result;
+    }
+
+    private static string? AccountMethodDenial(
+        Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow? catalog,
+        bool adapterVerified, bool accountEnabled)
+    {
+        if (!connection.IsEnabled) return "connection_disabled";
+        if (!provider.IsEnabled) return "provider_disabled";
+        if (catalog is null || !catalog.MethodIsActive) return "method_inactive";
+        if (catalog.PaymentProviderMethodId is null || !catalog.ProviderMethodIsActive) return "provider_method_unavailable";
+        if (!adapterVerified) return "adapter_unverified";
+        if (!accountEnabled) return "account_method_disabled";
+        return null;
+    }
+
+    private static string DenialCode(PaymentCapabilityDenial denial) => denial switch
+    {
+        PaymentCapabilityDenial.None => throw new ArgumentOutOfRangeException(nameof(denial)),
+        PaymentCapabilityDenial.UserNotActive => "user_not_active",
+        PaymentCapabilityDenial.UserPolicyDenied => "user_policy_denied",
+        PaymentCapabilityDenial.MerchantUnavailable => "merchant_unavailable",
+        PaymentCapabilityDenial.MethodUnavailable => "method_unavailable",
+        PaymentCapabilityDenial.ProviderUnavailable => "provider_unavailable",
+        PaymentCapabilityDenial.AccountUnavailable => "account_unavailable",
+        PaymentCapabilityDenial.AdapterUnsupported => "adapter_unverified",
+        _ => throw new ArgumentOutOfRangeException(nameof(denial)),
+    };
 
     private async Task<PspConnectionView> ProjectConnectionAsync(Connection x, CancellationToken ct)
     {
+        var environment = await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters().AsNoTracking()
+            .Where(m => m.Id == x.MerchantId).Select(m => m.PaymentEnvironment).SingleAsync(token), ct);
         var metadata = ReadMetadata(x.Metadata);
         var masked = new Dictionary<string, string>(metadata.Hints, StringComparer.Ordinal);
         if (x.ActiveSecretVersionId is { } versionId)
@@ -810,6 +1308,7 @@ internal sealed class AdminPaymentsControlStore(
                 masked[key] = Mask(masked[key]);
         }
         var adapter = adapterFactory.For(x.Psp);
+        var methods = await ProjectConnectionMethodsAsync(x, await LoadProviderAsync(x.Psp, ct), ct);
         var capabilities = new Dictionary<string, bool>(StringComparer.Ordinal)
         {
             ["test"] = true,
@@ -823,14 +1322,20 @@ internal sealed class AdminPaymentsControlStore(
             x.Id, x.MerchantId, x.Psp.ToCode(),
             x.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             metadata.Config, masked, x.IsEnabled, HealthCode(x.Health), x.LastTestedAt,
-            x.LastTestResult, capabilities, x.PendingApprovalId is not null, x.CreatedAt, x.Version);
+            x.LastTestResult, capabilities, x.PendingApprovalId is not null, x.CreatedAt, x.Version,
+            environment.ToCode(), x.ActiveSecretEnvironment.ToCode(), adapter.CallbackUrlFor(x.Id),
+            x.PendingSecretTestResult is { } testResult && x.PendingSecretTestedAt is { } testedAt
+                ? new PspCredentialTestView(testResult, testedAt)
+                : null,
+            new WebhookRegistrationView(x.WebhookRegistrationHash is not null, x.WebhookRegisteredAt),
+            methods);
     }
 
     private async Task<PspConnectionView> ReplayConnectionAsync(AdminOperationRecord record, CancellationToken ct)
     {
         var stored = Replay<PspConnectionView>(record);
         return await GetConnectionAsync(stored.PspConnectionId, stored.MerchantId,
-            new AdminPaymentsAccess(record.ActorId, true, new HashSet<Guid>()), ct) ?? stored;
+            new AdminPaymentsAccess(record.ActorId, 0, true, new HashSet<Guid>()), ct) ?? stored;
     }
 
     private AdminOperationRecord BeginOperation(Guid merchantId, Guid actorId, string operation, string key, string hash)
@@ -875,12 +1380,15 @@ internal sealed class AdminPaymentsControlStore(
             .SingleOrDefaultAsync(x => x.Id == rulesetId && x.MerchantId == merchantId, token), ct)
         ?? throw new NotFoundException("Routing ruleset was not found.");
 
-    private async Task EnsureMerchantExistsAsync(Guid merchantId, CancellationToken ct)
-    {
-        if (!await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters()
-                .AnyAsync(x => x.Id == merchantId, token), ct))
-            throw new NotFoundException("Merchant was not found.");
-    }
+    private async Task<Merchant> LoadMerchantAsync(Guid merchantId, CancellationToken ct) =>
+        await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == merchantId, token), ct)
+        ?? throw new NotFoundException("Merchant was not found.");
+
+    private async Task<Merchant> LoadMerchantForUpdateAsync(Guid merchantId, CancellationToken ct) =>
+        await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(x => x.Id == merchantId, token), ct)
+        ?? throw new NotFoundException("Merchant was not found.");
 
     private Task<bool> MerchantExistsForAccessAsync(
         Guid merchantId, AdminPaymentsAccess access, CancellationToken ct)
@@ -1184,9 +1692,10 @@ internal sealed class AdminPaymentsControlStore(
     };
 
     private static MerchantPaymentMethodView MerchantPolicyView(
-        Guid merchantId, string method, MerchantPaymentMethod? row, bool effective) => new(
-        merchantId, method, row?.IsEnabled == true, effective,
-        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+        Guid merchantId, string method, MerchantPaymentMethod? row, PaymentMethodDecision decision) => new(
+        merchantId, method, row?.IsEnabled == true, decision.Allowed,
+        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0,
+        decision.Allowed ? null : DenialCode(decision.Denial));
 
     private static MerchantUserPaymentMethodView UserPolicyView(
         Guid merchantUserId, Guid merchantId, string method,
@@ -1194,19 +1703,29 @@ internal sealed class AdminPaymentsControlStore(
         merchantUserId, merchantId, method, row?.IsEnabled == true, effective,
         row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
 
-    private static AccountPaymentCapabilityView AccountMethodView(
+    private AccountPaymentCapabilityView AccountMethodView(
         Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow method,
-        MerchantProviderAccountMethod? row) => new(
-        "account-method", connection.Id, connection.MerchantId, provider.ProviderCode,
-        method.MethodCode, null, row?.IsEnabled == true,
-        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+        MerchantProviderAccountMethod? row)
+    {
+        var verified = adapterFactory.For(connection.Psp).SupportedMethods.Contains(method.MethodCode);
+        return new(
+            "account-method", connection.Id, connection.MerchantId, provider.ProviderCode,
+            method.MethodCode, null, row?.IsEnabled == true,
+            row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0,
+            verified, AccountMethodDenial(connection, provider, method, verified, row?.IsEnabled == true));
+    }
 
-    private static AccountPaymentCapabilityView AccountOptionView(
+    private AccountPaymentCapabilityView AccountOptionView(
         Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow method,
-        ProviderMethodOptionCatalogRow option, MerchantProviderAccountMethodOption? row) => new(
-        "account-method-option", connection.Id, connection.MerchantId, provider.ProviderCode,
-        method.MethodCode, option.OptionCode, row?.IsEnabled == true,
-        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+        ProviderMethodOptionCatalogRow option, MerchantProviderAccountMethodOption? row)
+    {
+        var verified = adapterFactory.For(connection.Psp).SupportedMethods.Contains(method.MethodCode);
+        return new(
+            "account-method-option", connection.Id, connection.MerchantId, provider.ProviderCode,
+            method.MethodCode, option.OptionCode, row?.IsEnabled == true,
+            row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0,
+            verified, verified ? null : "adapter_unverified");
+    }
 
     private sealed class ProviderCatalogRow
     {
@@ -1342,10 +1861,44 @@ internal sealed class AdminPaymentsControlStore(
     private static InvalidRequestException InvalidConfigField(string name) =>
         new($"PSP config field '{name}' is invalid.", "invalid_psp_config");
 
+    private static readonly IReadOnlyDictionary<Code, string[]> SecretFieldAllowlist =
+        new Dictionary<Code, string[]>
+        {
+            [Code.TwoCTwoP] = ["secretKey"],
+            [Code.Omise] = ["secretKey", "publicKey", "webhookSecret"],
+        };
+
+    private const int SecretFieldMaxLength = 4_096;
+
+    /// <summary>Request-boundary credential checks, all BEFORE any vault write (REQ-4.1/4.2/4.7/4.8/4.10/4.11):
+    /// only the provider's allowlisted field names, every value at most 4,096 chars, the provider's required
+    /// fields present, and an Omise key whose prefix matches the merchant's environment.</summary>
+    internal static void ValidateSecretFields(
+        Code psp, IReadOnlyDictionary<string, string> secrets, string? pspMerchantId, PspEnvironment environment)
+    {
+        var allowed = SecretFieldAllowlist[psp];
+        foreach (var (name, value) in secrets)
+        {
+            if (!allowed.Contains(name, StringComparer.Ordinal))
+                throw new InvalidRequestException($"Credential field '{name}' is not allowed for {psp.ToCode()}.", "validation_failed");
+            if (value is null || value.Length > SecretFieldMaxLength)
+                throw new InvalidRequestException($"Credential field '{name}' exceeds {SecretFieldMaxLength} characters.", "validation_failed");
+        }
+        if (pspMerchantId is { Length: > SecretFieldMaxLength })
+            throw new InvalidRequestException($"pspMerchantId exceeds {SecretFieldMaxLength} characters.", "validation_failed");
+        if (!secrets.TryGetValue("secretKey", out var secretKey) || string.IsNullOrWhiteSpace(secretKey))
+            throw new InvalidRequestException("secretKey is required.", "validation_failed");
+        if (psp == Code.TwoCTwoP && string.IsNullOrWhiteSpace(pspMerchantId))
+            throw new InvalidRequestException("pspMerchantId is required for 2c2p.", "validation_failed");
+        if (psp == Code.Omise && !OmiseSecretKeys.MatchesEnvironment(secretKey.Trim(), environment))
+            throw new InvalidRequestException(
+                $"Omise secret key prefix does not match the {environment.ToCode()} payment environment.", "validation_failed");
+    }
+
     private IReadOnlyList<string> ValidateMethods(Code psp, IReadOnlyList<string> values)
     {
-        if (values.Count == 0)
-            throw new InvalidRequestException("At least one payment method is required.", "invalid_psp_config");
+        // Empty is allowed: a zero-method connection holds credentials so the provider can be tested before
+        // any capability is granted (REQ-3.3); normalized account-method rows stay the authorization source.
         IReadOnlyList<string> methods;
         try
         {
@@ -1383,6 +1936,12 @@ internal sealed class AdminPaymentsControlStore(
         try { return Codes.FromCode(value.Trim().ToLowerInvariant()); }
         catch (Exception ex) when (ex is ArgumentException or ArgumentOutOfRangeException)
         { throw new InvalidRequestException("PSP code is invalid.", "invalid_psp_config"); }
+    }
+
+    private static PspEnvironment ParseEnvironment(string value)
+    {
+        try { return PspEnvironments.FromCode(value); }
+        catch (ArgumentException ex) { throw new InvalidRequestException(ex.Message, "validation_failed"); }
     }
 
     private static PspConnectionHealth ParseHealth(string value) => value.Trim().ToLowerInvariant() switch

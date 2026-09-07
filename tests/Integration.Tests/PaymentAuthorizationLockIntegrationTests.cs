@@ -29,6 +29,31 @@ public sealed class PaymentAuthorizationLockIntegrationTests
         await cutoverTx.CommitAsync();
     }
 
+    [Fact]
+    public async Task Session_creation_shared_lock_waits_for_an_environment_activation_exclusive_lock()
+    {
+        // AC-4.8 / critical scenario #3: create-session takes the Merchant SHARED lock, while an environment
+        // activation (task 7) takes the same Merchant lock EXCLUSIVELY. This drives the real applock against
+        // SQL Server to prove the two serialize — while the exclusive holder is uncommitted, a concurrent
+        // session-creation shared acquire cannot proceed, and only completes once the activation commits. The
+        // exclusive side is acquired directly (no task-7 code is built here).
+        await using var activationDb = NewContext();
+        await using var sessionDb = NewContext();
+        await using var activationTx = await activationDb.Database.BeginTransactionAsync();
+        await using var sessionTx = await sessionDb.Database.BeginTransactionAsync();
+        var activationLocks = new PaymentAuthorizationSqlLockManager(activationDb);
+        var sessionLocks = new PaymentAuthorizationSqlLockManager(sessionDb);
+
+        await activationLocks.AcquireMerchantExclusiveAsync(IntegrationDb.MerchantA, default);
+        var sessionAcquire = sessionLocks.AcquireMerchantSharedAsync(IntegrationDb.MerchantA, default);
+        await Task.Delay(200);
+        Assert.False(sessionAcquire.IsCompleted); // the shared acquire is blocked by the exclusive holder
+
+        await activationTx.CommitAsync();
+        await sessionAcquire.WaitAsync(TimeSpan.FromSeconds(5)); // released once the activation commits
+        await sessionTx.CommitAsync();
+    }
+
     private static MerchantRuntimeDbContext NewContext() => new(
         new DbContextOptionsBuilder<MerchantRuntimeDbContext>()
             .UseSqlServer(IntegrationDb.SaConn, sql => sql.UseCompatibilityLevel(170)).Options,

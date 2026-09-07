@@ -49,6 +49,9 @@ public sealed record ApprovalExecutionReported(
     bool Unknown,
     string Outcome,
     string? ResourceVersion,
+    Guid? MerchantId,
+    string TargetType,
+    string TargetId,
     string CorrelationId,
     DateTime OccurredAt) : INotification
 {

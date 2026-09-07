@@ -16,7 +16,7 @@ public sealed class PaymentSessionTests
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
 
     private static Session NewSession() =>
-        Session.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", Code.Omise, At);
+        Session.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, At);
 
     /// <summary>A session that has claimed its redirect and bound a hosted charge (Created -> Redirected).</summary>
     private static Session Redirected(string chargeId = "chrg_abc", string url = "https://hosted.example/r")
@@ -25,6 +25,20 @@ public sealed class PaymentSessionTests
         session.BeginRedirect(At);
         session.SetPspCharge(chargeId, url, At);
         return session;
+    }
+
+    // --- legacy snapshot upgrade (task 9 AC-9.2/9.3): only a version 0 row may be pinned ---
+
+    [Fact]
+    public void UpgradeLegacySnapshot_refuses_a_version_1_session()
+    {
+        // A session minted by Create is already version 1 with a complete, immutable snapshot — re-pinning it
+        // would move an attempt that a rotation/switch must never touch (REQ-2.8-2.10). Only pre-existing
+        // legacy version 0 rows can be upgraded, and those are never minted in code.
+        var session = NewSession();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            session.UpgradeLegacySnapshot(Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Live, At));
     }
 
     // --- age (REQ-3.1): derived from CreatedAt, so no row can disagree with the rule ---
@@ -82,14 +96,14 @@ public sealed class PaymentSessionTests
     public void Create_rejects_empty_tenant()
     {
         Assert.Throws<ArgumentException>(() =>
-            Session.Create(Guid.Empty, OrderId, Money.Of(1, "THB"), "card", Code.Omise, At));
+            Session.Create(Guid.Empty, OrderId, Money.Of(1, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, At));
     }
 
     [Fact]
     public void Create_rejects_empty_order()
     {
         Assert.Throws<ArgumentException>(() =>
-            Session.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", Code.Omise, At));
+            Session.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", Code.Omise, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, At));
     }
 
     [Fact]

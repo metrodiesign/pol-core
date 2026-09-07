@@ -38,7 +38,7 @@ public sealed class ConfirmPaymentStatusHandlerTests
     private static Session NewSession(bool withCharge = true, DateTime? createdAt = null)
     {
         var session = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, createdAt ?? Created);
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, createdAt ?? Created);
         session.BeginRedirect(createdAt ?? Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", createdAt ?? Created);
@@ -124,6 +124,27 @@ public sealed class ConfirmPaymentStatusHandlerTests
         var harness = NewHarness(orderExists: false);
 
         await Assert.ThrowsAsync<NotFoundException>(async () => await Ask(harness));
+    }
+
+    [Fact]
+    public async Task The_open_session_is_confirmed_with_the_version_it_pinned()
+    {
+        // merchant-psp-settings AC-4.3/8.2: the customer poll re-confirms on the SESSION-pinned secret
+        // version, not the connection's current active one, so a rotation/environment switch after this
+        // attempt was created cannot move it. Reading the pinned version is what records a VersionRead here;
+        // reading the connection's (null) active version would fall to RevealAsync and record none.
+        var pinned = Guid.NewGuid();
+        var session = Session.Create(
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP,
+            Guid.NewGuid(), pinned, PspEnvironment.Sandbox, Created);
+        session.BeginRedirect(Created);
+        session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Created);
+        var harness = NewHarness(PayableOrderStatus.Pending, session);
+
+        Assert.Equal(PaymentStatusResult.Paid, await Ask(harness));
+
+        Assert.NotEmpty(harness.Vault.VersionReads);
+        Assert.All(harness.Vault.VersionReads, v => Assert.Equal(pinned, v));
     }
 
     // --- REQ-8.5/8.6: the open session is verified with the PSP, on the webhook's own confirm line ---

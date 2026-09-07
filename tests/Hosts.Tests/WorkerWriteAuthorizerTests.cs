@@ -6,6 +6,7 @@ using Merchants.Domain;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantRegistrationNotice = Merchants.Domain.Users.RegistrationNotice;
 using OrderAggregate = Orders.Domain.Order;
+using Payments.Domain;
 
 namespace Hosts.Tests;
 
@@ -76,6 +77,16 @@ public sealed class WorkerWriteAuthorizerTests
         var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
 
         Assert.False(authorizer.CanWrite(typeof(MerchantEntity), WriteOperation.Update, MerchantA));
+    }
+
+    [Fact]
+    public void Worker_can_insert_but_cannot_rewrite_approval_execution_claims()
+    {
+        var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
+
+        Assert.True(authorizer.CanWrite(typeof(ApprovalExecutionRecord), WriteOperation.Insert, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(ApprovalExecutionRecord), WriteOperation.Update, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(ApprovalExecutionRecord), WriteOperation.Delete, MerchantA));
     }
 
     /// <summary>Order creation is request-owned after Checkout retirement, so background dispatch cannot

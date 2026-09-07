@@ -29,6 +29,9 @@ public sealed class TransactionInventoryTests
     private static readonly Dictionary<string, int> ExpectedExecuteInTransactionAsyncSites = new()
     {
         ["src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs"] = 1, // row 21
+        // merchant-psp-settings task 8: the fetch-confirm-only (Omise) rematcher confirms a parked webhook and
+        // resolves its pending rows in one transaction — single-context (txn data plane only), no admin actor.
+        ["src/Modules/Payments/Payments.Application/HandlePspWebhook/InboundWebhookRematcher.cs"] = 1,
         // purchase-flow-completion design.md ("Expire + mint ใหม่" -> 2-phase SaveChanges in one transaction):
         // single-context (txn data plane only). Retiring an aged-out session and minting its replacement must
         // commit together, and the UPDATE must be sent before the INSERT or the filtered unique index rejects
@@ -67,10 +70,11 @@ public sealed class TransactionInventoryTests
         ["src/Hosts/Api/Orders/OrderCreationCoordinator.cs"] = 1,                                    // direct Cart-to-Order shared MerchantRuntime transaction
         ["src/Persistence/Persistence.ControlPlane/Governance/GovernanceStore.cs"] = 3,              // rows 29-31
         ["src/Persistence/Persistence.MerchantRuntime/Merchants/AdminMerchantControlStore.cs"] = 2, // rows 32-33
-        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 8,  // rows 34-37 + capability mutations
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 15, // all Admin payment mutations lease-covered (incl. simple-routing set task 5, candidate credential test task 6, environment change task 7)
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs"] = 1, // request-scoped authorization snapshot
         ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs"] = 3, // backfill, cutover, rollback
-        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsApprovalExecutor.cs"] = 2, // rows 38-39
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/LegacyPaymentRemediationService.cs"] = 2, // task 9 offline remediation: env backfill + per-merchant legacy-snapshot upgrade write phase
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsApprovalExecutor.cs"] = 3, // rows 38-39 + environment activation (task 7)
         ["src/Persistence/Persistence.MerchantRuntime/Idempotency/AdminOperationExecutor.cs"] = 3, // row 40: atomic flow + recoverable claim/result
         ["src/Persistence/Persistence.ControlPlane/Governance/ControlPlaneOperationExecutor.cs"] = 1, // row 41
         ["src/Persistence/Persistence.ControlPlane/Iam/ApiClientApprovalExecutor.cs"] = 1, // row 42

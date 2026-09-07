@@ -41,13 +41,16 @@ public sealed class PaymentProviderCapabilityControlTests
     }
 
     [Fact]
-    public void Seeded_provider_methods_are_subsets_of_compiled_adapter_manifests()
+    public void Compiled_adapter_manifests_gate_the_seeded_catalog_not_the_other_way_round()
     {
+        // merchant-psp-settings REQ-5.4/5.11: the catalog (cfg.PaymentProviderMethods) lists what a PSP offers;
+        // the adapter manifest lists what has sandbox evidence. A seeded row without evidence stays visible
+        // but unavailable — it must never widen the manifest.
         var manifests = new Dictionary<Guid, IReadOnlySet<string>>
         {
             [PaymentCapabilityIds.TwoCTwoP] = new HashSet<string>(
                 [PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment], StringComparer.Ordinal),
-            [PaymentCapabilityIds.Omise] = new HashSet<string>([PaymentMethods.Card], StringComparer.Ordinal),
+            [PaymentCapabilityIds.Omise] = new HashSet<string>(StringComparer.Ordinal),
         };
         var seeded = new[]
         {
@@ -57,8 +60,9 @@ public sealed class PaymentProviderCapabilityControlTests
             (PaymentCapabilityIds.Omise, PaymentMethods.Card),
         };
 
-        Assert.All(seeded, row => Assert.Contains(row.Item2, manifests[row.Item1]));
-        Assert.DoesNotContain(PaymentMethods.PromptPay, manifests[PaymentCapabilityIds.Omise]);
-        Assert.DoesNotContain(PaymentMethods.Installment, manifests[PaymentCapabilityIds.Omise]);
+        Assert.All(seeded.Where(row => row.Item1 == PaymentCapabilityIds.TwoCTwoP),
+            row => Assert.Contains(row.Item2, manifests[row.Item1]));
+        Assert.Empty(manifests[PaymentCapabilityIds.Omise]);
+        Assert.Contains(seeded, row => row.Item1 == PaymentCapabilityIds.Omise); // catalog still lists it
     }
 }

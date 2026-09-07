@@ -162,7 +162,8 @@ file sealed class CountingPspAdapter : IPspAdapter
     public int Charges { get; private set; }
 
     public Task<PspCharge> CreateRedirectChargeAsync(
-        PaymentSession session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+        PaymentSession session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken)
     {
         Charges++;
         return Task.FromResult(new PspCharge("INV-1", "https://2c2p.test/hosted/1"));
@@ -170,7 +171,7 @@ file sealed class CountingPspAdapter : IPspAdapter
 
     public bool VerifyWebhook(string rawPayload, string signature, string secret) => throw new NotSupportedException();
 
-    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken) =>
+    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
     public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();

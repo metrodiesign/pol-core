@@ -6,9 +6,11 @@ using BuildingBlocks.Infrastructure.Vault;
 using Merchants.Domain;
 using Microsoft.EntityFrameworkCore;
 using Payments.Domain.Psp;
+using Payments.Domain;
 using Payments.Domain.Routing;
 using Payments.Domain.Capabilities;
 using Persistence.MerchantRuntime.Payments.Capabilities;
+using Persistence.MerchantRuntime.Payments;
 using Persistence.MerchantRuntime.Carts;
 using Persistence.MerchantRuntime.Carts.Items;
 using Persistence.MerchantRuntime.Merchants;
@@ -86,6 +88,7 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<AdminOperationRecord> AdminOperationRecords => Set<AdminOperationRecord>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<ApprovalExecutionRecord> ApprovalExecutionRecords => Set<ApprovalExecutionRecord>();
 
     public DbSet<Merchant> Merchants => Set<Merchant>();
     public DbSet<Originator> Originators => Set<Originator>();
@@ -114,6 +117,8 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new AdminOperationRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration(this));
+        modelBuilder.ApplyConfiguration(new ApprovalExecutionRecordConfiguration(this));
+        modelBuilder.ApplyConfiguration(new AdminAuthorizationLeaseRowConfiguration(this));
 
         modelBuilder.ApplyConfiguration(new MerchantConfiguration(this));
         modelBuilder.ApplyConfiguration(new OriginatorConfiguration(this));

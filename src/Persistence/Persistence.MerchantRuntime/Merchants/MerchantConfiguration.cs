@@ -33,6 +33,15 @@ internal sealed class MerchantConfiguration(MerchantRuntimeDbContext context) : 
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
+        builder.Property(x => x.PaymentEnvironment).HasConversion<int>().IsRequired();
+        builder.Property(x => x.PendingPaymentEnvironment).HasConversion<int?>();
+        builder.Property(x => x.PendingPaymentEnvironmentApprovalId);
+        builder.Property(x => x.PaymentEnvironmentUpdatedAt).IsRequired();
+        // Pending target and its approval are set/cleared together (design "ความสัมพันธ์ข้อมูล").
+        builder.ToTable(t => t.HasCheckConstraint("CK_Merchants_PendingPaymentEnvironment",
+            "([PendingPaymentEnvironment] IS NULL AND [PendingPaymentEnvironmentApprovalId] IS NULL) "
+            + "OR ([PendingPaymentEnvironment] IS NOT NULL AND [PendingPaymentEnvironmentApprovalId] IS NOT NULL)"));
+
         builder.HasIndex(x => x.Code).IsUnique();
     }
 }

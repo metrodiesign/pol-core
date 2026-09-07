@@ -177,6 +177,8 @@ internal sealed class AdminApprovalWriteAuthorizer : IWriteAuthorizer
         (typeof(PaymentSession), WriteOperation.Insert),
         (typeof(PaymentSession), WriteOperation.Update),
         (typeof(OutboxMessage), WriteOperation.Insert),
+        // Internal persistence shadow row; exact name keeps the lease write narrow without exposing the type.
+        (Type.GetType("Persistence.MerchantRuntime.Payments.AdminAuthorizationLeaseRow, Persistence.MerchantRuntime")!, WriteOperation.Update),
     ];
 
     private readonly IAdminScope _scope;

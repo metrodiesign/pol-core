@@ -4,6 +4,8 @@
     <!-- Host tests must not inherit operator credentials/config from the invoking shell.
          Factories that exercise Admin Microsoft explicitly override these through UseSetting. -->
     <EnvironmentVariables>
+      <!-- Immutable host test config needs no file watchers; avoid startup blocking on restricted filesystems. -->
+      <DOTNET_hostBuilder__reloadConfigOnChange>false</DOTNET_hostBuilder__reloadConfigOnChange>
       <AdminAuth__Providers__Microsoft__Authority></AdminAuth__Providers__Microsoft__Authority>
       <AdminAuth__Providers__Microsoft__ClientId></AdminAuth__Providers__Microsoft__ClientId>
       <AdminAuth__Providers__Microsoft__ClientSecret></AdminAuth__Providers__Microsoft__ClientSecret>

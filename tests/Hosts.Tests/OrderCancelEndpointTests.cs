@@ -182,7 +182,7 @@ public sealed class OrderCancelEndpointTests
     /// <summary>A chargeless session for <paramref name="order"/>: never redirected, so the confirmation
     /// service can settle it on the clock alone. <paramref name="age"/> past the TTL makes it releasable.</summary>
     private static PaymentSession SessionFor(Order order, TimeSpan age) => PaymentSession.Create(
-        Merchant, order.Id, Amount, PaymentMethods.Card, Code.TwoCTwoP, DateTime.UtcNow - age);
+        Merchant, order.Id, Amount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, DateTime.UtcNow - age);
 
     private static HttpRequestMessage Cancel(Guid orderId, bool csrf = true)
     {

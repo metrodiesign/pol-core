@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.Json;
+using BuildingBlocks.Application;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
 using Payments.Domain.Psp;
+using SharedKernel;
 
 namespace Payments.Infrastructure.Psp;
 
@@ -37,12 +39,14 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment,
         };
 
-    private string BaseUrl => Options.UseSandbox
+    /// <summary>2C2P has two hosts; the caller's pinned environment — never a process-wide flag — picks one,
+    /// so a sandbox merchant and a live merchant can share this singleton (REQ-2.3/2.4).</summary>
+    private string BaseUrl(PspEnvironment environment) => environment == PspEnvironment.Sandbox
         ? Options.TwoCTwoP.SandboxBaseUrl
         : Options.TwoCTwoP.ProductionBaseUrl;
 
     public override async Task<PspProbeResult> TestConnectionAsync(
-        string secret, CancellationToken cancellationToken)
+        string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         var claims = JsonSerializer.Serialize(new
@@ -52,7 +56,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             locale = "en",
         });
         var responseJwt = await PostPayloadWithRetryAsync(
-            "paymentInquiry", claims, creds.SecretKey, cancellationToken).ConfigureAwait(false);
+            "paymentInquiry", claims, creds.SecretKey, environment, cancellationToken).ConfigureAwait(false);
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var response)
             || GetString(response, "merchantID") != creds.MerchantId
             || string.IsNullOrWhiteSpace(GetString(response, "respCode")))
@@ -61,7 +65,8 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
     }
 
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, PspEnvironment environment,
+        CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         var invoiceNo = session.Id.ToString("N");
@@ -79,7 +84,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             idempotencyID = invoiceNo,
         });
 
-        var responseJwt = await PostPayloadAsync("paymentToken", claims, creds.SecretKey, cancellationToken).ConfigureAwait(false);
+        var responseJwt = await PostPayloadAsync("paymentToken", claims, creds.SecretKey, environment, cancellationToken).ConfigureAwait(false);
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var resp))
             throw new PspAmbiguousException("2c2p paymentToken response failed signature verification.");
 
@@ -95,6 +100,36 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         // invoiceNo is the durable correlation key, NOT the per-attempt paymentToken.
         return new PspCharge(invoiceNo, webPaymentUrl);
+    }
+
+    /// <summary>2C2P carries an HS256-signed JWT and a deterministic <c>invoiceNo = Session.Id</c>, so the
+    /// session is resolved from the reference and the signature verified with the pinned version before the
+    /// event is accepted (AC-8.2).</summary>
+    public override WebhookVerificationMode WebhookVerificationMode => WebhookVerificationMode.SignedDeterministicReference;
+
+    /// <summary>Reads the UNTRUSTED lookup keys from the body JWT WITHOUT verifying it (AC-8.1): the
+    /// <c>invoiceNo</c> is the deterministic <c>Session.Id</c> the handler resolves the session by, and
+    /// <c>tranRef</c> is the delivery event id. A malformed or over-long reference is a 400
+    /// <c>validation_failed</c>, never a 500 (adversarial #4), and nothing is retained.</summary>
+    public override PspWebhookReference ExtractWebhookReference(string rawPayload)
+    {
+        if (string.IsNullOrWhiteSpace(rawPayload))
+            throw new InvalidRequestException("2c2p webhook payload is empty.", "validation_failed");
+
+        JsonElement claims;
+        try
+        {
+            var jwt = ExtractPayloadJwt(rawPayload) ?? rawPayload;
+            claims = ReadJwtPayloadUnverified(jwt);
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
+        {
+            throw new InvalidRequestException("2c2p webhook reference could not be read.", "validation_failed");
+        }
+
+        var invoiceNo = BoundedReference(GetString(claims, "invoiceNo"), "invoiceNo");
+        var eventId = BoundedReference(GetString(claims, "tranRef") ?? invoiceNo, "tranRef");
+        return new PspWebhookReference(eventId, invoiceNo);
     }
 
     public override bool VerifyWebhook(string rawPayload, string signature, string secret)
@@ -132,7 +167,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
     }
 
     public override async Task<PspChargeConfirmation> FetchChargeAsync(
-        string externalChargeId, string secret, CancellationToken cancellationToken)
+        string externalChargeId, string secret, PspEnvironment environment, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         var claims = JsonSerializer.Serialize(new
@@ -142,7 +177,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             locale = "en",
         });
 
-        var responseJwt = await PostPayloadWithRetryAsync("paymentInquiry", claims, creds.SecretKey, cancellationToken).ConfigureAwait(false);
+        var responseJwt = await PostPayloadWithRetryAsync("paymentInquiry", claims, creds.SecretKey, environment, cancellationToken).ConfigureAwait(false);
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var resp))
             throw new PspAmbiguousException("2c2p paymentInquiry response failed signature verification.");
 
@@ -205,26 +240,28 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
     /// <summary>POSTs {"payload": jwt(claims)} to a v4.3 endpoint ONCE (charge-create is non-idempotent)
     /// and returns the response's inner JWT string.</summary>
-    private async Task<string> PostPayloadAsync(string endpoint, string claimsJson, string secretKey, CancellationToken ct)
+    private async Task<string> PostPayloadAsync(
+        string endpoint, string claimsJson, string secretKey, PspEnvironment environment, CancellationToken ct)
     {
         var jwt = EncodeJwtHs256(claimsJson, secretKey);
-        using var request = BuildPayloadRequest(endpoint, jwt);
+        using var request = BuildPayloadRequest(endpoint, jwt, environment);
         var body = await SendOnceAsync(request, ct).ConfigureAwait(false);
         return ExtractPayloadJwt(body) ?? throw new PspAmbiguousException($"2c2p {endpoint} response missing payload.");
     }
 
     /// <summary>POSTs to an IDEMPOTENT v4.3 read endpoint (paymentInquiry) with bounded retry.</summary>
-    private async Task<string> PostPayloadWithRetryAsync(string endpoint, string claimsJson, string secretKey, CancellationToken ct)
+    private async Task<string> PostPayloadWithRetryAsync(
+        string endpoint, string claimsJson, string secretKey, PspEnvironment environment, CancellationToken ct)
     {
         var jwt = EncodeJwtHs256(claimsJson, secretKey);
-        var body = await SendWithRetryAsync(() => BuildPayloadRequest(endpoint, jwt), ct).ConfigureAwait(false);
+        var body = await SendWithRetryAsync(() => BuildPayloadRequest(endpoint, jwt, environment), ct).ConfigureAwait(false);
         return ExtractPayloadJwt(body) ?? throw new PspAmbiguousException($"2c2p {endpoint} response missing payload.");
     }
 
-    private HttpRequestMessage BuildPayloadRequest(string endpoint, string jwt)
+    private HttpRequestMessage BuildPayloadRequest(string endpoint, string jwt, PspEnvironment environment)
     {
         var envelope = JsonSerializer.Serialize(new { payload = jwt });
-        return new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/payment/4.3/{endpoint}")
+        return new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl(environment)}/payment/4.3/{endpoint}")
         {
             Content = new StringContent(envelope, Encoding.UTF8, "application/json"),
         };

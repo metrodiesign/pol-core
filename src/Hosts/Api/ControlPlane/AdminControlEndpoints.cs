@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Admins.Application;
 using Api.Iam;
 using BuildingBlocks.Application;
@@ -545,6 +546,56 @@ internal static class AdminControlEndpoints
 
     private static void MapPspConnections(RouteGroupBuilder api)
     {
+        api.MapGet("/payments/merchant-settings/{merchantId:guid}", async (
+            Guid merchantId,
+            HttpContext http,
+            IAdminScope scope,
+            IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var value = await store.GetMerchantPaymentSettingsAsync(merchantId, PaymentsAccess(scope), ct);
+            if (value is null)
+                return Results.Problem(statusCode: StatusCodes.Status404NotFound);
+            VersionEtags.Set(http, value.Version);
+            return Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("การเชื่อมต่อ PSP").WithName("GetMerchantPaymentSettings")
+            .WithSummary("อ่านสภาพแวดล้อมการชำระเงินของร้านค้า")
+            .WithDescription("คืน payment environment (sandbox/live) ของร้านค้า, คำขอเปลี่ยนที่รออนุมัติ และ ETag หากไม่พบหรือนอก Admin scope -> 404")
+            .Produces<MerchantPaymentSettingsView>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        api.MapPost("/payments/merchant-settings/{merchantId:guid}/environment-change-requests", async (
+            Guid merchantId,
+            HttpContext http,
+            IAdminScope scope,
+            IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var body = await ReadSecretBodyAsync<EnvironmentChangeRequest>(http, ct);
+            var connections = (body.Connections ?? []).Select(c => new EnvironmentChangeConnectionCredential(
+                c.PspConnectionId, c.Secrets ?? new Dictionary<string, string>(), c.PspMerchantId)).ToList();
+            var result = await store.RequestEnvironmentChangeAsync(new RequestEnvironmentChangeIntent(
+                merchantId, body.TargetEnvironment ?? string.Empty, body.OmiseWebhookRegistered, connections,
+                VersionEtags.Require(http), IdempotencyKeys.Require(http), http.TraceIdentifier, PaymentsAccess(scope)), ct);
+            return Results.Accepted(value: result);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .Accepts<EnvironmentChangeRequest>("application/json")
+            .WithMetadata(new IfMatchMutationMarker("202", EmitsEtag: false), new IdempotencyMutationMarker())
+            .WithTags("การเชื่อมต่อ PSP").WithName("RequestMerchantEnvironmentChange")
+            .WithSummary("ขอเปลี่ยนสภาพแวดล้อมการชำระเงินของร้านค้า")
+            .WithDescription("stage credential ของทุก connection ไปยัง environment เป้าหมายภายใต้ approval เดียว แล้วสร้างคำขอ maker-checker โดยยังไม่เปิดใช้ ต้องส่ง If-Match (Merchant version) และ Idempotency-Key; environment ไม่รู้จัก/connection แปลกปลอม/ตรง environment เดิม -> 400; ขาด connection ใด -> 409 environment_credentials_incomplete; Omise ไป live โดยยังไม่ยืนยัน callback -> 409 webhook_not_ready; มี approval ค้าง -> 409 approval_pending; legacy session ยังไม่ remediate -> 409 legacy_snapshot_blocked; body เกิน 16 KiB -> 413")
+            .Produces<EnvironmentChangeResult>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+
         api.MapGet("/payments/psp-connections", async (
             IAdminScope scope,
             IAdminPaymentsControlStore store,
@@ -592,30 +643,32 @@ internal static class AdminControlEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
         api.MapPost("/payments/psp-connections", async (
-            CreatePspConnectionRequest body,
             HttpContext http,
             IAdminScope scope,
             IAdminPaymentsControlStore store,
             CancellationToken ct) =>
         {
+            var body = await ReadSecretBodyAsync<CreatePspConnectionRequest>(http, ct);
             var result = await store.CreateConnectionAsync(new CreatePspConnectionIntent(
-                body.MerchantId, body.Psp, body.EnabledMethods ?? [], body.Config,
+                body.MerchantId, body.Psp ?? string.Empty, body.EnabledMethods ?? [], body.Config,
                 body.Secrets ?? new Dictionary<string, string>(), body.PspMerchantId,
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Created($"/api/v1/payments/psp-connections/{result.Connection.PspConnectionId:D}", result.Connection);
         }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .RequirePermission(Keys.MerchantManage)
+            .Accepts<CreatePspConnectionRequest>("application/json")
             .WithMetadata(new EtagResponseMarker("201"), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("CreatePspConnection")
             .WithSummary("สร้าง PSP connection")
-            .WithDescription("สร้าง connection สำหรับ merchant ใน Admin scope เก็บ secrets ใน vault และไม่คืน plaintext ต้องส่ง Idempotency-Key; psp/config/method ไม่ถูกต้อง -> 400")
+            .WithDescription("สร้าง connection สำหรับ merchant ใน Admin scope (หนึ่ง record ต่อ provider, เปิดใช้ทันที, health unknown, enabledMethods ว่างได้) เก็บ secrets ใน vault และไม่คืน plaintext ต้องส่ง Idempotency-Key; psp/config/field นอก allowlist หรือเกิน 4,096 ตัวอักษร -> 400; body เกิน 16 KiB -> 413; provider ซ้ำ -> 409 psp_connection_exists")
             .Produces<PspConnectionView>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
 
         api.MapPut("/payments/psp-connections/{connectionId:guid}", async (
             Guid connectionId,
@@ -671,29 +724,97 @@ internal static class AdminControlEndpoints
 
         api.MapPost("/payments/psp-connections/{connectionId:guid}/credential-change-requests", async (
             Guid connectionId,
-            PspCredentialChangeRequest body,
             HttpContext http,
             IAdminScope scope,
             IAdminPaymentsControlStore store,
             CancellationToken ct) =>
         {
+            var body = await ReadSecretBodyAsync<PspCredentialChangeRequest>(http, ct);
             var result = await store.RequestCredentialChangeAsync(new RequestPspCredentialChangeIntent(
                 connectionId, body.MerchantId, body.Secrets ?? new Dictionary<string, string>(),
                 body.PspMerchantId, VersionEtags.Require(http), IdempotencyKeys.Require(http),
                 http.TraceIdentifier, PaymentsAccess(scope)), ct);
             return Results.Accepted(value: result);
         }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .Accepts<PspCredentialChangeRequest>("application/json")
             .WithMetadata(new IfMatchMutationMarker("202", EmitsEtag: false), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("RequestPspCredentialChange")
             .WithSummary("ขอเปลี่ยน PSP credential")
-            .WithDescription("stage credential version ใหม่ใน vault แล้วสร้างคำขอ maker-checker โดยยังไม่เปิดใช้ ต้องส่ง merchantId, If-Match และ Idempotency-Key")
+            .WithDescription("stage credential version ใหม่ใน vault แล้วสร้างคำขอ maker-checker โดยยังไม่เปิดใช้ ต้องส่ง merchantId, If-Match และ Idempotency-Key; field นอก allowlist หรือเกิน 4,096 ตัวอักษร -> 400; body เกิน 16 KiB -> 413")
             .Produces<PspCredentialChangeResult>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+
+        api.MapPost("/payments/psp-connections/{connectionId:guid}/credential-change-requests/{approvalId:guid}/test", async (
+            Guid connectionId,
+            Guid approvalId,
+            MerchantStatusRequest body,
+            HttpContext http,
+            IAdminScope scope,
+            IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.TestCandidateCredentialAsync(new TestPspCandidateCredentialIntent(
+                connectionId, body.MerchantId, approvalId, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Connection.Version);
+            return Results.Ok(result.Connection);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("การเชื่อมต่อ PSP").WithName("TestPspCredentialCandidate")
+            .WithSummary("ทดสอบ candidate credential ที่รออนุมัติ")
+            .WithDescription("probe แบบ read-only ด้วย candidate credential ที่ staged ไว้ต่อ environment เป้าหมาย แล้วบันทึกผลที่ตัดข้อมูลอ่อนไหวเฉพาะเมื่อ pending/version ยังไม่เปลี่ยนหลัง probe; ไม่เปิดใช้ candidate และไม่แตะ health ของ credential ที่ใช้งานอยู่ ต้องส่ง merchantId, If-Match และ Idempotency-Key; upstream ล้มเหลว -> 502")
+            .Produces<PspConnectionView>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
     }
+
+    /// <summary>Credential-bearing bodies are bounded to 16 KiB (REQ-4.12) and marked no-store (REQ-4.13).
+    /// Read by hand rather than parameter-bound because binding happens before any filter could measure the
+    /// body; the limit is enforced on the byte stream, so a chunked request without Content-Length is
+    /// bounded too. Nothing from the body is logged.</summary>
+    internal const int SecretBodyLimit = 16 * 1024;
+
+    internal static async Task<T> ReadSecretBodyAsync<T>(HttpContext http, CancellationToken ct)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        if (http.Request.ContentLength > SecretBodyLimit)
+            throw new SecretBodyTooLargeException();
+
+        var buffer = new byte[SecretBodyLimit + 1];
+        var read = 0;
+        while (read < buffer.Length)
+        {
+            var n = await http.Request.Body.ReadAsync(buffer.AsMemory(read), ct);
+            if (n == 0)
+                break;
+            read += n;
+        }
+        if (read > SecretBodyLimit)
+            throw new SecretBodyTooLargeException();
+
+        var options = http.RequestServices.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value.SerializerOptions;
+        try
+        {
+            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read), options)
+                ?? throw new InvalidRequestException("Request body is required.", "validation_failed");
+        }
+        catch (JsonException)
+        {
+            throw new InvalidRequestException("Request body is not valid JSON.", "validation_failed");
+        }
+    }
+
+    internal sealed class SecretBodyTooLargeException : Exception;
 
     private static void MapRouting(RouteGroupBuilder api)
     {
@@ -832,7 +953,60 @@ internal static class AdminControlEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/merchant-settings/{merchantId:guid}/simple-routing", async (
+            Guid merchantId,
+            HttpContext http,
+            IAdminScope scope,
+            ISimpleRoutingControlStore store,
+            CancellationToken ct) =>
+        {
+            var value = await store.GetSimpleRoutingAsync(merchantId, PaymentsAccess(scope), ct);
+            if (value is null)
+                return Results.Problem(statusCode: StatusCodes.Status404NotFound);
+            VersionEtags.Set(http, value.Version);
+            return Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("กฎเส้นทาง PSP").WithName("GetMerchantSimpleRouting")
+            .WithSummary("อ่าน simple routing ของร้านค้า")
+            .WithDescription("คืนกฎเส้นทางต่อช่องทาง (primary/fallback) ที่หน้าตั้งค่าทั่วไปแก้ได้, ruleset id/version สำหรับ activation และ ETag; advancedReadOnly = true เมื่อ active หรือ draft มี amount, Originator หรือ any predicate หากไม่พบหรือนอก Admin scope -> 404")
+            .Produces<SimpleRoutingView>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        api.MapPut("/payments/merchant-settings/{merchantId:guid}/simple-routing", async (
+            Guid merchantId,
+            SimpleRoutingRequest body,
+            HttpContext http,
+            IAdminScope scope,
+            ISimpleRoutingControlStore store,
+            CancellationToken ct) =>
+        {
+            EnsureMerchant(body.MerchantId, merchantId);
+            var value = await store.SetSimpleRoutingAsync(new SetSimpleRoutingIntent(
+                merchantId, SimpleRoutingRows(body.Rules), VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, value.Version);
+            return Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("กฎเส้นทาง PSP").WithName("SetMerchantSimpleRouting")
+            .WithSummary("กำหนด simple routing ของร้านค้า")
+            .WithDescription("สร้างหรือแทน draft simple ruleset จากแถว method/primary/fallback เท่านั้น ต้องส่ง merchantId, If-Match และ Idempotency-Key; active หรือ draft ที่มี advanced predicate -> 409 advanced_routing_read_only; primary/fallback หรือ environment ไม่ถูกต้อง -> 400 validation_failed")
+            .Produces<SimpleRoutingView>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
     }
+
+    private static IReadOnlyList<SimpleRoutingRuleRow> SimpleRoutingRows(
+        IReadOnlyList<SimpleRoutingRowRequest>? values) =>
+        (values ?? []).Select(x => new SimpleRoutingRuleRow(
+            x.Method, x.PrimaryConnectionId, x.FallbackConnectionId)).ToList();
 
     private static async ValueTask<object?> HandleKnownErrors(
         EndpointFilterInvocationContext context, EndpointFilterDelegate next)
@@ -856,6 +1030,10 @@ internal static class AdminControlEndpoints
         catch (PspConnectionTestFailedException)
         {
             return Problem(context.HttpContext, 502, "psp_test_failed");
+        }
+        catch (SecretBodyTooLargeException)
+        {
+            return Problem(context.HttpContext, StatusCodes.Status413PayloadTooLarge, "request_too_large");
         }
         catch (PaymentCapabilityUnavailableException)
         {
@@ -895,7 +1073,8 @@ internal static class AdminControlEndpoints
         scope.Current.AdminId, scope.Accessible.IsUnrestricted, scope.Accessible.Merchants);
 
     private static AdminPaymentsAccess PaymentsAccess(IAdminScope scope) => new(
-        scope.Current.AdminId, scope.Accessible.IsUnrestricted, scope.Accessible.Merchants);
+        scope.Current.AdminId, scope.Current.AuthorizationVersion,
+        scope.Accessible.IsUnrestricted, scope.Accessible.Merchants);
 
     private static void ValidatePage(int page, int limit)
     {
@@ -954,7 +1133,7 @@ internal sealed record UpdateOriginatorRequest(
 
 internal sealed record CreatePspConnectionRequest(
     Guid MerchantId,
-    [property: Required] string Psp,
+    [property: Required] string? Psp,
     IReadOnlyList<string>? EnabledMethods,
     JsonElement? Config,
     IReadOnlyDictionary<string, string>? Secrets,
@@ -971,6 +1150,19 @@ internal sealed record PspCredentialChangeRequest(
     IReadOnlyDictionary<string, string>? Secrets,
     string? PspMerchantId);
 
+internal sealed record EnvironmentChangeRequest(
+    [property: Required] string? TargetEnvironment,
+    bool OmiseWebhookRegistered,
+    IReadOnlyList<EnvironmentChangeConnectionRequest>? Connections);
+
+// Only pspConnectionId/pspMerchantId/secrets are bound; psp is accepted for display parity but the target
+// provider is derived from the connection itself (never client-supplied routing authority).
+internal sealed record EnvironmentChangeConnectionRequest(
+    Guid PspConnectionId,
+    string? Psp,
+    string? PspMerchantId,
+    IReadOnlyDictionary<string, string>? Secrets);
+
 internal sealed record RoutingRulesetRequest(
     Guid MerchantId,
     [property: Required] string Name,
@@ -985,3 +1177,14 @@ internal sealed record RoutingRuleRequest(
     Guid TargetConnectionId,
     Guid? FallbackConnectionId,
     bool Enabled);
+
+internal sealed record SimpleRoutingRequest(
+    Guid MerchantId,
+    IReadOnlyList<SimpleRoutingRowRequest>? Rules);
+
+// Only method/primary/fallback are bound. Any amount/originator/predicate key a client tacks on is dropped
+// by the deserializer, so a write can never mint an advanced predicate from this page (AC-5.2 #5).
+internal sealed record SimpleRoutingRowRequest(
+    [property: Required] string Method,
+    Guid PrimaryConnectionId,
+    Guid? FallbackConnectionId);
