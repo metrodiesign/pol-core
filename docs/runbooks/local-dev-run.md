@@ -158,6 +158,15 @@ DB ว่าง (CI, deploy, scratch database) — script รวมทุก mig
 SQL Server compile ทั้ง batch ก่อนประเมิน guard. batch ของ migration เก่าที่อ้างคอลัมน์ซึ่ง migration ถัดมาลบไปแล้ว
 จึงล้มด้วย `Invalid column name` ทันทีบน DB ที่ apply มาถึงกลางประวัติ และไม่มี DDL ใดถูก apply เลย.
 
+ทางลัด one-command สำหรับ fresh/empty Admin inventory (apply migration แล้วรัน `WorkforceIdentityMigrator` ให้จบ
+ในขั้นตอนเดียว, idempotent, source `.env` ให้เอง):
+
+```bash
+./scripts/dev-db-migrate.sh
+```
+
+หรือรันทีละขั้นด้านล่าง:
+
 ```bash
 dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
@@ -277,6 +286,17 @@ Development จะ throw ตอน start; ให้ลบค่านั้น�
 ```bash
 dotnet watch --project src/Hosts/Api/Api.csproj run
 ```
+
+`dotnet watch` auto-apply EF migration ให้ผ่าน `Program.cs` แต่ **ไม่รัน** `WorkforceIdentityMigrator` (ตาม
+design: ห้ามมี migration-completion logic ใน API host). ถ้าข้าม Section 6 มา boot จะ crash-loop ด้วย:
+
+```text
+System.InvalidOperationException: Admin Microsoft historical identity migration is incomplete.
+```
+
+แก้โดยรัน `./scripts/dev-db-migrate.sh` (หรือ migrator ใน Section 6) ให้ exit `0` ก่อน แล้ว restart. ถ้า DB มี
+Admin row เดิมที่ต้องใช้ Entra manifest ให้ทำตาม [admin-workforce-jit-rollout.md](admin-workforce-jit-rollout.md);
+DB demo เก่าที่ไม่มี identity จริงต้องเคลียร์ row ที่ invalid ก่อน.
 
 ตรวจว่าไม่มี API ตัวเก่าถือ port ก่อน restart:
 
