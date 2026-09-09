@@ -81,22 +81,47 @@ def registry_entries(root: Path, subsection: str) -> list[str]:
 # Filesystem extractors (source of truth)
 # ---------------------------------------------------------------------------
 
+def _is_source_file(path: Path) -> bool:
+    return "bin" not in path.parts and "obj" not in path.parts
+
+
+def _has_new_module_layout(root: Path) -> bool:
+    return any((root / "src" / layer / "Modules").is_dir()
+               for layer in ("Pol.Domain", "Pol.Application", "Pol.Infrastructure"))
+
+
 def fs_modules(root: Path) -> list[str]:
-    """First-level src/Modules/<name> dirs carrying at least one *.csproj."""
-    base = root / "src/Modules"
+    """Canonical Pol.* modules, with a pre-restructure src/Modules fallback."""
+    modules: set[str] = set()
+    if _has_new_module_layout(root):
+        for layer in ("Pol.Domain", "Pol.Application", "Pol.Infrastructure"):
+            base = root / "src" / layer / "Modules"
+            if not base.is_dir():
+                continue
+            suffix = layer.removeprefix("Pol.")
+            for entry in base.iterdir():
+                if (entry.is_dir() and entry.name.endswith(f".{suffix}")
+                        and any(_is_source_file(path) for path in entry.rglob("*.cs"))):
+                    modules.add(entry.name.removesuffix(f".{suffix}"))
+        return sorted(modules)
+
+    base = root / "src" / "Modules"
     if not base.is_dir():
         return []
-    mods = []
-    for entry in sorted(base.iterdir()):
-        if entry.is_dir() and any(entry.rglob("*.csproj")):
-            mods.append(entry.name)
-    return mods
+    return sorted(entry.name for entry in base.iterdir()
+                  if entry.is_dir()
+                  and any(_is_source_file(path) for path in entry.rglob("*.csproj")))
+
+
+def _runtime_persistence_base(root: Path) -> Path:
+    canonical = Path("src/Pol.Infrastructure/Persistence")
+    legacy = Path("src/Persistence")
+    return canonical if (root / canonical).is_dir() else legacy
 
 
 def fs_runtime_dbcontexts(root: Path) -> list[str]:
-    """Class declarations *DbContext.cs under src/Persistence/** (runtime only —
-    BuildingBlocks' migration-owner PolDbContext lives outside this tree)."""
-    base = root / "src/Persistence"
+    """Runtime DbContext declarations under canonical or legacy persistence paths."""
+    base = root / _runtime_persistence_base(root)
     contexts = []
     if not base.is_dir():
         return contexts
@@ -131,10 +156,10 @@ def check_modules(root: Path) -> list[Diag]:
     missing, extra = diff_sets(actual, declared)
     for name in missing:
         problems.append(Diag("ALIGN_MODULES_MISMATCH",
-                             f"module {name} มีใน docs แต่ไม่มีใน src/Modules"))
+                             f"module {name} มีใน docs แต่ไม่มีใน source layout"))
     for name in extra:
         problems.append(Diag("ALIGN_MODULES_MISMATCH",
-                             f"module {name} มีใน src/Modules แต่ไม่มีใน docs"))
+                             f"module {name} มีใน source layout แต่ไม่มีใน docs"))
     return problems
 
 
@@ -146,17 +171,24 @@ def check_dbcontexts(root: Path) -> list[Diag]:
     missing, extra = diff_sets(actual, declared)
     return [
         Diag("ALIGN_DBCONTEXTS_MISMATCH",
-             f"context {name} {'อยู่ใน docs แต่ไม่พบใน src/Persistence' if name in missing else 'พบใน runtime แต่ไม่อยู่ใน docs'}")
+             f"context {name} {'อยู่ใน docs แต่ไม่พบใน runtime persistence layout' if name in missing else 'พบใน runtime แต่ไม่อยู่ใน docs'}")
         for name in sorted(set(missing) | set(extra))
     ]
 
 
-_PERSISTENCE_BASE = Path("src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence")
+_PERSISTENCE_BASE = Path("src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence")
+_LEGACY_PERSISTENCE_BASE = Path("src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence")
+
+
+def _migration_owner_base(root: Path) -> Path:
+    return (_PERSISTENCE_BASE if (root / _PERSISTENCE_BASE).is_dir()
+            else _LEGACY_PERSISTENCE_BASE)
 
 
 def check_migration_owner(root: Path) -> list[Diag]:
-    owner = root / _PERSISTENCE_BASE / "PolDbContext.cs"
-    snapshot = root / _PERSISTENCE_BASE / "Migrations/PolDbContextModelSnapshot.cs"
+    base = _migration_owner_base(root)
+    owner = root / base / "PolDbContext.cs"
+    snapshot = root / base / "Migrations/PolDbContextModelSnapshot.cs"
     problems: list[Diag] = []
     if not owner.is_file():
         problems.append(Diag("ALIGN_MIGRATION_OWNER_MISMATCH",
@@ -180,15 +212,15 @@ def check_migration_owner(root: Path) -> list[Diag]:
 
 
 def check_isolation(root: Path) -> list[Diag]:
-    guard = root / _PERSISTENCE_BASE / "GuardedRuntimeDbContext.cs"
+    guard = root / _migration_owner_base(root) / "GuardedRuntimeDbContext.cs"
     problems: list[Diag] = []
     if not guard.is_file():
         problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
                              f"sealed write floor หาย: {guard}"))
     contexts = {
-        "ControlPlane": root / "src/Persistence/Persistence.ControlPlane/ControlPlaneDbContext.cs",
-        "MerchantUsers": root / "src/Persistence/Persistence.MerchantUsers/MerchantUserDbContext.cs",
-        "MerchantRuntime": root / "src/Persistence/Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs",
+        "ControlPlane": root / _runtime_persistence_base(root) / "Persistence.ControlPlane/ControlPlaneDbContext.cs",
+        "MerchantUsers": root / _runtime_persistence_base(root) / "Persistence.MerchantUsers/MerchantUserDbContext.cs",
+        "MerchantRuntime": root / _runtime_persistence_base(root) / "Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs",
     }
     for cluster, path in contexts.items():
         if not path.is_file():
@@ -209,7 +241,9 @@ def check_isolation(root: Path) -> list[Diag]:
                 problems.append(Diag(
                     "ALIGN_ISOLATION_MISMATCH",
                     f"{cluster} ไม่มี deny-default query filter เลย"))
-    disjoint = root / "tests/Architecture.Tests/ModelDisjointnessTests.cs"
+    canonical_test = Path("tests/Pol.ArchitectureTests/Architecture.Tests/ModelDisjointnessTests.cs")
+    legacy_test = Path("tests/Architecture.Tests/ModelDisjointnessTests.cs")
+    disjoint = root / (canonical_test if (root / canonical_test).is_file() else legacy_test)
     if not disjoint.is_file():
         problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
                              f"model ownership test หาย: {disjoint}"))
