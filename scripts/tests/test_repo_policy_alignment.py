@@ -76,17 +76,22 @@ class SandboxBuilder:
                 f"| `{j}` | x |\n" for j in ci))
         arch.write_text("\n".join(parts), encoding="utf-8")
 
-    def module_dir(self, name: str, with_csproj: bool = True) -> Path:
-        base = self.root / "src/Modules" / name
+    def module_dir(self, name: str, with_csproj: bool = True,
+                   legacy: bool = False) -> Path:
+        base = (self.root / "src/Modules" / name if legacy
+                else self.root / "src/Pol.Domain/Modules" / f"{name}.Domain")
         base.mkdir(parents=True, exist_ok=True)
         if with_csproj:
             (base / f"{name}.csproj").write_text("<Project />", encoding="utf-8")
+            (base / "Marker.cs").write_text("class Marker {}", encoding="utf-8")
         return base
 
     def persistence_context(self, project: str, cls: str,
                             guard_base: bool = False,
-                            query_filter_cfg: bool = False) -> Path:
-        ctx = self.root / "src/Persistence" / project / f"{cls}.cs"
+                            query_filter_cfg: bool = False,
+                            legacy: bool = False) -> Path:
+        base = "src/Persistence" if legacy else "src/Pol.Infrastructure/Persistence"
+        ctx = self.root / base / project / f"{cls}.cs"
         ctx.parent.mkdir(parents=True, exist_ok=True)
         body = f"class {cls} " + (" : GuardedRuntimeDbContext " if guard_base else "") + "{}"
         ctx.write_text(body, encoding="utf-8")
@@ -96,8 +101,10 @@ class SandboxBuilder:
                            encoding="utf-8")
         return ctx
 
-    def persistence_infra(self, snapshot: bool = True) -> None:
-        base = self.root / rpa._PERSISTENCE_BASE
+    def persistence_infra(self, snapshot: bool = True,
+                          legacy: bool = False) -> None:
+        base = self.root / (rpa._LEGACY_PERSISTENCE_BASE if legacy
+                            else rpa._PERSISTENCE_BASE)
         base.mkdir(parents=True, exist_ok=True)
         (base / "PolDbContext.cs").write_text("class PolDbContext {}",
                                               encoding="utf-8")
@@ -107,19 +114,26 @@ class SandboxBuilder:
             (migrations / "PolDbContextModelSnapshot.cs").write_text(
                 "// snapshot", encoding="utf-8")
 
-    def isolation_tree(self) -> None:
+    def isolation_tree(self, legacy: bool = False) -> None:
         self.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext",
-                                 guard_base=True)
+                                 guard_base=True, legacy=legacy)
         self.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext",
-                                 guard_base=True, query_filter_cfg=True)
+                                 guard_base=True, query_filter_cfg=True, legacy=legacy)
         self.persistence_context("Persistence.MerchantRuntime",
                                  "MerchantRuntimeDbContext",
-                                 guard_base=True, query_filter_cfg=True)
-        tests = self.root / "tests/Architecture.Tests"
+                                 guard_base=True, query_filter_cfg=True, legacy=legacy)
+        tests = self.root / ("tests/Architecture.Tests" if legacy
+                             else "tests/Pol.ArchitectureTests/Architecture.Tests")
         tests.mkdir(parents=True, exist_ok=True)
         (tests / "ModelDisjointnessTests.cs").write_text("class X {}",
                                                          encoding="utf-8")
-        guard = self.root / rpa._PERSISTENCE_BASE / "GuardedRuntimeDbContext.cs"
+        project = (self.root / ("tests/Architecture.Tests/Architecture.Tests.csproj"
+                                if legacy else
+                                "tests/Pol.ArchitectureTests/Pol.ArchitectureTests.csproj"))
+        project.parent.mkdir(parents=True, exist_ok=True)
+        project.write_text("<Project />", encoding="utf-8")
+        guard = self.root / (rpa._LEGACY_PERSISTENCE_BASE if legacy
+                             else rpa._PERSISTENCE_BASE) / "GuardedRuntimeDbContext.cs"
         guard.parent.mkdir(parents=True, exist_ok=True)
         guard.write_text("abstract class GuardedRuntimeDbContext {}",
                          encoding="utf-8")
@@ -189,10 +203,34 @@ class ModulesRowTest(AlignmentFixtureBase):
         s.architecture_with_registry(modules=MODULE_SET)
         for name in MODULE_SET:
             s.module_dir(name)
-        (self.root / "src/Modules/Checkouts").mkdir(parents=True)
+        (self.root / "src/Pol.Domain/Modules/Checkouts.Domain").mkdir(parents=True)
 
     def test_positive_aligned_and_extractor_not_empty(self):
         self.build_valid()
+        self.assertEqual(rpa.check_modules(self.root), [])
+
+    def test_legacy_layout_is_aligned(self):
+        s = SandboxBuilder(self.root)
+        s.architecture_with_registry(modules=MODULE_SET)
+        for name in MODULE_SET:
+            s.module_dir(name, legacy=True)
+        self.assertEqual(rpa.check_modules(self.root), [])
+
+    def test_legacy_source_only_container_is_not_a_module(self):
+        s = SandboxBuilder(self.root)
+        s.architecture_with_registry(modules=MODULE_SET)
+        for name in MODULE_SET:
+            s.module_dir(name, legacy=True)
+        source_only = s.module_dir("SourceOnly", with_csproj=False, legacy=True)
+        (source_only / "Marker.cs").write_text("class Marker {}", encoding="utf-8")
+        self.assertEqual(rpa.check_modules(self.root), [])
+
+    def test_empty_canonical_root_does_not_shadow_legacy_layout(self):
+        s = SandboxBuilder(self.root)
+        s.architecture_with_registry(modules=MODULE_SET)
+        for name in MODULE_SET:
+            s.module_dir(name, legacy=True)
+        (self.root / "src/Pol.Domain/Modules").mkdir(parents=True)
         self.assertEqual(rpa.check_modules(self.root), [])
 
     def test_fake_module_on_disk_fails(self):
@@ -210,6 +248,42 @@ class ModulesRowTest(AlignmentFixtureBase):
         diags = rpa.check_modules(self.root)
         self.assertTrue(any(d.code == "ALIGN_MODULES_MISMATCH"
                             and "Checkouts" in d.message for d in diags))
+
+    def test_csproj_only_in_canonical_retired_container_counts_as_module(self):
+        self.build_valid()
+        s = SandboxBuilder(self.root)
+        module = s.module_dir("Checkouts")
+        (module / "Marker.cs").unlink()
+        diags = rpa.check_modules(self.root)
+        self.assertTrue(any(d.code == "ALIGN_MODULES_MISMATCH"
+                            and "Checkouts" in d.message for d in diags))
+
+    def test_mixed_canonical_and_legacy_layout_fails_closed(self):
+        self.build_valid()
+        s = SandboxBuilder(self.root)
+        for name in MODULE_SET:
+            s.module_dir(name, legacy=True)
+        diags = rpa.check_modules(self.root)
+        self.assertEqual(["ALIGN_MODULES_MISMATCH"], [d.code for d in diags])
+        self.assertIn("canonical", diags[0].message)
+        self.assertIn("legacy", diags[0].message)
+
+    def test_generated_source_in_retired_container_does_not_count_as_module(self):
+        self.build_valid()
+        generated = self.root / "src/Pol.Domain/Modules/Retired.Domain/obj/Debug/net10.0"
+        generated.mkdir(parents=True)
+        (generated / "Retired.AssemblyInfo.cs").write_text("class Generated {}", encoding="utf-8")
+        self.assertEqual(rpa.check_modules(self.root), [])
+
+    def test_generated_project_in_legacy_retired_container_does_not_count_as_module(self):
+        s = SandboxBuilder(self.root)
+        s.architecture_with_registry(modules=MODULE_SET)
+        for name in MODULE_SET:
+            s.module_dir(name, legacy=True)
+        generated = self.root / "src/Modules/Retired/obj/Debug/net10.0"
+        generated.mkdir(parents=True)
+        (generated / "Retired.csproj").write_text("<Project />", encoding="utf-8")
+        self.assertEqual(rpa.check_modules(self.root), [])
 
     def test_missing_doc_row_fails(self):
         self.build_valid()
@@ -235,6 +309,25 @@ class DbContextsRowTest(AlignmentFixtureBase):
         self.build_valid()
         self.assertEqual(rpa.check_dbcontexts(self.root), [])
 
+    def test_legacy_layout_is_aligned(self):
+        s = SandboxBuilder(self.root)
+        s.persistence_infra(snapshot=False, legacy=True)
+        s.architecture_with_registry(contexts=CONTEXT_SET)
+        s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext", legacy=True)
+        s.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext", legacy=True)
+        s.persistence_context("Persistence.MerchantRuntime", "MerchantRuntimeDbContext", legacy=True)
+        self.assertEqual(rpa.check_dbcontexts(self.root), [])
+
+    def test_empty_canonical_root_does_not_shadow_legacy_layout(self):
+        s = SandboxBuilder(self.root)
+        s.persistence_infra(snapshot=False, legacy=True)
+        s.architecture_with_registry(contexts=CONTEXT_SET)
+        s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext", legacy=True)
+        s.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext", legacy=True)
+        s.persistence_context("Persistence.MerchantRuntime", "MerchantRuntimeDbContext", legacy=True)
+        (self.root / "src/Pol.Infrastructure/Persistence").mkdir(parents=True)
+        self.assertEqual(rpa.check_dbcontexts(self.root), [])
+
     def test_extra_pol_runtime_context_fails(self):
         self.build_valid()
         s = SandboxBuilder(self.root)
@@ -252,11 +345,34 @@ class DbContextsRowTest(AlignmentFixtureBase):
                             and "MerchantRuntimeDbContext" in d.message
                             for d in diags))
 
+    def test_mixed_canonical_and_legacy_layout_fails_closed(self):
+        self.build_valid()
+        s = SandboxBuilder(self.root)
+        for project, cls in (
+                ("Persistence.ControlPlane", "ControlPlaneDbContext"),
+                ("Persistence.MerchantUsers", "MerchantUserDbContext"),
+                ("Persistence.MerchantRuntime", "MerchantRuntimeDbContext")):
+            s.persistence_context(project, cls, legacy=True)
+        diags = rpa.check_dbcontexts(self.root)
+        self.assertEqual(["ALIGN_DBCONTEXTS_MISMATCH"], [d.code for d in diags])
+        self.assertIn("canonical", diags[0].message)
+        self.assertIn("legacy", diags[0].message)
+
 
 class MigrationOwnerRowTest(AlignmentFixtureBase):
 
     def test_positive(self):
         SandboxBuilder(self.root).persistence_infra()
+        self.assertEqual(rpa.check_migration_owner(self.root), [])
+
+    def test_legacy_layout_is_aligned(self):
+        SandboxBuilder(self.root).persistence_infra(legacy=True)
+        self.assertEqual(rpa.check_migration_owner(self.root), [])
+
+    def test_empty_canonical_root_does_not_shadow_legacy_layout(self):
+        s = SandboxBuilder(self.root)
+        s.persistence_infra(legacy=True)
+        (self.root / rpa._PERSISTENCE_BASE).mkdir(parents=True)
         self.assertEqual(rpa.check_migration_owner(self.root), [])
 
     def test_missing_snapshot_fails(self):
@@ -268,12 +384,22 @@ class MigrationOwnerRowTest(AlignmentFixtureBase):
     def test_runtime_registration_fails(self):
         s = SandboxBuilder(self.root)
         s.persistence_infra()
-        stray = s.root / "src/Hosts/Api/Stray.cs"
+        stray = s.root / "src/Pol.Api/Api/Stray.cs"
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_text("services.AddDbContext<PolDbContext>();",
                          encoding="utf-8")
         diags = rpa.check_migration_owner(self.root)
         self.assertTrue(any("register" in d.message for d in diags))
+
+    def test_mixed_canonical_and_legacy_layout_fails_closed(self):
+        s = SandboxBuilder(self.root)
+        s.persistence_infra()
+        s.persistence_infra(legacy=True)
+        diags = rpa.check_migration_owner(self.root)
+        self.assertEqual(["ALIGN_MIGRATION_OWNER_MISMATCH"],
+                         [d.code for d in diags])
+        self.assertIn("canonical", diags[0].message)
+        self.assertIn("legacy", diags[0].message)
 
 
 class IsolationRowTest(AlignmentFixtureBase):
@@ -282,10 +408,22 @@ class IsolationRowTest(AlignmentFixtureBase):
         SandboxBuilder(self.root).isolation_tree()
         self.assertEqual(rpa.check_isolation(self.root), [])
 
+    def test_legacy_layout_is_aligned(self):
+        SandboxBuilder(self.root).isolation_tree(legacy=True)
+        self.assertEqual(rpa.check_isolation(self.root), [])
+
+    def test_empty_canonical_roots_do_not_shadow_legacy_layout(self):
+        s = SandboxBuilder(self.root)
+        s.isolation_tree(legacy=True)
+        (self.root / rpa._CANONICAL_RUNTIME_PERSISTENCE_BASE).mkdir(parents=True)
+        (self.root / rpa._PERSISTENCE_BASE).mkdir(parents=True)
+        (self.root / "tests/Pol.ArchitectureTests").mkdir(parents=True)
+        self.assertEqual(rpa.check_isolation(self.root), [])
+
     def test_unsealed_context_fails(self):
         s = SandboxBuilder(self.root)
         s.isolation_tree()
-        victim = (s.root / "src/Persistence/Persistence.MerchantUsers/"
+        victim = (s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantUsers/"
                   "MerchantUserDbContext.cs")
         victim.write_text("class MerchantUserDbContext {}", encoding="utf-8")
         diags = rpa.check_isolation(self.root)
@@ -295,11 +433,45 @@ class IsolationRowTest(AlignmentFixtureBase):
     def test_no_filter_config_fails(self):
         s = SandboxBuilder(self.root)
         s.isolation_tree()
-        for cfg in (s.root / "src/Persistence/Persistence.MerchantRuntime").glob("*Cfg.cs"):
+        for cfg in (s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime").glob("*Cfg.cs"):
             cfg.unlink()
         diags = rpa.check_isolation(self.root)
         self.assertTrue(any(d.code == "ALIGN_ISOLATION_MISMATCH"
                             and "MerchantRuntime" in d.message for d in diags))
+
+    def test_mixed_canonical_and_legacy_layout_fails_closed(self):
+        s = SandboxBuilder(self.root)
+        s.isolation_tree()
+        s.isolation_tree(legacy=True)
+        diags = rpa.check_isolation(self.root)
+        self.assertEqual(["ALIGN_ISOLATION_MISMATCH"], [d.code for d in diags])
+        self.assertIn("canonical", diags[0].message)
+        self.assertIn("legacy", diags[0].message)
+
+    def test_duplicate_architecture_test_guards_fail_closed(self):
+        s = SandboxBuilder(self.root)
+        s.isolation_tree()
+        legacy_tests = self.root / "tests/Architecture.Tests"
+        legacy_tests.mkdir(parents=True, exist_ok=True)
+        (legacy_tests / "Architecture.Tests.csproj").write_text(
+            "<Project />", encoding="utf-8")
+        (legacy_tests / "ModelDisjointnessTests.cs").write_text(
+            "class LegacyX {}", encoding="utf-8")
+        diags = rpa.check_isolation(self.root)
+        self.assertEqual(["ALIGN_ISOLATION_MISMATCH"], [d.code for d in diags])
+        self.assertIn("architecture-test", diags[0].message)
+
+    def test_canonical_project_without_guard_does_not_fallback_to_legacy_guard(self):
+        s = SandboxBuilder(self.root)
+        s.isolation_tree()
+        (self.root / rpa._CANONICAL_ISOLATION_TEST).unlink()
+        legacy_guard = self.root / rpa._LEGACY_ISOLATION_TEST
+        legacy_guard.parent.mkdir(parents=True, exist_ok=True)
+        legacy_guard.write_text("class LegacyX {}", encoding="utf-8")
+        diags = rpa.check_isolation(self.root)
+        self.assertEqual(["ALIGN_ISOLATION_MISMATCH"], [d.code for d in diags])
+        self.assertIn("canonical", diags[0].message)
+        self.assertIn("legacy", diags[0].message)
 
 
 class CiJobsRowTest(AlignmentFixtureBase):

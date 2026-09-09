@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "feature": "platform-restructure-v1",
+  "repo": "metrodiesign/pol-core",
+  "epic": {
+    "issue": 240,
+    "nodeId": "I_kwDOTAp-Ws8AAAABQY3FMw",
+    "id": 5394777395,
+    "bodyHash": "sha256:2f2d6873e19abd26a0ca0b1877865d97897531b0259686a4e12f6eac47e7aa85"
+  },
+  "tasks": {
+    "1": {
+      "issue": 241,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY3r7A",
+      "id": 5394787308,
+      "bodyHash": "sha256:6eaaf3a88cbece45eb0c1e268075c1a43f2838712a185c9444a111e4d88a011a",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "2": {
+      "issue": 242,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY4nBg",
+      "id": 5394802438,
+      "bodyHash": "sha256:2e090fc53fd4ce69b0912dc03a328ff66592b954e752e319e28d25d89a6a92da",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "3": {
+      "issue": 243,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY5Mtw",
+      "id": 5394812087,
+      "bodyHash": "sha256:2207d750bfdafd4d03f91e9890f67975281525af4b569e310252b8329c5ddde1",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "4": {
+      "issue": 244,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY5q6Q",
+      "id": 5394819817,
+      "bodyHash": "sha256:01404817f178b89afc1e011449283d6ec2e60dcf1fed6ffa921e43c170c05d8d",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "5": {
+      "issue": 245,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY6Kng",
+      "id": 5394827934,
+      "bodyHash": "sha256:46d1d4640c359008c39b6a500afa9c9bcd1fe90afca58db7dd99fb13f9da3bb9",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "6": {
+      "issue": 246,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY6mOQ",
+      "id": 5394835001,
+      "bodyHash": "sha256:8c9a12461c20ab4b7ef06b9bfe6d8cc3cfee6e48eac79a16ea31f907698b41db",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "7": {
+      "issue": 247,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY7A9Q",
+      "id": 5394841845,
+      "bodyHash": "sha256:550e1b23032938eb2f99ac7bd8b4ffe83e7b9a5adf8d0637ecca5e291f6f7dcf",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "8": {
+      "issue": 248,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY7gqg",
+      "id": 5394849962,
+      "bodyHash": "sha256:662c6eb296c91699df682a942464cdd13c31d32a11206bff1e323fa23bb8a71a",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "9": {
+      "issue": 249,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY78Zw",
+      "id": 5394857063,
+      "bodyHash": "sha256:3872b7c15ba220b1974ee063aff446d13c5c16b805c1ac6462d0d07937df1d82",
+      "state": "open",
+      "subIssueLinked": true
+    },
+    "10": {
+      "issue": 250,
+      "nodeId": "I_kwDOTAp-Ws8AAAABQY8Y0A",
+      "id": 5394864336,
+      "bodyHash": "sha256:70fc965f2df745ec5495fdd68f3c4def4983f4623898064161c173a5e0caa6cc",
+      "state": "open",
+      "subIssueLinked": true
+    }
+  },
+  "lastSync": "2026-09-09T04:16:52.519560+00:00",
+  "labelsEnsured": [
+    "spec:platform-restructure-v1",
+    "spec-epic",
+    "spec-task",
+    "req-spine"
+  ]
+}

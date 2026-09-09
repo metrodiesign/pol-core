@@ -495,7 +495,7 @@ class SpecContractTest(unittest.TestCase):
         features = sorted(path.name for path in specs.iterdir() if path.is_dir() and (path / "requirements.md").is_file())
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             failures = [feature for feature in features if trace_run(feature, specs)]
-        self.assertEqual(56, len(features))
+        self.assertEqual(57, len(features))
         self.assertEqual([], failures)
 
     def test_compatibility_trace_validates_migrated_task_refs_without_weakening_strict(self):

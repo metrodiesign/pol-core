@@ -1,0 +1,1863 @@
+{
+  "schemaVersion": 1,
+  "feature": "platform-restructure-v1",
+  "sourceSha256": "5e65de360108d8d8de03ea932a0ff300b1e46c993a594ee653a3aec8317c6015",
+  "source": "pol-platform-latest/sources/api-endpoints.json",
+  "v1Count": 111,
+  "deferredCount": 5,
+  "operations": [
+    {
+      "id": "API-001",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "callerAndPermission": "ทุกคน — สาธารณะ",
+      "purpose": "อ่านข้อมูล Authorization Server และตำแหน่ง OAuth endpoints",
+      "rules": "ไม่คืนความลับ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-002",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/.well-known/jwks.json",
+      "callerAndPermission": "ทุกคน — สาธารณะ",
+      "purpose": "อ่าน Public Keys สำหรับตรวจ Platform JWT",
+      "rules": "แยก key usage ของ access token และ event; ไม่คืน private key; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-003",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/oauth/authorize",
+      "callerAndPermission": "O / E / A — OAuth client + PKCE",
+      "purpose": "เริ่มขอ authorization code สำหรับผู้ใช้ที่ได้รับสิทธิ์แล้ว",
+      "rules": "registered redirect_uri, state, PKCE; ผู้สมัครยังไม่มี business grant; ผลปกติ 302",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-004",
+      "group": "01 Authentication",
+      "method": "POST",
+      "path": "/oauth/token",
+      "callerAndPermission": "O / S — Client authentication + grant",
+      "purpose": "รับ Platform JWT ด้วย authorization_code, refresh_token หรือ client_credentials",
+      "rules": "form-urlencoded; S ไม่มี refresh token; code/assertion ป้องกันใช้ซ้ำ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-005",
+      "group": "01 Authentication",
+      "method": "POST",
+      "path": "/oauth/revoke",
+      "callerAndPermission": "O / S — Client authentication",
+      "purpose": "เพิกถอน refresh token หรือ access token ของ client ตนเอง",
+      "rules": "ไม่อ้างว่า JWT ทุกใบดับทันทีโดยไม่ตรวจ revocation; account/client version ต้องตรวจที่ API; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-006",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/api/v1/auth/employees/login",
+      "callerAndPermission": "E — เริ่ม Login",
+      "purpose": "เริ่ม Entra Workforce Login ของพนักงาน",
+      "rules": "BFF ผูก state กับ client, realm และ return path ที่อนุญาต; ผลปกติ 302",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-007",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/api/v1/auth/employees/callback",
+      "callerAndPermission": "Entra ผ่าน browser — OIDC callback validation",
+      "purpose": "รับผลพนักงาน ตรวจ stable identity และสร้าง Account แบบ JIT เมื่อเข้าเกณฑ์",
+      "rules": "ใช้ response_mode=query; reject guest/tenant ที่ไม่ผ่านนโยบาย; ไม่ auto-admin; ผลปกติ 302",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-008",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/api/v1/auth/agents/login",
+      "callerAndPermission": "A / R — เริ่ม Login",
+      "purpose": "เริ่ม Entra External ID Login ของตัวแทน",
+      "rules": "ผูก Merchant context จากการตั้งค่าที่เชื่อถือได้; ผลปกติ 302",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-009",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/api/v1/auth/agents/callback",
+      "callerAndPermission": "External ID ผ่าน browser — OIDC callback validation",
+      "purpose": "แยก Active, ไม่มีบัญชี, Pending, Rejected และ Suspended",
+      "rules": "Rejected ไป Registration; Pending ไปรอ; Suspended ไม่เปิดสมัครใหม่; ผลปกติ 302",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-010",
+      "group": "01 Authentication",
+      "method": "GET",
+      "path": "/api/v1/auth/session",
+      "callerAndPermission": "E / A / R — Session ของตนเอง",
+      "purpose": "อ่านสถานะ Login และ nextAction",
+      "rules": "ไม่คืน JWT, refresh token หรือข้อมูลผู้สมัครคนอื่น; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-011",
+      "group": "01 Authentication",
+      "method": "POST",
+      "path": "/api/v1/auth/session/refresh",
+      "callerAndPermission": "E / A — BFF session + CSRF",
+      "purpose": "ต่ออายุ human session/token ฝั่ง server",
+      "rules": "หมุน refresh token และตรวจการนำกลับมาใช้; R ไม่ได้ business token; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-012",
+      "group": "01 Authentication",
+      "method": "POST",
+      "path": "/api/v1/auth/merchant-context",
+      "callerAndPermission": "E / A — Session + MerchantAccess",
+      "purpose": "เลือก Merchant ที่ได้รับสิทธิ์และเปลี่ยน token context",
+      "rules": "หนึ่ง business token ผูกหนึ่ง Merchant; ไม่เชื่อ merchantId โดยไม่ตรวจ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-013",
+      "group": "01 Authentication",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "callerAndPermission": "E / A / R — Session + CSRF",
+      "purpose": "จบ local session และเพิกถอนสิทธิ์ต่ออายุของ session นั้น",
+      "rules": "ไม่อ้างว่า logout Microsoft ทุกแอป; ล้าง cookie; ผลปกติ 204",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-014",
+      "group": "02 Account",
+      "method": "GET",
+      "path": "/api/v1/me",
+      "callerAndPermission": "E / A / S — บัญชีตนเอง",
+      "purpose": "อ่านบัญชีและบริบทปัจจุบัน",
+      "rules": "S ได้เฉพาะข้อมูลระบบ ไม่ใช่ employee/agent profile; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-015",
+      "group": "02 Account",
+      "method": "GET",
+      "path": "/api/v1/me/sessions",
+      "callerAndPermission": "E / A — บัญชีตนเอง",
+      "purpose": "ดู human sessions ของตนเอง",
+      "rules": "ไม่คืน token; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-016",
+      "group": "02 Account",
+      "method": "DELETE",
+      "path": "/api/v1/me/sessions/{sessionId}",
+      "callerAndPermission": "E / A — บัญชีตนเอง",
+      "purpose": "เพิกถอน session ที่เลือก",
+      "rules": "ไม่ใช่การลบ audit history; ผลปกติ 204",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-017",
+      "group": "02 Account",
+      "method": "GET",
+      "path": "/api/v1/accounts",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "ค้นพนักงาน ตัวแทน และระบบเชื่อมต่อ",
+      "rules": "กรองขอบเขตที่ผู้ดูแลได้รับ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-018",
+      "group": "02 Account",
+      "method": "GET",
+      "path": "/api/v1/accounts/{accountId}",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "อ่านบัญชีและ login linkage แบบปิดข้อมูลอ่อนไหว",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-019",
+      "group": "02 Account",
+      "method": "PATCH",
+      "path": "/api/v1/accounts/{accountId}",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "ปรับชื่อ/ข้อมูลที่อนุญาต และระงับหรือเปิดใช้บัญชี",
+      "rules": "If-Match; ห้ามเปลี่ยน AccountType, tid/oid, SaleId หรือ role; Account.Status เป็น master kill switch ทั้ง Human และ SYSTEM; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-020",
+      "group": "02 Account",
+      "method": "POST",
+      "path": "/api/v1/accounts/{accountId}/session-revocations",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "เพิกถอน human sessions ทุกอุปกรณ์ของบัญชี",
+      "rules": "Idempotency-Key; บันทึกเหตุผล; ใช้กับ human sessions; ระงับ SYSTEM ผ่าน Account.Status หรือ Client.Status โดยไม่ลบประวัติ; ผลปกติ 202",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-021",
+      "group": "03 System Client",
+      "method": "GET",
+      "path": "/api/v1/system-clients",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "ดูทะเบียนระบบที่เชื่อมต่อ",
+      "rules": "Merchant-scoped; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-022",
+      "group": "03 System Client",
+      "method": "POST",
+      "path": "/api/v1/system-clients",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "สร้าง Account SYSTEM และ OAuth client ที่ผูก Merchant",
+      "rules": "ข้อเสนอรุ่นแรก: Client แต่ละตัวผูก Merchant/environment เดียว; Scope เริ่มต้นน้อยที่สุดตามนโยบายที่ผู้สร้างมีอำนาจมอบ; ไม่ได้แปลว่า Merchant มีได้เพียง Client เดียว; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-023",
+      "group": "03 System Client",
+      "method": "GET",
+      "path": "/api/v1/system-clients/{clientId}",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "อ่าน client metadata และสถานะ",
+      "rules": "ไม่คืน secret; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-024",
+      "group": "03 System Client",
+      "method": "PATCH",
+      "path": "/api/v1/system-clients/{clientId}",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "ปรับชื่อและระงับ/เปิดใช้ client",
+      "rules": "If-Match; Merchant และ ClientId เปลี่ยนไม่ได้; ปรับ authorization version; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-025",
+      "group": "03 System Client",
+      "method": "PUT",
+      "path": "/api/v1/system-clients/{clientId}/access",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "กำหนด allowed scopes และ payment methods ของระบบ",
+      "rules": "ห้าม scope นอก registry/นอกอำนาจผู้ให้สิทธิ์; ใช้ Merchant เดิม; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-026",
+      "group": "03 System Client",
+      "method": "GET",
+      "path": "/api/v1/system-clients/{clientId}/keys",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "ดู public key, kid, validity และสถานะ",
+      "rules": "ไม่คืน private key; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-027",
+      "group": "03 System Client",
+      "method": "POST",
+      "path": "/api/v1/system-clients/{clientId}/keys",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "ลงทะเบียน public key ใหม่สำหรับ private_key_jwt",
+      "rules": "ตรวจ algorithm/kid; มีช่วง overlap สำหรับหมุน key; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-028",
+      "group": "03 System Client",
+      "method": "DELETE",
+      "path": "/api/v1/system-clients/{clientId}/keys/{keyId}",
+      "callerAndPermission": "E — ACCOUNT_MANAGE",
+      "purpose": "เพิกถอน key ที่เลือก",
+      "rules": "เก็บประวัติ; ไม่รับ private key; ห้ามทำ active client ใช้งานไม่ได้โดยไร้ขั้นยืนยัน; ผลปกติ 204",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-2",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-029",
+      "group": "04 Agent Registration",
+      "method": "GET",
+      "path": "/api/v1/agent-registration",
+      "callerAndPermission": "R — Registration session",
+      "purpose": "อ่านสถานะปัจจุบัน เหตุผลรอบก่อน และ nextAction",
+      "rules": "ผูก tid/oid + Merchant จาก server; Active ส่งกลับ Login ไม่เปิดสมัครใหม่; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-030",
+      "group": "04 Agent Registration",
+      "method": "PUT",
+      "path": "/api/v1/agent-registration",
+      "callerAndPermission": "R — Registration session",
+      "purpose": "บันทึกข้อมูลแบบฟอร์มรอบใหม่หรือร่าง",
+      "rules": "ใช้ RegistrationId เดิม; รับร่างครั้งแรกหรือรอบใหม่หลัง REJECTED; ห้ามแก้ Attempt เก่า; ไม่เพิ่ม Attempt จน Submit; Role/Merchant/Branch มาจากฝั่ง Server; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-031",
+      "group": "04 Agent Registration",
+      "method": "POST",
+      "path": "/api/v1/agent-registration/submissions",
+      "callerAndPermission": "R — Registration session",
+      "purpose": "ส่งการลงทะเบียนรอบใหม่และสร้าง Attempt snapshot",
+      "rules": "Idempotency-Key + If-Match; ตรวจ SaleCode และข้อมูลติดต่อ รวม verification ตามนโยบายที่เลือก; ห้าม Submit ซ้อนขณะ Pending; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-032",
+      "group": "04 Agent Registration",
+      "method": "GET",
+      "path": "/api/v1/agent-registration/history",
+      "callerAndPermission": "R — Registration session",
+      "purpose": "ดูประวัติการยื่นและเหตุผลที่แจ้งตนเอง",
+      "rules": "ไม่คืน internal review notes หรือข้อมูลผู้สมัครอื่น; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-033",
+      "group": "04 Agent Registration",
+      "method": "POST",
+      "path": "/api/v1/agent-registration/contact-verifications",
+      "callerAndPermission": "R — Registration session",
+      "purpose": "ส่งรหัสยืนยัน Email หรือ SMS ของผู้สมัคร — เป็นข้อเสนอเพิ่มเติม ไม่ใช่เงื่อนไขที่ผู้ใช้ยืนยันแล้ว",
+      "rules": "ข้อเสนอความปลอดภัย: rate limit, expiry, cooldown; ไม่เปิดเป็น public SMS relay; ผลปกติ 202",
+      "contractStatus": "PROPOSED",
+      "release": "deferred",
+      "releaseReason": "OTP เลื่อนจากรุ่นแรก",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-034",
+      "group": "04 Agent Registration",
+      "method": "POST",
+      "path": "/api/v1/agent-registration/contact-verifications/{verificationId}/confirm",
+      "callerAndPermission": "R — Registration session",
+      "purpose": "ยืนยันข้อมูลติดต่อของผู้สมัครเมื่อใช้นโยบาย OTP ที่เสนอ",
+      "rules": "ผูก identity + recipient + channel; จำกัดจำนวนครั้ง; ไม่ใช้ contact เป็น identity; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "deferred",
+      "releaseReason": "OTP เลื่อนจากรุ่นแรก",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-035",
+      "group": "04 Agent Registration",
+      "method": "GET",
+      "path": "/api/v1/agent-registrations",
+      "callerAndPermission": "E — AGENT_REVIEW",
+      "purpose": "ดูคำขอใน Merchant/สาขาที่รับผิดชอบ",
+      "rules": "Pending ไม่ใช่ข้อยกเว้นให้เห็นข้าม Merchant; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-036",
+      "group": "04 Agent Registration",
+      "method": "GET",
+      "path": "/api/v1/agent-registrations/{registrationId}",
+      "callerAndPermission": "E — AGENT_REVIEW",
+      "purpose": "อ่านผู้สมัครและข้อมูลรอบปัจจุบัน",
+      "rules": "mask PII ตามความจำเป็น; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-037",
+      "group": "04 Agent Registration",
+      "method": "GET",
+      "path": "/api/v1/agent-registrations/{registrationId}/attempts",
+      "callerAndPermission": "E — AGENT_REVIEW",
+      "purpose": "ดูทุก submission snapshot พร้อมผลพิจารณา",
+      "rules": "ข้อมูลเก่าไม่เปลี่ยนตามร่างปัจจุบัน; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-038",
+      "group": "04 Agent Registration",
+      "method": "POST",
+      "path": "/api/v1/agent-registrations/{registrationId}/attempts/{attemptId}/approve",
+      "callerAndPermission": "E — AGENT_REVIEW",
+      "purpose": "อนุมัติรอบปัจจุบัน สร้าง Account/Agent/Access และงาน Email+SMS",
+      "rules": "Idempotency-Key + If-Match; revalidate Sale/branch/identity; atomic commit; ห้ามอนุมัติรอบเก่า; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-039",
+      "group": "04 Agent Registration",
+      "method": "POST",
+      "path": "/api/v1/agent-registrations/{registrationId}/attempts/{attemptId}/reject",
+      "callerAndPermission": "E — AGENT_REVIEW",
+      "purpose": "ปฏิเสธพร้อมเหตุผล และสร้างงาน Email+SMS",
+      "rules": "Idempotency-Key + If-Match; รอบปัจจุบันและ Pending เท่านั้น; reason บังคับไม่ว่าง; InternalNote แยก; ไม่สร้าง Account; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-4",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-040",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/me/merchants",
+      "callerAndPermission": "E / A / S — บัญชีตนเอง",
+      "purpose": "ดู Merchant ที่เข้าถึงได้",
+      "rules": "S ได้ Merchant ที่ผูกเท่านั้น; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-041",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/me/access",
+      "callerAndPermission": "E / A / S — บริบทปัจจุบัน",
+      "purpose": "ดู effective role/permission/data scope/ช่องทางชำระ",
+      "rules": "ไม่ใช่จุดให้ผู้ใช้กำหนดสิทธิ์เอง; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-042",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/permissions",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "ดูรายการ permission bundles ที่ระบบรองรับ",
+      "rules": "catalog read-only; เพิ่ม permission ด้วย code/spec ไม่ใช่ user-defined execution; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-043",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/roles",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "ดู roles ที่จัดการได้",
+      "rules": "role type และ merchant ownership ถูกตรวจ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-044",
+      "group": "05 Access",
+      "method": "POST",
+      "path": "/api/v1/roles",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "สร้าง role จาก permission ที่มีอยู่",
+      "rules": "ห้ามมอบเกินอำนาจตัวเอง; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-045",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/roles/{roleId}",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "อ่าน role และ permissions",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-046",
+      "group": "05 Access",
+      "method": "PUT",
+      "path": "/api/v1/roles/{roleId}",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "แทนที่ชื่อ permissions และสถานะ role",
+      "rules": "If-Match; ป้องกันปิด role ผู้ดูแลคนสุดท้าย; ไม่ข้าม realm/merchant; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-047",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/accounts/{accountId}/merchant-access",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "ดูสิทธิ์ราย Merchant ของบัญชี",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-048",
+      "group": "05 Access",
+      "method": "PUT",
+      "path": "/api/v1/accounts/{accountId}/merchant-access/{merchantId}",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "กำหนด roles, dataScope, branchIds และ paymentMethods ในรายการเดียว",
+      "rules": "atomic; every branch/sale belongs to same Merchant; Agent merchant must match Sale; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-049",
+      "group": "05 Access",
+      "method": "DELETE",
+      "path": "/api/v1/accounts/{accountId}/merchant-access/{merchantId}",
+      "callerAndPermission": "E — ACCESS_MANAGE",
+      "purpose": "เพิกถอนสิทธิ์ Merchant",
+      "rules": "เก็บ audit; เพิ่ม authorization version; ไม่ลบประวัติ; ผลปกติ 204",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-050",
+      "group": "05 Access",
+      "method": "GET",
+      "path": "/api/v1/accounts/{accountId}/platform-access",
+      "callerAndPermission": "E — ACCESS_MANAGE ระดับ Platform",
+      "purpose": "อ่านสิทธิ์ดูแล Platform ของพนักงาน",
+      "rules": "ต้องเป็น EMPLOYEE; ไม่ใช้ merchantId ว่างแทน super access; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-051",
+      "group": "05 Access",
+      "method": "PUT",
+      "path": "/api/v1/accounts/{accountId}/platform-access",
+      "callerAndPermission": "E — ACCESS_MANAGE ระดับ Platform",
+      "purpose": "กำหนดสิทธิ์ดูแล Platform ให้พนักงาน",
+      "rules": "จำกัดผู้มีอำนาจมอบสิทธิ์; no self-escalation; last-admin protection; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-3",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-052",
+      "group": "06 Merchant",
+      "method": "GET",
+      "path": "/api/v1/merchants",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "ดู Merchant ที่ดูแลได้",
+      "rules": "ผู้ใช้ทั่วไปใช้ /me/merchants; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-053",
+      "group": "06 Merchant",
+      "method": "POST",
+      "path": "/api/v1/merchants",
+      "callerAndPermission": "E — MERCHANT_MANAGE ระดับ Platform",
+      "purpose": "จัดการสร้าง Merchant ใหม่เมื่อมีคำสั่งผู้ดูแล ไม่สร้าง VCentralPay/VCommerce/VSouvenir ซ้ำจากโมดูลอื่น",
+      "rules": "ไม่สร้างซ้ำใน Account/Order; ไม่มี public merchant onboarding; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-054",
+      "group": "06 Merchant",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "อ่านชื่อ code businessType และสถานะ",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-055",
+      "group": "06 Merchant",
+      "method": "PATCH",
+      "path": "/api/v1/merchants/{merchantId}",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "ปรับข้อมูล Merchant และสถานะ",
+      "rules": "If-Match; BusinessType ที่เปลี่ยนต้องไม่ตีความ Order เก่าย้อนหลัง; code ไม่เปลี่ยนตามชื่อ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-056",
+      "group": "06 Merchant",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/branches",
+      "callerAndPermission": "E — MERCHANT_MANAGE หรือ AGENT_REVIEW",
+      "purpose": "ดูสาขาของ Merchant",
+      "rules": "ไม่ใช่ค่า BranchCode ของ upstream SP; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-057",
+      "group": "06 Merchant",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/branches",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "ลงทะเบียนสาขาจากข้อมูลธุรกิจที่เชื่อถือได้",
+      "rules": "unique merchantId+branchCode; authoritative source เดียว; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-058",
+      "group": "06 Merchant",
+      "method": "PATCH",
+      "path": "/api/v1/merchants/{merchantId}/branches/{branchId}",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "ปรับชื่อหรือสถานะสาขา",
+      "rules": "ห้ามเปลี่ยน Merchant หรือรหัสที่มีประวัติอ้างแล้ว; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-059",
+      "group": "06 Merchant",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/sales",
+      "callerAndPermission": "E — MERCHANT_MANAGE หรือ AGENT_REVIEW",
+      "purpose": "ดู SaleCode สังกัดสาขา และสถานะการผูก Agent",
+      "rules": "มี pagination/filter; ไม่เปิดให้ผู้สมัคร browse ทั้งทะเบียน; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-060",
+      "group": "06 Merchant",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/sales",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "เพิ่มรหัสตัวแทนและสาขาหลัก",
+      "rules": "unique merchantId+saleCode; สาขาต้องอยู่ Merchant เดียวกัน; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-061",
+      "group": "06 Merchant",
+      "method": "PATCH",
+      "path": "/api/v1/merchants/{merchantId}/sales/{saleId}",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "ปรับข้อมูล/สถานะ หรือย้ายสาขาผ่านกติกาที่ตรวจสอบได้",
+      "rules": "If-Match + reason; ย้ายสาขาตามแหล่งข้อมูลที่เชื่อถือได้เท่านั้น; รักษาหนึ่ง Home Branch ณ เวลาใดเวลาหนึ่ง; ไม่แก้ Order history ตาม; สิทธิ์ข้อมูลเก่าต้องมีนโยบาย; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-062",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/payment-providers",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "ดู PSP catalog ที่ระบบมี adapter รองรับ",
+      "rules": "catalog ไม่ได้แปลว่าพร้อม live; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-063",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/payment-providers/{providerId}/methods",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "ดูช่องทางและสถานะความสามารถที่ผ่านการพิสูจน์",
+      "rules": "แยก offered/verified/enabled; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-064",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "ดูบัญชี PSP ของ Merchant",
+      "rules": "configuration ไม่ใช่บัญชีรับเงินของ Platform; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-065",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "สร้าง configuration ของบัญชี PSP เริ่มสถานะยังไม่เปิดรับชำระ",
+      "rules": "ไม่มีการสร้าง Merchant ใหม่ซ้ำ; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-066",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts/{providerAccountId}",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "อ่านการตั้งค่าและ callback URLs",
+      "rules": "secret แสดงแบบ masked/reference เท่านั้น; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-067",
+      "group": "07 Provider Configuration",
+      "method": "PATCH",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts/{providerAccountId}",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "แก้ชื่อและข้อมูลไม่กระทบ routing/credential",
+      "rules": "การเปิดช่องทางและ environment ผ่าน change request; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-068",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts/{providerAccountId}/credential-versions",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "ดูรุ่น credential และสถานะ",
+      "rules": "ไม่คืน secret; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-069",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts/{providerAccountId}/credential-versions",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "รับ secret แบบ write-only ไป Secret Store และสร้าง candidate version",
+      "rules": "ไม่บันทึก plaintext ใน Metadata/log; ยังไม่ active อัตโนมัติ; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-070",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts/{providerAccountId}/connection-tests",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "ทดสอบการยืนยันตัวกับ PSP แบบไม่สร้าง charge",
+      "rules": "probe authentication ไม่เท่ากับ channel certification; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-071",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/provider-accounts/{providerAccountId}/disable",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "หยุดสร้าง Transaction ใหม่ผ่าน account นี้กรณีฉุกเฉิน",
+      "rules": "reason + audit; รายการเก่ายัง inquiry ด้วย pinned version ได้; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-072",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/payment-settings",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "อ่าน effective methods, routing priority, environment และรุ่นการตั้งค่า",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-073",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/payment-setting-requests",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "เสนอเปิด/เปลี่ยนช่องทาง routing credential version หรือ environment",
+      "rules": "เก็บ proposed config กับ base version; ไม่ใช้ทันที; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-074",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/payment-setting-requests",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "ดูประวัติและคำขอตั้งค่าที่รอพิจารณา",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-075",
+      "group": "07 Provider Configuration",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/payment-setting-requests/{requestId}",
+      "callerAndPermission": "E — PROVIDER_MANAGE",
+      "purpose": "อ่านค่าก่อน/หลัง เหตุผลและผลพิจารณา",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-076",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/payment-setting-requests/{requestId}/approve",
+      "callerAndPermission": "E ผู้พิจารณาคนอื่น — PROVIDER_MANAGE + checker assignment",
+      "purpose": "อนุมัติการตั้งค่าและเปิดใช้รุ่นใหม่แบบ atomic",
+      "rules": "maker != checker; If-Match; capability verified; ไม่ย้าย Transaction เก่า; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-077",
+      "group": "07 Provider Configuration",
+      "method": "POST",
+      "path": "/api/v1/merchants/{merchantId}/payment-setting-requests/{requestId}/reject",
+      "callerAndPermission": "E ผู้พิจารณาคนอื่น — PROVIDER_MANAGE + checker assignment",
+      "purpose": "ปฏิเสธการเปลี่ยนค่าและคงค่าที่ใช้อยู่",
+      "rules": "reason required; ไม่เปิด candidate; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-5",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-078",
+      "group": "08 Order",
+      "method": "GET",
+      "path": "/api/v1/orders",
+      "callerAndPermission": "E / A / S — ORDER_READ / order.read",
+      "purpose": "ค้นคำสั่งซื้อในขอบเขตตนเอง",
+      "rules": "filter Merchant และ ownership ทุก query; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-079",
+      "group": "08 Order",
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "callerAndPermission": "E / A / S — ORDER_MANAGE / order.write",
+      "purpose": "สร้าง Order พร้อม OrderItems; issueNow=true สร้าง PaymentLink ให้ทันที",
+      "rules": "Idempotency-Key; ตรวจราคา/items/metadata/owner; issueNow=true บันทึก Order+Items+Link สอดคล้องกัน; order.write รวมออกลิงก์ครั้งแรกของ Order; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-080",
+      "group": "08 Order",
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}",
+      "callerAndPermission": "E / A / S — ORDER_READ / order.read",
+      "purpose": "อ่านคำสั่งซื้อ รายการย่อย และสถานะชำระ",
+      "rules": "role+scope และ PII projection; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-081",
+      "group": "08 Order",
+      "method": "PATCH",
+      "path": "/api/v1/orders/{orderId}",
+      "callerAndPermission": "E / A / S — ORDER_MANAGE / order.write",
+      "purpose": "ปรับร่าง Order และ items เป็น aggregate เดียว",
+      "rules": "If-Match; DRAFT เท่านั้น; ไม่แก้ยอดเมื่อออกลิงก์แล้ว; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-082",
+      "group": "08 Order",
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}/items",
+      "callerAndPermission": "E / A / S — ORDER_READ / order.read",
+      "purpose": "อ่านรายการย่อยแบบแบ่งหน้า",
+      "rules": "ไม่มีสิทธิ์อิสระจาก Order; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-083",
+      "group": "08 Order",
+      "method": "POST",
+      "path": "/api/v1/orders/{orderId}/issue",
+      "callerAndPermission": "E / A / S — ORDER_MANAGE / order.write",
+      "purpose": "ยืนยันร่าง ตรวจยอด ตรึงข้อมูล และสร้าง PaymentLink",
+      "rules": "Idempotency-Key + If-Match; order.write รวม issue และลิงก์แรก; issued แล้วไม่ออกลิงก์ซ้ำ; raw token กู้จาก hash ไม่ได้ ใช้ replay ที่เข้ารหัสหรือออกใหม่ชัดเจน; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-084",
+      "group": "08 Order",
+      "method": "POST",
+      "path": "/api/v1/orders/{orderId}/cancel",
+      "callerAndPermission": "E / A / S — ORDER_MANAGE / order.write",
+      "purpose": "ปิด Order และเพิกถอนลิงก์เมื่อยกเลิกได้อย่างปลอดภัย",
+      "rules": "reason required; active/unknown PSP attempt → 409 หรือ pending check; ไม่คืนเงิน; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-085",
+      "group": "08 Order",
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}/history",
+      "callerAndPermission": "E / A / S — ORDER_READ / order.read",
+      "purpose": "ดูประวัติธุรกิจของ Order",
+      "rules": "ไม่คืน security audit ลับหรือ raw PSP payload; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-6",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-086",
+      "group": "09 Checkout",
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}/payment-links",
+      "callerAndPermission": "E / A / S — ORDER_READ / order.read",
+      "purpose": "ดูสถานะลิงก์ วันหมดอายุ และประวัติการออก",
+      "rules": "ไม่อ่าน raw token ย้อนกลับจาก hash; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-087",
+      "group": "09 Checkout",
+      "method": "POST",
+      "path": "/api/v1/orders/{orderId}/payment-links",
+      "callerAndPermission": "E / A / S — ORDER_MANAGE / checkout.write",
+      "purpose": "ออกหรือออกใหม่ลิงก์ของ Order เดิม และเลือกส่งให้ลูกค้าได้",
+      "rules": "Idempotency-Key + If-Match; rotate active link; ไม่สร้าง Order/Transaction; raw token คืนเฉพาะสร้างหรือ replay เดิมที่เก็บเข้ารหัสและมีอายุ; Outbox ส่งลิงก์ต้องป้องกัน raw token; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-088",
+      "group": "09 Checkout",
+      "method": "POST",
+      "path": "/api/v1/payment-links/{linkId}/revoke",
+      "callerAndPermission": "E / A / S — ORDER_MANAGE / checkout.write",
+      "purpose": "ปิดสิทธิ์เริ่มชำระจากลิงก์",
+      "rules": "ไม่ยกเลิก PSP charge; ไม่หยุด inquiry/webhook ของรายการเก่า; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-089",
+      "group": "09 Checkout",
+      "method": "POST",
+      "path": "/api/v1/checkout/access",
+      "callerAndPermission": "C — PaymentLink token",
+      "purpose": "แลกลิงก์ลับเป็น checkout cookie อายุสั้นที่จำกัดหนึ่ง Order",
+      "rules": "Token ใน body; ตรวจ hash/expiry/revocation; จำกัดหนึ่ง Order ต่อ checkout context; รองรับหลายแท็บด้วย context ที่ผูกกับคำขอและ Order ไม่ใช้ cookie ล่าสุดแทนรายการเดิมเงียบ ๆ; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-090",
+      "group": "09 Checkout",
+      "method": "GET",
+      "path": "/api/v1/checkout/summary",
+      "callerAndPermission": "C — Checkout cookie",
+      "purpose": "อ่าน Merchant ชื่อสินค้า จำนวน และยอดที่ต้องจ่าย",
+      "rules": "เฉพาะ Order ที่ cookie ผูก; no internal PII/metadata dump; no-store; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-091",
+      "group": "09 Checkout",
+      "method": "GET",
+      "path": "/api/v1/checkout/payment-methods",
+      "callerAndPermission": "C — Checkout cookie",
+      "purpose": "ดูช่องทาง บัตร/PromptPay/ผ่อน และตัวเลือกธนาคาร/งวดที่ใช้ได้",
+      "rules": "intersection Order policy ∩ Merchant ∩ creator authority ∩ provider verified ∩ amount/currency; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-092",
+      "group": "09 Checkout",
+      "method": "POST",
+      "path": "/api/v1/checkout/confirm",
+      "callerAndPermission": "C — Checkout cookie + CSRF",
+      "purpose": "ยืนยันช่องทางและเริ่ม/กลับไป Transaction เดิมอย่างปลอดภัย",
+      "rules": "Idempotency-Key + orderVersion; ไม่มี amount/provider credential จาก client; commit TX ก่อนเรียก PSP; ผลปกติ 200 หรือ 202",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-093",
+      "group": "09 Checkout",
+      "method": "GET",
+      "path": "/api/v1/checkout/status",
+      "callerAndPermission": "C — Checkout cookie / return-view cookie",
+      "purpose": "อ่านสถานะล่าสุดโดยไม่เรียก PSP และไม่แก้สถานะ",
+      "rules": "คืน paymentStatus ของ Order, transactionStatus ของ attempt และ canRetry แยกกัน; หมดอายุลิงก์ไม่เท่ากับ FAILED ของ Order; ไม่เรียก PSP; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-094",
+      "group": "09 Checkout",
+      "method": "POST",
+      "path": "/api/v1/checkout/verify",
+      "callerAndPermission": "C — Checkout cookie / return-view cookie + CSRF",
+      "purpose": "ขอให้ backend ตรวจสถานะ PSP ของ attempt ที่ cookie อ้าง",
+      "rules": "throttle/coalesce; ไม่สร้าง charge หรือ attempt ใหม่; ผลปกติ 200 หรือ 202",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-7",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-095",
+      "group": "10 Transaction",
+      "method": "GET",
+      "path": "/api/v1/transactions",
+      "callerAndPermission": "E / A / S — TRANSACTION_READ / transaction.read",
+      "purpose": "ดูประวัติการชำระทุกครั้ง พร้อม Order reference",
+      "rules": "orderId เป็น filter; apply ownership scope ไม่ใช่ Merchant อย่างเดียว; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-096",
+      "group": "10 Transaction",
+      "method": "GET",
+      "path": "/api/v1/transactions/{transactionId}",
+      "callerAndPermission": "E / A / S — TRANSACTION_READ / transaction.read",
+      "purpose": "อ่านผลชำระและ OrderSnapshot รวม items",
+      "rules": "ข้อมูลประวัติไม่เปลี่ยนตาม Order ปัจจุบัน; ปิด provider secrets; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-097",
+      "group": "10 Transaction",
+      "method": "GET",
+      "path": "/api/v1/transactions/{transactionId}/events",
+      "callerAndPermission": "E / A / S — TRANSACTION_READ / transaction.read",
+      "purpose": "ดูประวัติสถานะและหลักฐานอ้างอิงที่อนุญาต",
+      "rules": "ไม่เปิด raw webhook/token/PII โดยปริยาย; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-098",
+      "group": "10 Transaction",
+      "method": "POST",
+      "path": "/api/v1/transactions/{transactionId}/verify",
+      "callerAndPermission": "E / S — TRANSACTION_SUPPORT / transaction.verify",
+      "purpose": "ให้เจ้าหน้าที่หรือระบบที่อนุญาตขอตรวจสถานะจาก PSP",
+      "rules": "อัตราจำกัด;ไม่บังคับ Paid; pinned provider account/credential/environment; ผลปกติ 200 หรือ 202",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-099",
+      "group": "10 Transaction",
+      "method": "POST",
+      "path": "/api/v1/transactions/{transactionId}/review-notes",
+      "callerAndPermission": "E — TRANSACTION_SUPPORT",
+      "purpose": "บันทึกการติดตามรายการผิดปกติ",
+      "rules": "append-only; ไม่เปลี่ยน financial status หรือปิดปัญหาเงินโดยไร้หลักฐาน; ผลปกติ 201",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-100",
+      "group": "10 Transaction",
+      "method": "POST",
+      "path": "/api/v1/webhooks/payment-providers/{providerAccountId}",
+      "callerAndPermission": "P — Provider-specific verification",
+      "purpose": "รับผล PSP บันทึก inbox กันซ้ำ และยืนยันผลกับ provider",
+      "rules": "ตรวจความแท้ตามสัญญา PSP; durable Inbox ก่อนตอบรับตาม HTTP contract ผู้ให้บริการ; ห้ามยืนยันสำเร็จจน reference/account/environment/amount/currency ตรง; ผลปกติ 200 หรือ 202 เฉพาะที่ PSP รองรับ",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-101",
+      "group": "10 Transaction",
+      "method": "GET",
+      "path": "/api/v1/payment-returns/{providerCode}",
+      "callerAndPermission": "P ผ่าน browser — Return-state binding",
+      "purpose": "รับ browser return แบบ GET แล้วพาไปหน้าตรวจสอบ",
+      "rules": "ไม่ trust success query; code allowlist; mint view-only cookie; no charge creation; ผลปกติ 303",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-102",
+      "group": "10 Transaction",
+      "method": "POST",
+      "path": "/api/v1/payment-returns/{providerCode}",
+      "callerAndPermission": "P ผ่าน browser — Return-state binding",
+      "purpose": "รับ browser return แบบ POST สำหรับ PSP ที่ใช้ form post",
+      "rules": "ไม่ใช้ human CSRF; validate state/signature ตามสัญญา; ไม่ mark paid จาก redirect; ผลปกติ 303",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-8",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-103",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "callerAndPermission": "E — NOTIFICATION_READ",
+      "purpose": "ค้นผลแจ้งเตือนตาม Merchant, RegistrationAttempt หรือ Order",
+      "rules": "ผู้สมัครไม่ได้ค้นทั้งทะเบียน; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-104",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/notifications/{notificationId}",
+      "callerAndPermission": "E — NOTIFICATION_READ",
+      "purpose": "อ่านผลที่ต้องแจ้งและสถานะ Email/SMS/Webhook",
+      "rules": "mask recipients; one notification source event; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-105",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/notification-deliveries/{deliveryId}",
+      "callerAndPermission": "E — NOTIFICATION_READ",
+      "purpose": "อ่านสถานะส่ง ช่องทาง และ provider reference",
+      "rules": "ACCEPTED ไม่เท่ากับ DELIVERED; เปิดรายละเอียดเท่าที่มีหลักฐาน; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-106",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/notification-deliveries/{deliveryId}/attempts",
+      "callerAndPermission": "E — NOTIFICATION_READ",
+      "purpose": "ดูทุกครั้งที่ลองส่งข้อความ",
+      "rules": "เก็บ recipient snapshot และ error แบบ redacted; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-107",
+      "group": "11 Notification",
+      "method": "POST",
+      "path": "/api/v1/notification-deliveries/{deliveryId}/retries",
+      "callerAndPermission": "E — NOTIFICATION_MANAGE",
+      "purpose": "ลองส่งใหม่เฉพาะช่องทางที่เลือก",
+      "rules": "Idempotency-Key; ไม่ส่งช่องทางสำเร็จซ้ำโดยไม่จำเป็น; preserve decision/attempt/recipient snapshot; ข้อความรอบเก่าต้องไม่อ้างเป็นผลล่าสุด; ผลปกติ 202",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-108",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/notification-templates",
+      "callerAndPermission": "E — NOTIFICATION_MANAGE",
+      "purpose": "ดู template ตามเหตุการณ์ ช่องทางและรุ่น",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "deferred",
+      "releaseReason": "ไม่มี generic template editor ในรุ่นแรก",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-109",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/notification-templates/{templateId}",
+      "callerAndPermission": "E — NOTIFICATION_MANAGE",
+      "purpose": "อ่านเนื้อหาและตัวแปรที่อนุญาต",
+      "rules": "ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "deferred",
+      "releaseReason": "ไม่มี generic template editor ในรุ่นแรก",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-110",
+      "group": "11 Notification",
+      "method": "PUT",
+      "path": "/api/v1/notification-templates/{templateId}",
+      "callerAndPermission": "E — NOTIFICATION_MANAGE",
+      "purpose": "สร้างรุ่น template ใหม่จากการแก้ข้อความ",
+      "rules": "If-Match; เก็บ template version ใหม่; การเรียก PUT เดิมซ้ำต้องไม่สร้างรุ่นซ้ำ; เก็บข้อความที่ส่งแล้ว; ไม่ประมวลผล arbitrary code; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "deferred",
+      "releaseReason": "templates versioned กับ release",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-111",
+      "group": "11 Notification",
+      "method": "POST",
+      "path": "/api/v1/webhooks/notifications/{providerCode}",
+      "callerAndPermission": "N — Notification provider verification",
+      "purpose": "รับ delivery receipt ของ Email/SMS",
+      "rules": "signature/auth verify + idempotency; สถานะที่ไม่รู้คง unknown; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-112",
+      "group": "11 Notification",
+      "method": "GET",
+      "path": "/api/v1/merchants/{merchantId}/event-endpoint",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "อ่านปลายทางแจ้งธุรกิจเมื่อ Order ชำระสำเร็จ",
+      "rules": "หนึ่ง HTTPS destination ต่อ Merchant ในรุ่นแรก; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-113",
+      "group": "11 Notification",
+      "method": "PUT",
+      "path": "/api/v1/merchants/{merchantId}/event-endpoint",
+      "callerAndPermission": "E — MERCHANT_MANAGE",
+      "purpose": "กำหนด/ปิด endpoint แจ้งกลับธุรกิจ",
+      "rules": "URL allowlist/SSRF protection; signed events; timeout/retry; no credentials in URL; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-9",
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-114",
+      "group": "12 Operations",
+      "method": "GET",
+      "path": "/api/v1/audit-logs",
+      "callerAndPermission": "E — AUDIT_READ",
+      "purpose": "ค้นหลักฐานผู้ดำเนินการ เปลี่ยนสิทธิ์ และการพิจารณา",
+      "rules": "Merchant-scoped; append-only; ไม่เผย raw secrets; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-115",
+      "group": "12 Operations",
+      "method": "GET",
+      "path": "/health/live",
+      "callerAndPermission": "ระบบเฝ้าระวัง — นโยบายเครือข่าย",
+      "purpose": "ตรวจ process ยังทำงาน",
+      "rules": "รายละเอียดน้อยที่สุด; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-10"
+      ]
+    },
+    {
+      "id": "API-116",
+      "group": "12 Operations",
+      "method": "GET",
+      "path": "/health/ready",
+      "callerAndPermission": "ระบบเฝ้าระวัง — นโยบายเครือข่าย",
+      "purpose": "ตรวจพร้อมรับงานและ dependencies ที่จำเป็น",
+      "rules": "ไม่คืน connection string; auth หากเปิดข้ามเครือข่าย; ผลปกติ 200",
+      "contractStatus": "PROPOSED",
+      "release": "v1",
+      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "requirements": [
+        "REQ-10"
+      ]
+    }
+  ]
+}
