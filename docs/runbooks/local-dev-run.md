@@ -422,6 +422,32 @@ dotnet build pol-core.slnx -warnaserror
 dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
 ```
 
+หาก `Hosts.Tests` เงียบอยู่นาน ให้รันพร้อมรายงานผลและตัวตรวจ hang แทนการตัดทั้ง suite
+ด้วย timeout 90–150 วินาที:
+
+```bash
+dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --no-build \
+  --filter "Category!=Integration" \
+  --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type none \
+  --results-directory /tmp/pol-hosts-results \
+  --logger "trx;LogFileName=hosts.trx"
+```
+
+`90s` เป็นเกณฑ์ของ blame-hang ไม่ใช่เวลารวมสูงสุดของ suite รอ process จบและตรวจ exit code
+กับจำนวน tests ใน TRX ห้ามถือว่าผ่านเพราะบาง project จบแล้ว หรือเพราะ console ยังไม่มีข้อความใหม่
+
+การตรวจวันที่ 9 กันยายน 2026 พบว่า Data Protection key-ring warmup และ SQL workers ของ
+test host ยังลองเชื่อมฐานข้อมูล แม้บาง fixture ใช้ ephemeral protection ตัวอย่าง Controls tests
+ผ่าน 6/6 ใน 22 วินาที และ tenant-binding test ผ่าน 1/1 ใน 17 วินาที โดยมีช่วงรอ SQL ตอนเริ่ม host
+ประมาณ 15 วินาที การรันหลาย factories จึงอาจนานกว่าขีดจำกัดทั้ง suite ที่ตั้งไว้เอง
+ไม่ต้องเปลี่ยน credentials ของ fixture ให้ชี้ฐานข้อมูลใช้งานจริงเพื่อแก้อาการนี้
+
+รอบตรวจชุดเต็มวันเดียวกันจบสำเร็จ: `Hosts.Tests` ผ่าน 732/732, failed 0, skipped 0
+ใช้เวลา 6 นาที 1 วินาที ผลนี้ยืนยันว่าขีดจำกัดทั้ง suite 150 วินาทีสั้นเกินไปสำหรับเครื่องที่ตรวจ
+
+คำสั่งนี้ไม่ตัด `Hosts.Tests` ออกจาก gate และไม่แทนผลของ full non-integration suite
+หากมี hang หรือ failure ให้ใช้รายงาน TRX/Sequence วินิจฉัยต่อ ห้ามติ๊กงานว่าทดสอบผ่าน
+
 Integration suite ต้องใช้ local SQL ที่แยกจาก shared/prod data และ source environment เดียวกัน:
 
 ```bash
