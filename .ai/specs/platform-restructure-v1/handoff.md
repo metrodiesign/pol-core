@@ -1,65 +1,70 @@
 # Handoff: POL Platform รุ่นแรก
+> From: spec-authoring session   To: orchestrator หรือ any   Date: 2026-09-09
 
-Spec สำหรับเริ่มพัฒนาเป็นช่วง โดยรักษาข้อมูลและลดโครงสร้างให้ทีมเล็กดูแลได้ เริ่มอ่าน [ลำดับงาน](tasks.md) แล้วใช้ [ข้อกำหนด](requirements.md) และ [แบบระบบ](design.md) ของช่วงนั้น
+## Task Summary
 
-## ขอบเขตและสถานะ
+active spec `platform-restructure-v1` กำหนดการรื้อ POL Platform รุ่นแรกแบบเป็นช่วง โดย requirements ครอบคลุม `REQ-1` ถึง `REQ-12` และมี design กับ tasks เป็น source of truth สำหรับ implementation การบันทึกนี้คงสถานะ ณ commit `470e0b1c` ซึ่งยังไม่มี implementation ของ Task 1 หรือ task อื่นเริ่มขึ้น
 
-| เรื่อง | สถานะ |
-|---|---|
-| Requirements | approved 2026-09-09, 12 กลุ่ม รวม 126 เกณฑ์ |
-| Design | approved 2026-09-09, 7 เจ้าของงาน, 4 source projects, 3 test projects, 2 runtime contexts |
-| Tasks | approved 2026-09-09, 10 ช่วงเรียง dependency, ยังไม่เริ่มทุกช่วง |
-| API scope | [api-scope.json](api-scope.json), 111 v1 และ 5 deferred จาก inventory 116 รายการ |
-| Source/config/database | ไม่มีการแก้ในรอบสร้าง spec |
-| Commit/push/deploy | ไม่ได้ทำ |
+## Current Status
 
-ผู้ใช้อนุมัติ spec รุ่นแรกวันที่ 9 กันยายน 2026 พร้อมคำสั่ง “ยังไม่ต้องเริ่มทำ” การอนุมัตินี้ครอบคลุมเอกสารเท่านั้น หยุดรอคำสั่งเริ่ม implementation ทุก task ยังไม่เริ่ม
+- Requirements: approved 2026-09-09, 12 กลุ่ม รวม 126 เกณฑ์
+- Design: approved 2026-09-09, 7 เจ้าของงาน, 4 source projects, 3 test projects และ 2 runtime contexts เป็น target design
+- Tasks: approved 2026-09-09, 10 ช่วงเรียงตาม dependency และยังไม่เริ่มทุกช่วง ณ commit `470e0b1c`
+- API scope: `api-scope.json` มี 111 v1 operations และ 5 deferred จาก inventory 116 รายการ
+- Source/config/database: ไม่มีการแก้ในรอบสร้าง spec
+- Commit/push/deploy: ไม่ได้ทำในรอบสร้าง spec
 
-## ค่าที่ล็อกสำหรับ implementation
+ผู้ใช้อนุมัติเอกสาร spec วันที่ 9 กันยายน 2026 โดยยังไม่สั่งเริ่ม implementation; approval นี้ครอบคลุมเอกสารเท่านั้น
 
-- หนึ่ง active MerchantAccess ต่อ Account/Merchant และหนึ่ง Client ต่อ SYSTEM Account ที่ผูก Merchant/environment เดียว
-- Account/Access ใช้ OAuth state เจ้าของเดียวผ่าน OpenIddict ตาม version/EF compatibility ใน design
-- Order เป็นเจ้าของยอดและสถานะธุรกิจ ไม่มี Payment aggregate; Transaction เก็บความจริงทุก attempt รวมผลมาช้าและเงินจริงซ้ำ
+## Files Changed
+
+- `.ai/specs/platform-restructure-v1/requirements.md` — ข้อกำหนด EARS และ acceptance scope — คงใช้
+- `.ai/specs/platform-restructure-v1/design.md` — design ของ packaging, ownership, contexts, security และ migration — คงใช้
+- `.ai/specs/platform-restructure-v1/tasks.md` — implementation checklist 10 ช่วงพร้อม Verify commands — คงใช้
+- `.ai/specs/platform-restructure-v1/api-scope.json` — inventory API v1 และ deferred routes — คงใช้
+- `.ai/specs/platform-restructure-v1/handoff.md` — สถานะส่งต่องาน — แก้ schema ให้ตรง `.ai/shared/AGENT_HANDOFF_PROTOCOL.md`
+
+## Important Decisions
+
+- หนึ่ง active `MerchantAccess` ต่อ Account/Merchant และหนึ่ง Client ต่อ SYSTEM Account ที่ผูก Merchant/environment เดียว
+- Account/Access ใช้ OAuth state เจ้าของเดียวผ่าน OpenIddict ตาม version และ EF compatibility ใน design
+- `Order` เป็นเจ้าของยอดและสถานะธุรกิจ ไม่มี Payment aggregate; `Transaction` เก็บความจริงของทุก attempt รวมผลมาช้าและเงินจริงซ้ำ
 - ใช้ maintenance cutover เดียว, deterministic legacy mapping และ recovery ที่รักษา events หลัง cutover
 - OTP และ template editor เลื่อนไปก่อน ส่วน Email/SMS ยังอยู่ใน scope พร้อม capability gate
+- target packaging คือ 4 source projects และ 3 test projects แต่จะถอด legacy ได้เมื่อ inventory, ownership, isolation และ migration evidence ผ่านเท่านั้น
 
-Spec นี้เป็นรายละเอียด v1 ที่ใหม่กว่า [blueprint](../../../docs/proposals/payment-platform-redesign-2026-09-08/latest-blueprint.md) และ [conceptual ERD](../../../outputs/diagrams/2026-09-08_payment-platform-latest-blueprint_v3.md) หาก default ของ proposal เก่าต่างกัน ให้ใช้ spec นี้สำหรับแผน implementation ทั้งคู่ยังเป็นเอกสารออกแบบ ไม่ใช่หลักฐานระบบที่ใช้งานจริง
+## Constraints
 
-## หลักฐานตรวจเอกสาร
+- สถานะใน handoff นี้หยุดที่ commit `470e0b1c`; ห้ามนำ current dirty Task 1 implementation หรือ handoff จากการทำงานภายหลังมาปะปน
+- ห้ามถือ target project/context count เป็นผล refactor ที่ทำแล้ว และห้ามตัด security boundary เพื่อให้จำนวนไฟล์ตรงเป้า
+- external prerequisites ได้แก่ Entra tenant/issuer/app registrations, PSP sandbox credentials/contract evidence, SMS vendor, identity mappings, backup/recovery evidence และ production authorization
+- Verify commands ใน `tasks.md` เป็นเกณฑ์ของ implementation หลังมี target projects; integration ที่ต้องใช้ SQL Server หรือ external provider ต้องบันทึกข้อจำกัดตามจริง
+- ห้าม commit, push, deploy, เปลี่ยน protected branch หรือทำ production action จาก handoff นี้
 
-| การตรวจ | ผล |
-|---|---|
-| EARS และ reverse trace | 126/126 เกณฑ์อ้างครบใน design/tasks |
-| API inventory | source hash ตรง, 116 records เดิมไม่เปลี่ยน, method/path ไม่ซ้ำ, 111 v1/5 deferred |
-| Task dependency | 10 tasks, dependency ย้อนถึงงานก่อนหน้าเท่านั้น, ไม่มี task ทำเครื่องหมายเสร็จ |
-| Mermaid | render ผ่านทั้ง 7 แผนภาพใน browser |
-| Independent critique | PASS ระดับ design หลังแก้ findings 6 ข้อและตรวจซ้ำ ไม่มีข้อค้างจากรอบนี้ |
-| รูปแบบและ local links | 8 เอกสาร, 27 links, 0 errors |
+## Tests Run
 
-Review ปิดเรื่อง endpoint classes, CSRF ทุก cookie mutation, authorization lease ก่อน commit, terminal payment reducer/Order serialization, SFS และ exact write DTOs ผลนี้ไม่ใช่ runtime PASS
+- `python3 scripts/tests/test_repo_policy_alignment.py` -> `Ran 61 tests in 0.577s`, `OK`, exit `0`
+- `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> `Ran 350 tests in 37.586s`, `OK`, exit `0`
+- `python3 scripts/repo_policy_alignment.py --check --json` -> `{"diagnostics": [], "schemaVersion": 1, "verdict": "allow"}`, exit `0`
+- `python3 scripts/spec_contract.py check --feature platform-restructure-v1 --strict` -> `OK: 'platform-restructure-v1' เกณฑ์ 126 ข้อ ถูกอ้างครบใน design.md และ tasks.md, EARS lint ผ่านทุกข้อ`, exit `0`
+- `bash scripts/spec-trace.sh platform-restructure-v1` -> `OK: 'platform-restructure-v1' เกณฑ์ 126 ข้อ ถูกอ้างครบใน design.md และ tasks.md, EARS lint ผ่านทุกข้อ`, exit `0`
+- `git diff --check` -> output ว่าง, exit `0`
 
-คำสั่งตรวจ trace:
+คำสั่งข้างต้นเป็น checks ที่มีอยู่ใน repository และใช้ตรวจ handoff/spec ที่ commit นี้อ้างถึง; ไม่มี temporary checker หรือ evidence ของ Task 1 ใน handoff นี้
 
-```sh
-bash scripts/spec-trace.sh platform-restructure-v1
-python3 scripts/spec_contract.py task-ids --feature platform-restructure-v1 --all --format json
-```
+## Known Issues
 
-ผลก่อนอนุมัติ: phase design/tasks และ strict contract เคยคืน `PHASE_UPSTREAM_NOT_APPROVED` เพราะ artifacts เป็น draft ปัจจุบันบันทึก approval ตามคำยืนยันจริงของผู้ใช้แล้ว แยก Satisfies/Depends on/Verify คนละบรรทัดเพื่อให้ parser อ่านครบ โดยไม่เปลี่ยนขอบเขตงาน ผลตรวจ strict contract และ reverse trace ผ่าน 126/126 เกณฑ์ (exit 0) ไม่มีการเริ่ม implementation
+- ยังไม่มี implementation task ใดเริ่ม ณ commit `470e0b1c`
+- ต้องพิสูจน์ SQL Server race, tenant guards, transaction serialization, PSP callback/recovery, notification delivery และ migration rehearsal ตาม task-specific evidence
+- ถ้า filter ของ `dotnet test` ไม่พบ tests ให้ถือว่าไม่ผ่าน แม้ runner จะคืน exit code 0
+- งาน production ต้องรอ authorization, backup/recovery plan และ staging verification ตาม project rules
 
-ไม่ได้รัน application build/test, restore OpenIddict/EF หรือ Entra/PSP/SMS จริงในรอบเอกสาร คำสั่งใน tasks เป็น verification ที่ implementation ต้องทำ ไม่ใช่ Evidence ที่เกิดขึ้นแล้ว
+## Next Recommended Agent
 
-## Inputs และขอบเขตที่ยังต้องตรวจ
+ให้ orchestrator รับต่อเมื่อผู้ใช้สั่งเริ่ม implementation แล้ว route Task 1 ตาม dependency และใช้ `architect`, `coder`, `auditor`, `verifier` และ `reviewer` ตาม gate ของ repository
 
-| Input | ผลต่อการเริ่มงาน |
-|---|---|
-| SMS vendor/API | เริ่ม orchestration ได้ แต่เปิดส่งจริงไม่ได้จนมี adapter และ contract evidence |
-| Entra/PSP credentials และ tenant/provider contracts | ทดสอบ local ได้; live capability ต้องผ่านหลักฐานภายนอก |
-| master identity/Merchant mappings และ consumer inventory | เป็นงาน task 1/9; ห้ามเดาหรือลบ legacy ล่วงหน้า |
-| production backup/recovery/authorization | ยังไม่ได้รับและไม่จำเป็นต่อการเขียน spec |
+## Next Steps
 
-## ส่งต่องาน
-
-สถานะปัจจุบัน: รอคำสั่งเริ่มงานจากผู้ใช้ เมื่อได้รับคำสั่งจึงเริ่ม task 1: เก็บ baseline และรวม packaging โดยรักษา behavior เดิมก่อนย้าย business contract ทีมต้องอ่าน requirements/design ของแต่ละ task และบันทึก Evidence จริงก่อน checkpoint
-
-เอกสารนี้ไม่อนุญาตให้เริ่ม implementation เองในรอบที่ผู้ใช้ขอเฉพาะ spec และไม่อนุญาต production cutover การย้ายจริงต้องทำตาม task 9 และผ่านเงื่อนไขที่ระบุครบ
+1. รัน `git status --short` แล้วอ่าน `requirements.md`, `design.md`, `tasks.md`, `api-scope.json` และตรวจ filesystem เทียบกับ handoff นี้
+2. ตรวจ capability และ external prerequisites ก่อนเริ่ม task ที่ต้องใช้ SQL Server, Entra, PSP หรือ SMS
+3. เลือก task ที่ได้รับคำสั่งเริ่ม ทำ tests พร้อม implementation และบันทึก Evidence ของ Verify command ก่อนส่ง review
