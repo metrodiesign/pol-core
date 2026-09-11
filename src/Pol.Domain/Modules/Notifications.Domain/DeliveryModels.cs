@@ -502,9 +502,14 @@ public sealed class Delivery
         CompletedAt = now;
     }
 
-    public void BlockNotConfigured(string reason, DateTime now)
+    public void BlockNotConfigured(string reason, DateTime now, string? expectedLeaseOwner = null)
     {
-        if (Status is not (DeliveryStatus.Pending or DeliveryStatus.Unknown))
+        var claimedByExpectedOwner = Status == DeliveryStatus.Processing
+            && expectedLeaseOwner is not null
+            && string.Equals(LeaseOwner, expectedLeaseOwner, StringComparison.Ordinal)
+            && LeaseExpiresAt is { } leaseExpiresAt
+            && leaseExpiresAt > now;
+        if (Status is not (DeliveryStatus.Pending or DeliveryStatus.Unknown) && !claimedByExpectedOwner)
             throw new InvalidOperationException("Only an unclaimed delivery can be blocked.");
         Status = DeliveryStatus.BlockedNotConfigured;
         FailureCode = Required(reason);

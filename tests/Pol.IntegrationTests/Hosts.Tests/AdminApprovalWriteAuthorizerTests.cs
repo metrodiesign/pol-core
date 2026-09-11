@@ -2,6 +2,7 @@ extern alias ApiHost;
 using Admins.Application;
 using Admins.Application.Users;
 using BuildingBlocks.Application;
+using BuildingBlocks.Infrastructure.Idempotency;
 using AdminApprovalWriteAuthorizer = ApiHost::Api.Persistence.AdminApprovalWriteAuthorizer;
 using HttpMerchantWriteAuthorizer = ApiHost::Api.Persistence.HttpMerchantWriteAuthorizer;
 using MerchantUserAccount = Merchants.Domain.Users.User;
@@ -40,6 +41,7 @@ public sealed class AdminApprovalWriteAuthorizerTests
         Assert.True(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Insert, MerchantA));
         Assert.True(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Delete, MerchantA));
         Assert.True(floor.CanWrite(typeof(MerchantRegistrationAudit), WriteOperation.Insert, Guid.Empty));
+        Assert.True(floor.CanWrite(typeof(IdempotencyRecord), WriteOperation.Insert, MerchantA));
 
         // Reject: the target row keeps a NULL tenant key → targetMerchant == Guid.Empty.
         Assert.True(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Update, Guid.Empty));
@@ -54,6 +56,7 @@ public sealed class AdminApprovalWriteAuthorizerTests
         Assert.False(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Update, MerchantB));
         Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Insert, MerchantB));
         Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Delete, MerchantB));
+        Assert.False(floor.CanWrite(typeof(IdempotencyRecord), WriteOperation.Insert, MerchantB));
     }
 
     [Fact]

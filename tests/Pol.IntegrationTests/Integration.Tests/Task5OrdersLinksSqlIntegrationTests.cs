@@ -1,6 +1,9 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
+using Accounts.Application;
+using Accounts.Domain;
+using Access.Domain;
 using Checkouts.Application;
 using Checkouts.Domain;
 using Microsoft.Data.SqlClient;
@@ -106,7 +109,8 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
             var repository = new OrderRepository(db);
             var links = repository;
             var pricing = new IntegrationPricing();
-            var owners = new OrderOwnerResolver(controlPlane, actor);
+            var owners = new OrderOwnerResolver(
+                controlPlane, actor, new TestIdentityAccessQuery(actor.MerchantId, actor.UserId!.Value));
             var tokenService = new FixedTokenService();
             var issuer = new OrderLinkIssuer(tokenService, links, clock);
             var unitOfWork = new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance);
@@ -194,7 +198,8 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
                 repository, repository, repository, replayProtector, clock);
             var create = new CreateOrderHandler(
                 new IntegrationPricing(),
-                new OrderOwnerResolver(controlPlane, actor),
+                new OrderOwnerResolver(
+                    controlPlane, actor, new TestIdentityAccessQuery(actor.MerchantId, actor.UserId!.Value)),
                 repository,
                 new OrderNoSequence(db, clock),
                 new OrderLinkIssuer(new FixedTokenService(), repository, clock),
@@ -364,11 +369,12 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
                 NoOpSecurityTelemetry.Instance);
             var resolver = new OrderOwnerResolver(
                 resolvedControlPlane,
-                new IntegrationActor(IntegrationDb.MerchantA, accountId, resolvedSaleCode));
+                new IntegrationActor(IntegrationDb.MerchantA, accountId, resolvedSaleCode),
+                new TestIdentityAccessQuery(IntegrationDb.MerchantA, accountId, saleId));
             var derived = await resolver.ResolveAsync(
                 IntegrationDb.MerchantA,
                 accountId,
-                new OrderOwnerRequest(Guid.NewGuid(), Guid.NewGuid()),
+                new OrderOwnerRequest(null, null),
                 default);
 
             Assert.Equal(saleId, derived.OwnerSaleId);
@@ -376,7 +382,8 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
 
             var merchantScoped = new OrderOwnerResolver(
                 resolvedControlPlane,
-                new IntegrationActor(IntegrationDb.MerchantA, accountId));
+                new IntegrationActor(IntegrationDb.MerchantA, accountId),
+                new TestIdentityAccessQuery(IntegrationDb.MerchantA, accountId, saleId));
             await Assert.ThrowsAsync<AccessDeniedException>(() => merchantScoped.ResolveAsync(
                 IntegrationDb.MerchantA,
                 accountId,
@@ -523,7 +530,8 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
                 clock);
             var create = new CreateOrderHandler(
                 new IntegrationPricing(),
-                new OrderOwnerResolver(controlPlane, actor),
+                new OrderOwnerResolver(
+                    controlPlane, actor, new TestIdentityAccessQuery(actor.MerchantId, actor.UserId!.Value)),
                 repository,
                 new OrderNoSequence(db, clock),
                 new OrderLinkIssuer(tokenService, linkStore, clock),
@@ -827,6 +835,42 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
         public Guid MerchantId => Guid.Empty;
         public Guid? UserId => null;
         public bool HasActor => false;
+    }
+
+    private sealed class TestIdentityAccessQuery(Guid merchantId, Guid accountId, Guid? agentSaleId = null)
+        : IIdentityAccessQuery
+    {
+        public Task<Account?> FindAccountAsync(Guid requestedAccountId, CancellationToken cancellationToken) =>
+            Task.FromResult<Account?>(null);
+
+        public Task<SystemClientResolution?> FindSystemClientAsync(
+            string clientId, CancellationToken cancellationToken) =>
+            Task.FromResult<SystemClientResolution?>(null);
+
+        public Task<AuthorizationSnapshot?> ResolveAuthorizationAsync(
+            Guid requestedAccountId, Guid? requestedMerchantId, Guid? clientId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<AuthorizationSnapshot?>(
+                requestedAccountId == accountId && requestedMerchantId == merchantId
+                    ? new AuthorizationSnapshot(
+                        accountId,
+                        agentSaleId is null ? AccountType.Employee : AccountType.Agent,
+                        AccountStatus.Active,
+                        0,
+                        merchantId,
+                        DataScope.Merchant,
+                        agentSaleId,
+                        null,
+                        new HashSet<Guid>(),
+                        new HashSet<Guid>(),
+                        false,
+                        new HashSet<string>(StringComparer.Ordinal),
+                        clientId)
+                    : null);
+
+        public Task<IReadOnlyList<MerchantAccessSummary>> ListMerchantAccessAsync(
+            Guid requestedAccountId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<MerchantAccessSummary>>([]);
     }
 
     private sealed class IntegrationClock(DateTime value) : IClock

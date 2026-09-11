@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using Mediator;
 using SharedKernel;
 using System.Text.Json;
+using Orders.Domain;
 
 namespace Orders.Application;
 
@@ -18,7 +19,8 @@ public sealed record GetOrderDetailCommand(Guid MerchantId, Guid OrderId, string
 
 public sealed record OrderItemDetail(
     string ProductCode, string VariantCode, string? VariantName,
-    int Quantity, Money UnitPrice, Money Discount, JsonElement? Metadata);
+    int Quantity, Money UnitPrice, Money Discount, JsonElement? Metadata,
+    JsonElement? RequestMetadata = null);
 
 /// <summary>The single-order read (purchase-flow-completion REQ-7.3 adds <see cref="OrderNo"/>,
 /// <see cref="PaymentChannel"/> and the buyer's contact to what the merchant sees).</summary>
@@ -63,7 +65,11 @@ public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailComman
 
         var lines = order.Items.Select(i => new OrderItemDetail(
             i.ProductCode, i.VariantCode, i.VariantName, i.Quantity, i.UnitPrice, i.Discount,
-            i.Metadata is null ? null : CommerceItemMetadataCodec.ToJsonElement(i.Metadata))).ToList();
+            i.Metadata is null ? null : CommerceItemMetadataCodec.ToJsonElement(i.Metadata),
+            i.RequestMetadata is null
+                ? null
+                : JsonDocument.Parse(VersionedMetadata.Parse(i.RequestMetadata)!.ToCanonicalJson())
+                    .RootElement.Clone())).ToList();
 
         return new OrderDetailView(
             order.Id, order.OrderNo, order.Status.ToString(), order.Amount, order.PaymentChannel,

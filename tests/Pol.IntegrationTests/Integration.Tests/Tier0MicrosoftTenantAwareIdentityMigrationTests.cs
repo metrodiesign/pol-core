@@ -27,10 +27,16 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         await database.ExecuteBatchesAsync(script);
 
         await using var verify = await database.OpenAsync();
-        // Current Task9 migration lineage contains the complete 45-entry chain; the script must apply
+        // The committed migration lineage contains the complete 47-entry chain; the script must apply
         // every recorded migration exactly once and remain idempotent on the second pass.
-        Assert.Equal(45, Convert.ToInt32(await ScalarAsync(
+        Assert.Equal(47, Convert.ToInt32(await ScalarAsync(
             verify, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
+        Assert.Equal(2, Convert.ToInt32(await ScalarAsync(verify, """
+            SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
+            WHERE MigrationId IN
+                (N'20260911160508_ReviewFixOrderVersionedMetadata',
+                 N'20260911163519_ReviewFixPaymentLinkNotificationIntent');
+            """)));
         Assert.NotEqual(DBNull.Value, await ScalarAsync(
             verify, "SELECT OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U');"));
     }

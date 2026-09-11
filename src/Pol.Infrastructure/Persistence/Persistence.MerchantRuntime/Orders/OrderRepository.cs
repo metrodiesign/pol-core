@@ -26,7 +26,9 @@ internal sealed class OrderRepository : IOrderRepository, IOrderStore, IOrderWor
     private readonly CommerceDbContext _db;
     private readonly ILogger<OrderRepository> _logger;
 
-    public OrderRepository(CommerceDbContext db, ILogger<OrderRepository> logger)
+    public OrderRepository(
+        CommerceDbContext db,
+        ILogger<OrderRepository> logger)
     {
         _db = db;
         _logger = logger;
@@ -75,6 +77,21 @@ internal sealed class OrderRepository : IOrderRepository, IOrderStore, IOrderWor
             .Where(o => o.MerchantId == merchantId)
             .ApplyFilters(query.Filters, _logger);
 
+        if (_db.CurrentIdentityAuthorization is { } identityAuthorization)
+        {
+            source = identityAuthorization.DataScope switch
+            {
+                Access.Domain.DataScope.Merchant => source,
+                Access.Domain.DataScope.Self when identityAuthorization.AccountType == Accounts.Domain.AccountType.Agent
+                    && identityAuthorization.AgentSaleId is { } saleId => source.Where(o => o.OwnerSaleId == saleId),
+                Access.Domain.DataScope.Branch when identityAuthorization.BranchIds.Count == 1
+                    => source.Where(o => o.OwnerBranchIdAtCreation == identityAuthorization.BranchIds.Single()),
+                Access.Domain.DataScope.AssignedBranches when identityAuthorization.BranchIds.Count > 0
+                    => source.Where(o => o.OwnerBranchIdAtCreation.HasValue
+                        && identityAuthorization.BranchIds.Contains(o.OwnerBranchIdAtCreation.Value)),
+                _ => source.Where(_ => false),
+            };
+        }
         var total = await PlatformReadGuard.ReadAsync(
             ct => source.LongCountAsync(ct), cancellationToken).ConfigureAwait(false);
         var skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);

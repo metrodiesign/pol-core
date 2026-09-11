@@ -15,7 +15,8 @@ public sealed class UpdateRoleHandlerTests
     private static readonly IReadOnlyDictionary<string, Scope> NoCatalog = new Dictionary<string, Scope>();
 
     private static UpdateRoleHandler Handler(FakeRoleStore roles) =>
-        new(roles, new FakeRoleAssignmentCounter(), NullRoleAuditSink.Instance, new FakeUnitOfWork());
+        new(roles, new FakeRoleAssignmentCounter(), NullRoleAuditSink.Instance,
+            new FakeRoleAuthorizationInvalidator(), new FakeUnitOfWork());
 
     private static Role Seed(string code, Scope scope = Scope.Platform, Guid? merchantId = null) =>
         Role.Create(code, code, null, null, RoleStatus.Active, scope, merchantId, [], NoCatalog);
@@ -105,6 +106,12 @@ public sealed class UpdateRoleHandlerTests
         public Task<IReadOnlyDictionary<Guid, int>> CountManyAsync(
             RoleSideContext context, IReadOnlyCollection<Guid> roleIds, CancellationToken ct) =>
             throw new NotSupportedException();
+    }
+
+    internal sealed class FakeRoleAuthorizationInvalidator : IRoleAuthorizationInvalidator
+    {
+        public Task InvalidateAssignedAccountsAsync(Guid roleId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
     }
 
     internal sealed class FakeUnitOfWork : IUnitOfWork

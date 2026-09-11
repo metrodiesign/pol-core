@@ -10,7 +10,7 @@ namespace Integration.Tests;
 public sealed class NativeJsonColumnsIntegrationTests
 {
     [Fact]
-    public async Task Exactly_nine_snapshot_authoritative_columns_are_native_json()
+    public async Task Exactly_eleven_snapshot_authoritative_columns_are_native_json()
     {
         await using var database = await FreshJsonDatabase.CreateAsync();
         var connection = database.Connection;
@@ -25,7 +25,7 @@ public sealed class NativeJsonColumnsIntegrationTests
             """;
 
         Assert.Equal(
-            "acct.AgentRegistrationAttempts.ProfileJson,acct.AgentRegistrations.ProfileJson,acct.Agents.Metadata,acct.Employees.Metadata,admin.ProvisioningOperations.Result,merch.Merchants.Metadata,merch.UserOutbox.Payload,shop.CartItems.Metadata,shop.OrderItems.Metadata",
+            "acct.AgentRegistrationAttempts.ProfileJson,acct.AgentRegistrations.ProfileJson,acct.Agents.Metadata,acct.Employees.Metadata,admin.ProvisioningOperations.Result,merch.Merchants.Metadata,merch.UserOutbox.Payload,shop.CartItems.Metadata,shop.OrderItems.Metadata,shop.OrderItems.RequestMetadata,shop.Orders.Metadata",
             await IntegrationDb.ScalarAsync(connection, sql));
     }
 

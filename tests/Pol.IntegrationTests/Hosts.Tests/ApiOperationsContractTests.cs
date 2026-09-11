@@ -135,7 +135,7 @@ public sealed class ApiOperationsContractTests
             ["API-073"] = "CanonicalPaymentSettingChangeRequest",
             ["API-076"] = "CanonicalPaymentSettingDecisionRequest",
             ["API-077"] = "CanonicalPaymentSettingDecisionRequest",
-            ["API-079"] = "CreateOrderFromCartRequest",
+            ["API-079"] = "CreateOrderRequest",
             ["API-081"] = "CanonicalPatchDraftOrderRequest",
             ["API-084"] = "CancelOrderRequest",
             ["API-087"] = "RotatePaymentLinkRequest",
@@ -148,7 +148,7 @@ public sealed class ApiOperationsContractTests
         };
         var expectedRequiredFields = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
-            ["API-081"] = ["businessType"],
+            ["API-079"] = ["businessType", "currency", "items"],
             ["API-084"] = ["reason"],
             ["API-088"] = ["reason"],
             ["API-099"] = ["note"],
@@ -171,7 +171,7 @@ public sealed class ApiOperationsContractTests
         expectedIdempotency.UnionWith(["API-016", "API-019", "API-022", "API-024", "API-025", "API-027",
             "API-028", "API-044", "API-046", "API-048", "API-049", "API-051", "API-055", "API-057",
             "API-058", "API-060", "API-061", "API-065", "API-067", "API-069", "API-070", "API-071",
-            "API-073", "API-076", "API-077", "API-081", "API-084", "API-088", "API-094", "API-098",
+            "API-073", "API-076", "API-077", "API-084", "API-088", "API-094", "API-098",
             "API-099", "API-113"]);
         var concurrencyMismatches = new List<string>();
         var metadataMismatches = new List<string>();

@@ -1,4 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Accounts.Application;
 using Admins.Application;
 using Api.Iam;
 using BuildingBlocks.Application;
@@ -10,6 +13,7 @@ using Payments.Application.Capabilities;
 using Platform.Application.Transactions;
 using Payments.Domain;
 using SharedKernel;
+using VersionedMetadata = Orders.Domain.VersionedMetadata;
 
 namespace Api.ControlPlane;
 
@@ -32,36 +36,84 @@ internal static class CanonicalCommerceEndpoints
             Guid orderId,
             CanonicalPatchDraftOrderRequest body,
             HttpContext http,
+            IActorContext requestActor,
             IAdminScope scope,
             IAdminOrderReader orders,
+            IOrderRepository identityOrders,
+            IIdentityAccessQuery identities,
             IActorScope actorScope,
             IAdminOperationExecutor operations,
             IMediator mediator,
             CancellationToken ct) =>
         {
+            if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+            {
+                var accountId = requestActor.UserId
+                    ?? throw new AccessDeniedException("No verified Account identity is bound.", "account_context_missing");
+                var existing = await identityOrders.GetAsync(orderId, ct)
+                    ?? throw new NotFoundException("Order was not found.");
+                var authorization = await identities.ResolveAuthorizationAsync(
+                    accountId, requestActor.MerchantId, null, ct);
+                if (authorization is null
+                    || !AccessEvaluator.CanReadOrder(
+                        authorization,
+                        requestActor.MerchantId,
+                        existing.OwnerSaleId,
+                        existing.OwnerBranchIdAtCreation).Allowed)
+                    throw new NotFoundException("Order was not found.");
+                var requestedOwner = body.OwnerSaleId is null && body.OwnerBranchId is null
+                    ? null
+                    : new OrderOwnerRequest(body.OwnerSaleId, body.OwnerBranchId);
+                var identityResult = await mediator.Send(new PatchDraftOrderCommand(
+                    requestActor.MerchantId, orderId, accountId, body.BusinessType,
+                    body.Items, requestedOwner,
+                    VersionEtags.Require(http),
+                    IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http),
+                    body.OrderDiscountAmount, body.OrderChargeAmount, body.Metadata,
+                    body.NotificationIntent is null
+                        ? null
+                        : new NotificationIntentPatch(
+                            body.NotificationIntent.Send,
+                            body.NotificationIntent.Email,
+                            body.NotificationIntent.PhoneNumber)), ct);
+                VersionEtags.Set(http, identityResult.Order.Version);
+                return Results.Ok(identityResult.Order);
+            }
             var resource = await ResolveOrderAsync(orders, scope, orderId, ct);
             var expected = VersionEtags.Require(http);
-            using var actor = actorScope.Begin(resource.MerchantId);
+            using var actorBinding = actorScope.Begin(resource.MerchantId);
+            var suppliedKey = http.Request.Headers["Idempotency-Key"].FirstOrDefault();
+            var operationKey = string.IsNullOrWhiteSpace(suppliedKey)
+                ? $"order.patch:{orderId:D}:v{expected}"
+                : suppliedKey.Trim();
+            var requestedAdminOwner = body.OwnerSaleId is null && body.OwnerBranchId is null
+                ? null
+                : new OrderOwnerRequest(body.OwnerSaleId, body.OwnerBranchId);
             var request = new AdminOperationRequest(
                 resource.MerchantId, scope.Current.AdminId, "order.patch",
-                IdempotencyKeys.Require(http),
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    orderId, resource.MerchantId, body.BusinessType, body.Items,
-                    body.OwnerSaleId, body.OwnerBranchId, expected,
-                }), 200);
+                operationKey,
+                SerializePatchIntent(resource.MerchantId, orderId, expected, body), 200);
             var result = await operations.ExecuteAsync(request,
                 token => mediator.Send(new PatchDraftOrderCommand(
                     resource.MerchantId, orderId, scope.Current.AdminId, body.BusinessType,
-                    body.Items ?? [], new OrderOwnerRequest(body.OwnerSaleId, body.OwnerBranchId), expected), token).AsTask(),
+                    body.Items, requestedAdminOwner, expected,
+                    OrderDiscountAmount: body.OrderDiscountAmount, OrderChargeAmount: body.OrderChargeAmount,
+                    Metadata: body.Metadata,
+                    NotificationIntent: body.NotificationIntent is null
+                        ? null
+                        : new NotificationIntentPatch(
+                            body.NotificationIntent.Send,
+                            body.NotificationIntent.Email,
+                            body.NotificationIntent.PhoneNumber)), token).AsTask(),
                 value => value.Order.OrderId.ToString("D"), ct);
             VersionEtags.Set(http, result.Value.Order.Version);
             return Results.Ok(result.Value.Order);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.PaymentCreate)
-            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+        }).RequireAdminOrIdentityCsrf().RequireAuthorization(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
+            .RequireOrderIdentityPermission(Keys.PaymentCreate, "order.write")
+            .WithMetadata(new IfMatchMutationMarker("200"))
             .WithTags("คำสั่งซื้อ").WithName("PatchCanonicalDraftOrder")
             .WithSummary("แก้ไข Draft Order")
-            .WithDescription("ใช้ trusted repricing และ owner guard ของ OrderWorkflow; รับเฉพาะ draft และต้องส่ง If-Match กับ Idempotency-Key")
+            .WithDescription("ใช้ trusted repricing และ owner guard ของ OrderWorkflow; รับเฉพาะ draft และต้องส่ง If-Match")
             .Accepts<CanonicalPatchDraftOrderRequest>("application/json")
             .Produces<OrderView>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -74,17 +126,39 @@ internal static class CanonicalCommerceEndpoints
     {
         api.MapGet("/orders/{orderId:guid}/items", async (
             Guid orderId,
+            HttpContext http,
+            IActorContext actor,
             IAdminScope scope,
             IAdminOrderReader orders,
             IActorScope actorScope,
+            IIdentityAccessQuery identities,
             IOrderRepository repository,
             int page = 1,
             int limit = 25,
             CancellationToken ct = default) =>
         {
             ValidatePage(page, limit);
+            if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+            {
+                var accountId = actor.UserId
+                    ?? throw new AccessDeniedException("No verified Account identity is bound.", "account_context_missing");
+                var identityOrder = await repository.GetAsync(orderId, ct)
+                    ?? throw new NotFoundException("Order was not found.");
+                var authorization = await identities.ResolveAuthorizationAsync(
+                    accountId, actor.MerchantId, null, ct);
+                if (authorization is null
+                    || !AccessEvaluator.CanReadOrder(
+                        authorization, actor.MerchantId, identityOrder.OwnerSaleId, identityOrder.OwnerBranchIdAtCreation).Allowed)
+                    throw new NotFoundException("Order was not found.");
+                var identityItems = identityOrder.Items.Skip((page - 1) * limit).Take(limit)
+                    .Select(x => new CanonicalOrderItemView(
+                        x.Id, x.ProductCode, x.VariantCode, x.VariantName, x.Quantity,
+                        x.UnitPrice, x.Discount, x.TaxAmount, x.LineAmount)).ToArray();
+                return Results.Ok(new PagedResult<CanonicalOrderItemView>(
+                    identityItems, page, limit, identityOrder.Items.Count));
+            }
             var resource = await ResolveOrderAsync(orders, scope, orderId, ct);
-            using var actor = actorScope.Begin(resource.MerchantId);
+            using var actorBinding = actorScope.Begin(resource.MerchantId);
             var order = await repository.GetAsync(orderId, ct)
                 ?? throw new NotFoundException("Order was not found.");
             var items = order.Items.Skip((page - 1) * limit).Take(limit)
@@ -92,7 +166,8 @@ internal static class CanonicalCommerceEndpoints
                     x.Id, x.ProductCode, x.VariantCode, x.VariantName, x.Quantity,
                     x.UnitPrice, x.Discount, x.TaxAmount, x.LineAmount)).ToArray();
             return Results.Ok(new PagedResult<CanonicalOrderItemView>(items, page, limit, order.Items.Count));
-        }).RequireAuthorization("admin").RequirePermission(Keys.PaymentView)
+        }).RequireAuthorization(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
+            .RequireOrderIdentityPermission(Keys.PaymentView, "order.read")
             .WithMetadata(new SfsQueryParamsMarker(100))
             .WithTags("คำสั่งซื้อ").WithName("ListCanonicalOrderItems")
             .WithSummary("รายการ Order items")
@@ -102,14 +177,37 @@ internal static class CanonicalCommerceEndpoints
 
         api.MapGet("/orders/{orderId:guid}/history", async (
             Guid orderId,
+            HttpContext http,
+            IActorContext actor,
             IAdminScope scope,
             IAdminOrderReader orders,
             IActorScope actorScope,
+            IIdentityAccessQuery identities,
             IOrderRepository repository,
             CancellationToken ct) =>
         {
+            if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+            {
+                var accountId = actor.UserId
+                    ?? throw new AccessDeniedException("No verified Account identity is bound.", "account_context_missing");
+                var identityOrder = await repository.GetAsync(orderId, ct)
+                    ?? throw new NotFoundException("Order was not found.");
+                var authorization = await identities.ResolveAuthorizationAsync(
+                    accountId, actor.MerchantId, null, ct);
+                if (authorization is null
+                    || !AccessEvaluator.CanReadOrder(
+                        authorization, actor.MerchantId, identityOrder.OwnerSaleId, identityOrder.OwnerBranchIdAtCreation).Allowed)
+                    throw new NotFoundException("Order was not found.");
+                var identityHistory = new List<CanonicalOrderHistoryView>
+                {
+                    new("created", identityOrder.CreatedAt),
+                };
+                if (identityOrder.UpdatedAt != identityOrder.CreatedAt)
+                    identityHistory.Add(new(identityOrder.Status.ToString().ToLowerInvariant(), identityOrder.UpdatedAt));
+                return Results.Ok(identityHistory);
+            }
             var resource = await ResolveOrderAsync(orders, scope, orderId, ct);
-            using var actor = actorScope.Begin(resource.MerchantId);
+            using var actorBinding = actorScope.Begin(resource.MerchantId);
             var order = await repository.GetAsync(orderId, ct)
                 ?? throw new NotFoundException("Order was not found.");
             var history = new List<CanonicalOrderHistoryView>
@@ -119,7 +217,8 @@ internal static class CanonicalCommerceEndpoints
             if (order.UpdatedAt != order.CreatedAt)
                 history.Add(new(order.Status.ToString().ToLowerInvariant(), order.UpdatedAt));
             return Results.Ok(history);
-        }).RequireAuthorization("admin").RequirePermission(Keys.PaymentView)
+        }).RequireAuthorization(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
+            .RequireOrderIdentityPermission(Keys.PaymentView, "order.read")
             .WithTags("คำสั่งซื้อ").WithName("GetCanonicalOrderHistory")
             .WithSummary("ประวัติ Order")
             .WithDescription("อ่าน lifecycle history จาก Order parent โดยไม่เปิด provider payload หรือ secret")
@@ -344,6 +443,60 @@ internal static class CanonicalCommerceEndpoints
             throw new InvalidRequestException("Page and limit are invalid.", "invalid_filter");
     }
 
+    private static string SerializePatchIntent(
+        Guid merchantId,
+        Guid orderId,
+        long expectedVersion,
+        CanonicalPatchDraftOrderRequest body)
+    {
+        var items = body.Items?.Select(item => new
+        {
+            item.ProductReference,
+            item.Quantity,
+            Metadata = CanonicalMetadata(item.Metadata),
+            item.ClientSnapshot,
+        }).ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            merchantId,
+            orderId,
+            expectedVersion,
+            patch = new
+            {
+                body.BusinessType,
+                items,
+                body.OwnerSaleId,
+                body.OwnerBranchId,
+                body.OrderDiscountAmount,
+                body.OrderChargeAmount,
+                Metadata = CanonicalMetadata(body.Metadata),
+                body.NotificationIntent,
+            },
+        });
+    }
+
+    private static string? CanonicalMetadata(string? metadata)
+    {
+        if (string.IsNullOrWhiteSpace(metadata))
+            return null;
+        try
+        {
+            return VersionedMetadata.Parse(metadata)?.ToCanonicalJson();
+        }
+        catch (ArgumentException)
+        {
+            throw new InvalidRequestException(
+                "Metadata must use the supported VersionedMetadata envelope.", "metadata_invalid");
+        }
+    }
+
+    private static string? CanonicalMetadata(JsonElement? metadata)
+    {
+        if (metadata is not { } value || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return null;
+        return CanonicalMetadata(value.GetRawText());
+    }
+
     private static async ValueTask<object?> HandleKnownErrors(
         EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -356,11 +509,16 @@ internal static class CanonicalCommerceEndpoints
     }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record CanonicalPatchDraftOrderRequest(
-    [property: Required] string BusinessType,
-    IReadOnlyList<OrderItemRequest>? Items,
-    Guid? OwnerSaleId,
-    Guid? OwnerBranchId);
+    string? BusinessType = null,
+    IReadOnlyList<OrderItemRequest>? Items = null,
+    Guid? OwnerSaleId = null,
+    Guid? OwnerBranchId = null,
+    string? OrderDiscountAmount = null,
+    string? OrderChargeAmount = null,
+    JsonElement? Metadata = null,
+    NotificationIntentRequest? NotificationIntent = null);
 
 internal sealed record CanonicalOrderItemView(
     Guid ItemId,

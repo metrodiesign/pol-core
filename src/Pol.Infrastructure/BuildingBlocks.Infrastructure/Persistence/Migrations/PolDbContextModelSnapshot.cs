@@ -14,7 +14,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
     [DbContext(typeof(PolDbContext))]
     partial class PolDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
@@ -514,6 +513,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("ProtectedAuthenticationTicket")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("RevokedAt")
@@ -822,6 +822,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("UserAudits", "admin");
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("Admins.Domain.Users.AuthAudit", b =>
@@ -859,6 +861,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("AdminUserId");
 
                     b.ToTable("AuthAudits", "admin");
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("Admins.Domain.Users.MerchantAccess", b =>
@@ -1037,6 +1041,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_WorkforceTenantBindings_Singleton", "[Id] = 1");
                         });
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.DataProtection.DataProtectionKey", b =>
@@ -1313,6 +1319,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("VaultRevealAudits", "merch");
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Vault.VaultSecretBlob", b =>
@@ -1600,6 +1608,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ProtectedRawToken")
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RequestHash")
@@ -2577,6 +2586,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(64)");
 
                     b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Operation")
@@ -2602,6 +2612,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasFilter("[MerchantId] IS NOT NULL");
 
                     b.ToTable("AdminUserOperationRecords", "merch");
+
+                    b
+                        .HasAnnotation("Pol:AppendOnly", true)
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.AuthAudit", b =>
@@ -2639,6 +2654,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("AuthAudits", "merch");
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.ExternalLogin", b =>
@@ -2705,6 +2722,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(2000)");
 
                     b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("NormalizedEmail")
@@ -2737,6 +2755,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasFilter("[AcceptedAt] IS NULL AND [RevokedAt] IS NULL");
 
                     b.ToTable("MerchantUserInvitations", "merch");
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.MerchantUserManagementAudit", b =>
@@ -2763,6 +2785,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("OccurredAt")
@@ -2779,6 +2802,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_MerchantUserManagementAudits_Target", "[TargetUserId] IS NOT NULL OR [InvitationId] IS NOT NULL");
                         });
+
+                    b
+                        .HasAnnotation("Pol:AppendOnly", true)
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.RegistrationAttempt", b =>
@@ -2848,6 +2876,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("RegistrationAttempts", "merch");
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.RegistrationAudit", b =>
@@ -2900,6 +2930,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TargetUserId");
 
                     b.ToTable("RegistrationAudits", "merch");
+
+                    b.HasAnnotation("Pol:AppendOnly", true);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.RegistrationNotice", b =>
@@ -2960,6 +2992,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("RoleId")
@@ -2978,6 +3011,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("RoleAssignments", "merch");
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.Session", b =>
@@ -3082,6 +3119,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(64)");
 
                     b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Phone")
@@ -3109,6 +3147,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(20)");
 
                     b.Property<int>("Status")
+                        .IsConcurrencyToken()
                         .HasColumnType("int");
 
                     b.Property<string>("Subject")
@@ -3133,6 +3172,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_Users_ActorMerchant", "[Status] NOT IN (2, 4) OR ([MerchantId] IS NOT NULL AND [MerchantId] <> '00000000-0000-0000-0000-000000000000')");
                         });
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", true);
                 });
 
             modelBuilder.Entity("Notifications.Domain.Delivery", b =>
@@ -3183,9 +3226,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("PayloadSnapshot")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ProtectedEndpointSecretSnapshot")
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ProviderMessageId")
@@ -3212,6 +3257,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("TemplateContentSnapshot")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("TemplateLocale")
@@ -3399,6 +3445,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("PayloadSnapshot")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("RegistrationAttemptId")
@@ -3511,6 +3558,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("PayloadSnapshot")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("ProcessedAt")
@@ -3648,6 +3696,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Content")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EventType")
@@ -4066,6 +4115,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
+                    b.Property<string>("RequestMetadata")
+                        .HasColumnType("json");
+
                     b.Property<string>("VariantCode")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -4246,9 +4298,24 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Metadata")
+                        .HasColumnType("json");
+
+                    b.Property<string>("NotificationEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("NotificationPhoneNumber")
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<string>("NotificationRecipient")
                         .HasMaxLength(320)
                         .HasColumnType("nvarchar(320)");
+
+                    b.Property<bool>("NotifyOnIssue")
+                        .HasColumnType("bit");
 
                     b.Property<string>("OrderNo")
                         .IsRequired()
@@ -5206,6 +5273,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Metadata")
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("PaymentProviderId")
@@ -5500,6 +5568,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("OrderSnapshot")
                         .IsRequired()
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PaymentMethod")
@@ -5535,6 +5604,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(2048)");
 
                     b.Property<string>("ReturnBinding")
+                        .IsUnicode(true)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ReviewCode")
@@ -6205,5 +6275,3 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         }
     }
 }
-
-

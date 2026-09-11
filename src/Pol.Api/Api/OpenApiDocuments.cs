@@ -59,6 +59,7 @@ internal static class OpenApiDocuments
         return documentName switch
         {
             Merchant => schemes.Contains("MerchantUserSession", StringComparer.Ordinal)
+                || schemes.Contains("IdentityPlatform", StringComparer.Ordinal)
                 || path.StartsWith("/api/v1/merchants/auth/", StringComparison.Ordinal)
                 || path == "/api/v1/merchants/users/register"
                 || path.StartsWith("/api/v1/auth/agents/", StringComparison.Ordinal)
@@ -66,6 +67,7 @@ internal static class OpenApiDocuments
                 || registration
                 || publicCustomerPayment,
             Admin => schemes.Contains("AdminSession", StringComparer.Ordinal)
+                || schemes.Contains("IdentityPlatform", StringComparer.Ordinal)
                 || path.StartsWith("/api/v1/admins/auth/", StringComparison.Ordinal)
                 || identity
                 || systemOAuth
@@ -97,8 +99,8 @@ internal static class OpenApiDocuments
 
     public static bool IncludesSecurityScheme(string documentName, string schemeId) =>
         documentName == Combined
-        || documentName == Admin && schemeId == "AdminSession"
-        || documentName == Merchant && schemeId == "MerchantUserSession";
+        || documentName == Admin && schemeId is "AdminSession" or "IdentityPlatform"
+        || documentName == Merchant && schemeId is "MerchantUserSession" or "IdentityPlatform";
 
     public static IReadOnlyList<string> SecuritySchemeIds(
         string documentName, IReadOnlyList<string> schemeIds) =>

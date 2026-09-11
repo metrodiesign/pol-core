@@ -98,7 +98,7 @@
   - database: fresh `PolOrdersLinksTask5Test` ใช้ migration chain ถึง `20260910060757_Task5OrdersLinks`; ตรวจ legacy backfill, direct composite FK, active-link uniqueness, protected replay, token hash และ no Payment/Transaction table
   - environment: ใช้ local SQL Server และ Data Protection provider; ไม่มี live Entra/PSP/SMS credential จึงไม่ประกาศ live หรือ cutover readiness
   - viewports: n/a — backend order/payment-link logic; pricing/issue/rotation ตรวจผ่าน host และ SQL Server integration tests
-  - deviations: canonical draft/issue/link chain ส่งมอบระดับ application layer เท่านั้น (`CreateOrderHandler` และ test ระดับ handler); `POST /api/v1/orders` ยังเป็น cart-based (Pending) และไม่มี producer ผ่าน HTTP ของ Draft/Open จึง API-081/083/087 คืน 409 เสมอ — ดู `handoff.md` หัวข้อ "Deviation: canonical Order create/draft chain"
+  - evidence: review-fix เพิ่ม HTTP+SQL canonical create false/default true, PATCH→issue→rotate, protected replay, trusted quote rejection และ no-write security checks; Cart compatibility ย้ายไป `/api/v1/orders/from-cart`
 
 - [x] 6. Checkout และ Transaction — per-tab confirm, persist-before-PSP, 2C2P/Omise adapters, callback/return/inquiry, same-reference recovery และ late/duplicate-success handling
   Satisfies: REQ-7.6, REQ-7.7, REQ-7.8, REQ-7.9, REQ-7.10, REQ-8
@@ -167,7 +167,7 @@
   - comparator: EndpointDataSource actual278, overlap111, missing0, deferred0; legacy extras167 จัดหมวดใน `task8-legacy-extras.md` สำหรับ Task10
   - guide: `docs/runbooks/platform-api-v1.md` เป็นคู่มือ canonical ภาษาไทย ครอบ auth contexts, headers, SFS, errors, callbacks, health และ external capability deviations
   - viewports: n/a — backend API inventory/contract; route metadata/authorization/SFS ตรวจผ่าน host และ SQL Server integration tests
-  - deviations: API-079 contract test pin ตาม implementation จริง (`CreateOrderFromCartRequest`) ไม่ใช่ตาม `design.md` (`CreateOrderRequest`); API-081/083/087 อยู่ใน inventory ครบแต่ยังไม่มี producer ผ่าน HTTP จึงคืน 409 เสมอ — comparator route/metadata ยังผ่าน 111/0/0; รายละเอียดใน `handoff.md` หัวข้อ "Deviation: canonical Order create/draft chain" และ `api-scope.json` API-079 rules
+  - evidence: API-079 now pins `CreateOrderRequest`; canonical create/patch/issue/rotate runtime path is covered by real HTTP+SQL tests, while `/orders/from-cart` remains an explicit legacy compatibility route outside the canonical inventory
 
 - [x] 9. เครื่องมือย้ายและซ้อม cutover — deterministic ID mapping, conflict report, backfill ไม่มี external side effect, callback recovery และ forward-safe rollback จาก sanitized backup
   Satisfies: REQ-11.2, REQ-11.3, REQ-11.4, REQ-11.5, REQ-11.6, REQ-11.7, REQ-11.8, REQ-11.9, REQ-11.11, REQ-12.2, REQ-12.3
@@ -201,6 +201,25 @@
   - notes: legacy inventory ยังคง KEEP/DEFER rows ที่ไม่มี zero-consumer/expiry/external reference proof; ไม่มี production cutover หรือ destructive retirement
   - viewports: n/a — backend architecture/legacy retirement logic; owner/context guards ตรวจผ่าน architecture และ SQL Server integration tests
   - deviations: retire เฉพาะรายการที่มีหลักฐาน; legacy business routes, customer link aliases, provider callback aliases, recovery paths และ jobs ยัง KEEP/DEFER จนกว่ามี external reference expiry และ zero-consumer proof; ไม่มี production cutover หรือ destructive retirement
+
+## PR #253 review-fix evidence
+
+รายการนี้เป็นหลักฐานเพิ่มเติมหลัง implementation เดิม และ supersede ตัวเลข focused gate เก่าที่อยู่ใน Task 5/7/8:
+
+- Finding 1: pre-fix real SQL dispatcher reproduction ล้มด้วย `PREFIX_DISPATCHER_STATE status=2 attempts=1 leaseOwnerPresent=True deliveredAttempts=0` ใน `.pipeline/platform-restructure-v1/finding1-prefixed-dispatcher-repro.log`; final `Capability=Notifications` ผ่าน Unit 8, Architecture 25, Integration 12 รวม 45 ใน `.pipeline/platform-restructure-v1/finding1-notifications-final.log`.
+- Finding 2 workflow: `Task8CommerceC1SqlTests` ผ่าน 3/3 ใน `.pipeline/platform-restructure-v1/finding2-c1-lifecycle-final.log`; ครอบ Draft replay snapshot หลัง PATCH/issue/rotate, default issue/link protected replay, forged quote/adjustment `409 pricing_mismatch`, owner rejection และ no-write SQL assertions.
+- Finding 2 auth: real SQL Employee/Agent/System/BFF testsผ่าน 4/4 ใน `.pipeline/platform-restructure-v1/finding2-owner-auth-green2.log`; BFF CSRF test 1/1 อยู่ใน `.pipeline/platform-restructure-v1/finding2-auth-bff-csrf-fixed.log`. ครอบ claim/query merchant mismatch, missing merchant code, human permission, SYSTEM `order.write`, trusted Agent owner, Employee BranchAccess และ BFF missing/invalid/valid CSRF.
+- Contract/route: `Capability=ApiOperations` Integration 57/57 ผ่านใน `.pipeline/platform-restructure-v1/finding2-apioperations-final.log`; `PermissionGateSitesTests`, `CsrfParityTests`, write-authorizer และ canonical architecture assertions ผ่านใน `.pipeline/platform-restructure-v1/finding2-auth-write-architecture-final2.log`.
+- Regression: `Capability=OrdersLinks` Unit 20, Architecture 3, Integration 9 รวม 32/32 ผ่านใน `.pipeline/platform-restructure-v1/finding2-orderslinks-owner-green3.log`; schema helper 1/1 ผ่านใน `.pipeline/platform-restructure-v1/payment-schema-helper-regression.log`.
+- Coverage self-check: atomic claim/lease owner predicate, active no-steal, stale completion, all notification channels, Draft/issued idempotency replay, trusted pricing, adjustment, owner scope, auth/CSRF, rollback/no-write, OpenAPI schema และ legacy route inventory ถูกขับด้วย test จริง. Mutation RED หลักฐานคือ pre-fix dispatcher log, stale-owner completion RED ก่อน ChangeTracker clear, forged quote/adjustment no-write tests และ summary-token filtered-index RED/restore จาก prior review evidence.
+
+## Review-fix PR253 addendum
+
+- BLOCKING #3: identity selector and API-080–088 same-token lifecycle passed with production authorization query, exact scopes, owner checks, CSRF and mixed-context rejection.
+- BLOCKING #4: `ICommerceAuthorizationLease` locks and revalidates `acct.Accounts` on the Commerce transaction before replay/idempotency in all six order/link mutations; SQL stale-revoke and lease-first/revoke-waits evidence passed.
+- HIGH owner/adjustment/metadata: restricted owner omission, trusted adjustment zero semantics, generic bounded `VersionedMetadata`, duplicate reorder rejection and forward migrations passed on owned SQL scratch databases.
+- HIGH notification intent: protected `PaymentLinkNotificationRequestedV1` outbox event, draft/issue/rotate enqueue, replay dedupe, two-channel materialization, delivery-time unprotect, SMS block and rollback evidence passed. Live provider credentials remain unavailable; no production readiness is claimed.
+- Deviations: ไม่มี live Entra/PSP/Email/SMS/provider credential หรือ production authorization; local SQL Server, Data Protection, capture adapters และ `BLOCKED_NOT_CONFIGURED` ใช้แทนเฉพาะ protocol/runtime evidence. Provisional webhook stale-owner และ adjustment-absent semantics เป็น review observations ที่ยังไม่เปลี่ยน behavior รอบนี้.
 
 ## สิ่งที่ต้องพิสูจน์ในแต่ละช่วง
 

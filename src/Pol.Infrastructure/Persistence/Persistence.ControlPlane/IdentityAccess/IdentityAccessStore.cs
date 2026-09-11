@@ -8,10 +8,14 @@ using Accounts.Application;
 using Accounts.Domain;
 using BuildingBlocks.Application;
 using Iam.Application.Roles;
+using Iam.Domain.Roles;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+using OpenIddict.Abstractions;
 using Persistence.ControlPlane;
+using Persistence.ControlPlane.Iam;
 
 namespace Persistence.ControlPlane.IdentityAccess;
 
@@ -29,13 +33,18 @@ internal sealed class IdentityAccessStore
     private readonly IUnitOfWork? unitOfWork;
     private readonly IAdminOperationStore? operations;
     private readonly IRoleAssignmentValidator? roleAssignments;
+    private readonly IOpenIddictApplicationManager? openIddictApplications;
+    private readonly IOpenIddictScopeManager? openIddictScopes;
+    private readonly IIdentityAuthorizationRoleReader? roleReader;
 
     public IdentityAccessStore(
-        ControlPlaneDbContext db, IClock clock, IRoleAssignmentValidator? roleAssignments = null)
+        ControlPlaneDbContext db, IClock clock, IRoleAssignmentValidator? roleAssignments = null,
+        IIdentityAuthorizationRoleReader? roleReader = null)
     {
         this.db = db;
         this.clock = clock;
         this.roleAssignments = roleAssignments;
+        this.roleReader = roleReader;
     }
 
     public IdentityAccessStore(
@@ -43,13 +52,19 @@ internal sealed class IdentityAccessStore
         IClock clock,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IAdminOperationStore operations,
-        IRoleAssignmentValidator? roleAssignments = null)
+        IRoleAssignmentValidator? roleAssignments = null,
+        IOpenIddictApplicationManager? openIddictApplications = null,
+        IOpenIddictScopeManager? openIddictScopes = null,
+        IIdentityAuthorizationRoleReader? roleReader = null)
     {
         this.db = db;
         this.clock = clock;
         this.unitOfWork = unitOfWork;
         this.operations = operations;
         this.roleAssignments = roleAssignments;
+        this.openIddictApplications = openIddictApplications;
+        this.openIddictScopes = openIddictScopes;
+        this.roleReader = roleReader;
     }
     public async Task<EmployeeJitResult> GetOrCreateAsync(
         VerifiedHumanIdentity identity, CancellationToken cancellationToken)
@@ -238,7 +253,12 @@ internal sealed class IdentityAccessStore
             .Where(x => x.SystemClientId == client.Id)
             .OrderBy(x => x.KeyId)
             .ToListAsync(cancellationToken);
-        return new SystemClientResolution(account, client, keys);
+        var scopes = await db.SystemClientScopes.AsNoTracking()
+            .Where(x => x.SystemClientId == client.Id)
+            .OrderBy(x => x.ScopeCode)
+            .Select(x => x.ScopeCode)
+            .ToListAsync(cancellationToken);
+        return new SystemClientResolution(account, client, keys, scopes);
     }
 
     public async Task<AuthorizationSnapshot?> ResolveAuthorizationAsync(
@@ -286,11 +306,10 @@ internal sealed class IdentityAccessStore
         var roleIds = platformRoleIds.Concat(merchantRoleIds).ToHashSet();
         var permissions = roleIds.Count == 0
             ? new HashSet<string>(StringComparer.Ordinal)
-            : (await db.RolePermissions.AsNoTracking()
-                .Where(x => roleIds.Contains(x.RoleId))
-                .Select(x => x.PermissionKey)
-                .ToListAsync(cancellationToken))
-                .ToHashSet(StringComparer.Ordinal);
+            : roleReader is null
+                ? throw new InvalidOperationException("IAM authorization role reader is not configured.")
+                : (await roleReader.ResolveEffectivePermissionsAsync(roleIds, cancellationToken))
+                    .ToHashSet(StringComparer.Ordinal);
         var agentSaleId = account.AccountType == AccountType.Agent
             ? await db.Agents.AsNoTracking().Where(x => x.AccountId == accountId)
                 .Select(x => (Guid?)x.SaleId).FirstOrDefaultAsync(cancellationToken)
@@ -304,7 +323,11 @@ internal sealed class IdentityAccessStore
             access?.MerchantId,
             access?.DataScope,
             agentSaleId,
-            HomeBranchId: null,
+            HomeBranchId: account.AccountType == AccountType.Employee
+                && access?.DataScope == Access.Domain.DataScope.Branch
+                && branchIds.Count == 1
+                ? branchIds.Single()
+                : null,
             branchIds,
             roleIds,
             platformAccess?.Status == Access.Domain.PlatformAccessStatus.Active,
@@ -449,6 +472,10 @@ internal sealed class IdentityAccessStore
     {
         if (await db.SystemClients.AnyAsync(x => x.ClientId == create.ClientId, cancellationToken))
             throw new ConflictException("System client already exists.", "client_id_exists");
+        if (openIddictApplications is not null
+            && await openIddictApplications.FindByClientIdAsync(create.ClientId, cancellationToken) is not null)
+            throw new ConflictException("The OAuth application already exists.", "application_id_exists");
+        ValidateSystemScopes(create.Scopes);
         var account = Account.Create(AccountType.System, create.DisplayName, clock.UtcNow);
         var client = SystemClient.Create(account.Id, create.ClientId, create.MerchantId,
             create.Environment, ["client_credentials"], clock.UtcNow);
@@ -456,6 +483,8 @@ internal sealed class IdentityAccessStore
         db.SystemClients.Add(client);
         foreach (var scope in create.Scopes.Distinct(StringComparer.Ordinal))
             db.SystemClientScopes.Add(Access.Domain.SystemClientScope.Create(client.Id, scope));
+        await SyncOpenIddictApplicationAsync(client, create.Scopes, addedJwkJson: null, removedKid: null,
+            displayNameOverride: create.DisplayName, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await ToSystemClientViewAsync(client, cancellationToken);
     }
@@ -479,6 +508,8 @@ internal sealed class IdentityAccessStore
         else
             client.Reactivate(clock.UtcNow);
         account.BumpAuthorizationVersion(clock.UtcNow);
+        await SyncOpenIddictApplicationAsync(client, scopesOverride: null, addedJwkJson: null, removedKid: null,
+            displayNameOverride: update.DisplayName, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await ToSystemClientViewAsync(client, cancellationToken);
     }
@@ -491,6 +522,7 @@ internal sealed class IdentityAccessStore
     public async Task<SystemClientAdminView> ReplaceSystemClientAccessAsync(
         SystemClientAccessReplace replace, CancellationToken cancellationToken)
     {
+        ValidateSystemScopes(replace.Scopes);
         var client = await db.SystemClients.SingleOrDefaultAsync(x => x.Id == replace.SystemClientId, cancellationToken)
             ?? throw new NotFoundException("System client was not found.");
         var existing = await db.SystemClientScopes.Where(x => x.SystemClientId == client.Id).ToListAsync(cancellationToken);
@@ -499,6 +531,8 @@ internal sealed class IdentityAccessStore
             db.SystemClientScopes.Add(Access.Domain.SystemClientScope.Create(client.Id, scope));
         var account = await db.Accounts.SingleAsync(x => x.Id == client.AccountId, cancellationToken);
         account.BumpAuthorizationVersion(clock.UtcNow);
+        await SyncOpenIddictApplicationAsync(client, replace.Scopes, addedJwkJson: null, removedKid: null,
+            displayNameOverride: null, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await ToSystemClientViewAsync(client, cancellationToken);
     }
@@ -516,13 +550,22 @@ internal sealed class IdentityAccessStore
     public async Task<ClientKeyAdminView> CreateClientKeyAsync(
         ClientKeyAdminCreate create, CancellationToken cancellationToken)
     {
-        if (!await db.SystemClients.AnyAsync(x => x.Id == create.SystemClientId, cancellationToken))
+        var client = await db.SystemClients.SingleOrDefaultAsync(
+            x => x.Id == create.SystemClientId, cancellationToken);
+        if (client is null)
             throw new NotFoundException("System client was not found.");
+        if (!string.Equals(client.ClientId, create.ApplicationId, StringComparison.Ordinal))
+            throw new ConflictException(
+                "The key application does not match the System client.", "application_mismatch");
+        var publicJwkSetJson = NormalizePublicJwkSet(create.PublicJwkJson);
+        ValidatePublicJwk(publicJwkSetJson, create.Kid, create.Algorithm);
         if (await db.ClientKeyPolicies.AnyAsync(x => x.SystemClientId == create.SystemClientId && x.KeyId == create.Kid, cancellationToken))
             throw new ConflictException("Client key already exists.", "key_id_exists");
         var row = ClientKeyPolicy.Create(create.SystemClientId, create.ApplicationId, create.Kid,
             create.Algorithm, create.ValidFrom, create.ValidUntil, create.AuditReference);
         db.ClientKeyPolicies.Add(row);
+        await SyncOpenIddictApplicationAsync(client, scopesOverride: null, publicJwkSetJson, removedKid: null,
+            displayNameOverride: null, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return ToKeyView(row);
     }
@@ -538,6 +581,11 @@ internal sealed class IdentityAccessStore
             x => x.SystemClientId == systemClientId && x.Id == keyId, cancellationToken)
             ?? throw new NotFoundException("Client key was not found.");
         row.Revoke();
+        var client = await db.SystemClients.SingleAsync(x => x.Id == systemClientId, cancellationToken);
+        await SyncOpenIddictApplicationAsync(client, scopesOverride: null, addedJwkJson: null,
+            removedKid: row.KeyId, displayNameOverride: null, cancellationToken);
+        var account = await db.Accounts.SingleAsync(x => x.Id == client.AccountId, cancellationToken);
+        account.BumpAuthorizationVersion(clock.UtcNow);
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -551,6 +599,157 @@ internal sealed class IdentityAccessStore
                 return true;
             }, cancellationToken);
         return result.Value;
+    }
+
+    private async Task SyncOpenIddictApplicationAsync(
+        SystemClient client,
+        IReadOnlyList<string>? scopesOverride,
+        string? addedJwkJson,
+        string? removedKid,
+        string? displayNameOverride,
+        CancellationToken cancellationToken)
+    {
+        if (openIddictApplications is null)
+            throw new DependencyUnavailableException(
+                "OpenIddict application provisioning is not configured.",
+                new InvalidOperationException("IOpenIddictApplicationManager is unavailable."));
+
+        var scopes = (scopesOverride ?? await db.SystemClientScopes.AsNoTracking()
+                .Where(x => x.SystemClientId == client.Id)
+                .Select(x => x.ScopeCode)
+                .ToListAsync(cancellationToken))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        ValidateSystemScopes(scopes);
+
+        if (openIddictScopes is null)
+            throw new DependencyUnavailableException(
+                "OpenIddict scope provisioning is not configured.",
+                new InvalidOperationException("IOpenIddictScopeManager is unavailable."));
+        foreach (var scope in scopes)
+        {
+            if (await openIddictScopes.FindByNameAsync(scope, cancellationToken) is null)
+                await openIddictScopes.CreateAsync(new OpenIddictScopeDescriptor
+                {
+                    Name = scope,
+                    DisplayName = scope,
+                    Description = $"Registered SystemClient scope {scope}",
+                }, cancellationToken);
+        }
+
+        var activeKeyIds = (await db.ClientKeyPolicies.AsNoTracking()
+            .Where(x => x.SystemClientId == client.Id && x.Status == KeyPolicyStatus.Active)
+            .Select(x => x.KeyId)
+            .ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        if (removedKid is not null)
+            activeKeyIds.Remove(removedKid);
+
+        var application = await openIddictApplications.FindByClientIdAsync(
+            client.ClientId, cancellationToken);
+        if (application is null && addedJwkJson is null)
+            return;
+        if (application is not null && activeKeyIds.Count == 0 && addedJwkJson is null)
+        {
+            await openIddictApplications.DeleteAsync(application, cancellationToken);
+            return;
+        }
+        var keys = new Dictionary<string, JsonWebKey>(StringComparer.Ordinal);
+        if (application is not null)
+        {
+            var existing = await openIddictApplications.GetJsonWebKeySetAsync(application, cancellationToken);
+            foreach (var key in existing?.Keys ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(key.Kid) && activeKeyIds.Contains(key.Kid))
+                    keys[key.Kid] = key;
+            }
+        }
+
+        if (addedJwkJson is not null)
+        {
+            var incoming = new JsonWebKeySet(addedJwkJson).Keys.Single();
+            keys[incoming.Kid!] = incoming;
+        }
+
+        var keySet = new JsonWebKeySet();
+        foreach (var key in keys.Values.OrderBy(x => x.Kid, StringComparer.Ordinal))
+            keySet.Keys.Add(key);
+        var descriptor = new OpenIddictApplicationDescriptor
+        {
+            ApplicationType = OpenIddictConstants.ApplicationTypes.Web,
+            ClientId = client.ClientId,
+            ClientType = OpenIddictConstants.ClientTypes.Confidential,
+            ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
+            DisplayName = displayNameOverride ?? (application is null
+                ? client.ClientId
+                : await openIddictApplications.GetDisplayNameAsync(application, cancellationToken) ?? client.ClientId),
+            JsonWebKeySet = keySet,
+            ClientSecret = null,
+        };
+        descriptor.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Token);
+        descriptor.Permissions.Add(OpenIddictConstants.Permissions.GrantTypes.ClientCredentials);
+        descriptor.Permissions.Add(OpenIddictConstants.Permissions.Prefixes.Resource + SystemClientScopeRegistry.ApiAudience);
+        foreach (var scope in scopes)
+            descriptor.Permissions.Add(OpenIddictConstants.Permissions.Prefixes.Scope + scope);
+
+        if (application is null)
+            await openIddictApplications.CreateAsync(descriptor, cancellationToken);
+        else
+            await openIddictApplications.UpdateAsync(application, descriptor, cancellationToken);
+    }
+
+    private static void ValidatePublicJwk(string json, string kid, string algorithm)
+    {
+        JsonWebKeySet set;
+        try
+        {
+            set = new JsonWebKeySet(json);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            throw new InvalidRequestException("The public JWK is invalid.", "invalid_public_jwk");
+        }
+
+        var privateMaterial = false;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            var key = document.RootElement.GetProperty("keys").EnumerateArray().Single();
+            privateMaterial = key.EnumerateObject().Any(property =>
+                property.Name is "d" or "p" or "q" or "dp" or "dq" or "qi" or "k");
+        }
+        catch (Exception) when (!string.IsNullOrWhiteSpace(json))
+        {
+            privateMaterial = true;
+        }
+        if (set.Keys.Count != 1 || !string.Equals(set.Keys[0].Kid, kid, StringComparison.Ordinal)
+            || !string.Equals(set.Keys[0].Kty, "RSA", StringComparison.Ordinal)
+            || !string.Equals(set.Keys[0].Alg, algorithm, StringComparison.Ordinal)
+            || set.Keys[0].D is not null || privateMaterial)
+            throw new InvalidRequestException("The public JWK does not match the key metadata.", "invalid_public_jwk");
+    }
+
+    private static void ValidateSystemScopes(IEnumerable<string> scopes)
+    {
+        var values = scopes.Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (values.Any(x => !SystemClientScopeRegistry.IsRegistered(x)))
+            throw new InvalidRequestException("The requested SYSTEM scope is not registered.", "invalid_scope");
+    }
+
+    private static string NormalizePublicJwkSet(string json)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        if (document.RootElement.TryGetProperty("keys", out _))
+            return json;
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            keys = new[] { document.RootElement.Clone() },
+        });
     }
 
     public async Task<MerchantAccessAdminView?> GetMerchantAccessAsync(

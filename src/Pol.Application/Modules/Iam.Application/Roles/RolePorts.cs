@@ -57,6 +57,14 @@ public interface IRoleAssignmentValidator
         IReadOnlyCollection<Guid> roleIds, CancellationToken cancellationToken);
 }
 
+/// <summary>Invalidates Account authorization versions for every active identity assignment of a role.
+/// The implementation owns the Control Plane transaction/row-lock details; role handlers depend only on this
+/// narrow application port so role status/permission changes and token invalidation commit together.</summary>
+public interface IRoleAuthorizationInvalidator
+{
+    Task InvalidateAssignedAccountsAsync(Guid roleId, CancellationToken cancellationToken);
+}
+
 public sealed record RoleAssignmentTarget(Guid Id, Scope Scope, Guid? MerchantId);
 
 /// <summary>A role as the management endpoints render it (REQ-2/6). <see cref="Status"/> is the enum; the

@@ -21,6 +21,7 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<OrderItem>
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Order
         builder.Property(x => x.Quantity).IsRequired();
         builder.Property(x => x.Metadata).HasColumnType("json");
+        builder.Property(x => x.RequestMetadata).HasColumnType("json");
 
         builder.ComplexProperty(x => x.UnitPrice, p =>
         {

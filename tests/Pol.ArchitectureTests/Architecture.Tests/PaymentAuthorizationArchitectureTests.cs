@@ -6,7 +6,7 @@ namespace Architecture.Tests;
 public sealed class PaymentAuthorizationArchitectureTests
 {
     [Fact]
-    public void OrderPaymentAuthorization_has_one_production_Order_writer_and_no_legacy_command()
+    public void OrderPaymentAuthorization_keeps_the_legacy_cart_writer_and_canonical_command_producer()
     {
         var root = FindRepoRoot();
         var calls = Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
@@ -19,7 +19,8 @@ public sealed class PaymentAuthorizationArchitectureTests
             .Where(path => File.ReadAllText(path).Contains("new CreateOrderCommand(", StringComparison.Ordinal))
             .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
             .ToArray();
-        Assert.Empty(legacyCallers);
+        Assert.Contains("src/Pol.Api/Api/Program.cs", legacyCallers);
+        Assert.DoesNotContain("src/Pol.Api/Api/Orders/OrderCreationCoordinator.cs", legacyCallers);
     }
 
     [Fact]

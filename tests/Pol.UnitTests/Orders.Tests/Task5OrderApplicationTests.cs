@@ -47,7 +47,8 @@ public sealed class Task5OrderApplicationTests
         var harness = NewHarness();
         var command = new CreateOrderCommand(
             MerchantId, AccountId, "insurance",
-            [new OrderItemRequest("product-from-client", 2, "business-metadata")],
+            [new OrderItemRequest("product-from-client", 2,
+                """{"schemaVersion":1,"data":{"source":"unit"}}""")],
             new OrderOwnerRequest(null, null), false, "create-1");
 
         var result = await harness.Create.Handle(command, default);
@@ -170,6 +171,37 @@ public sealed class Task5OrderApplicationTests
     }
 
     [Fact]
+    [Trait("Requirement", "REQ-6.8")]
+    public async Task Patch_rejects_ambiguous_metadata_preservation_after_duplicate_product_reorder()
+    {
+        var harness = NewHarness(duplicateProductPricing: true);
+        var created = await harness.Create.Handle(new CreateOrderCommand(
+            MerchantId,
+            AccountId,
+            "insurance",
+            [
+                new OrderItemRequest("DUPLICATE", 1,
+                    """{"schemaVersion":1,"data":{"slot":"a"}}"""),
+                new OrderItemRequest("DUPLICATE", 1,
+                    """{"schemaVersion":1,"data":{"slot":"b"}}"""),
+            ],
+            new OrderOwnerRequest(null, null), false, "duplicate-metadata-create"), default);
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() => harness.Patch.Handle(
+            new PatchDraftOrderCommand(
+                MerchantId,
+                created.Order.OrderId,
+                AccountId,
+                "insurance",
+                [new OrderItemRequest("DUPLICATE", 1), new OrderItemRequest("DUPLICATE", 1)],
+                new OrderOwnerRequest(null, null),
+                created.Order.Version), default).AsTask());
+
+        Assert.Equal("metadata_ambiguous", error.Code);
+        Assert.Equal(1, harness.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
     [Trait("Requirement", "REQ-6.11")]
     [Trait("Requirement", "REQ-6.12")]
     public async Task Cancel_rejects_paid_and_payment_pending_orders_without_mutation()
@@ -198,9 +230,9 @@ public sealed class Task5OrderApplicationTests
         Assert.Equal(OrderStatus.Draft, pendingOrder.Status);
     }
 
-    private static Harness NewHarness(bool blockingPayment = false)
+    private static Harness NewHarness(bool blockingPayment = false, bool duplicateProductPricing = false)
     {
-        var pricing = new FakePricing();
+        var pricing = new FakePricing(duplicateProductPricing);
         var owners = new FakeOwnerResolver();
         var orders = new FakeWorkflowStore();
         var tokens = new PaymentLinkTokenService(new byte[32]);
@@ -233,7 +265,7 @@ public sealed class Task5OrderApplicationTests
         PaymentLinkTokenService Tokens,
         FakeUnitOfWork UnitOfWork);
 
-    private sealed class FakePricing : ITrustedOrderPricingSource
+    private sealed class FakePricing(bool duplicateProductPricing = false) : ITrustedOrderPricingSource
     {
         public IReadOnlyList<OrderItemRequest> LastRequestedItems { get; private set; } = [];
 
@@ -244,13 +276,17 @@ public sealed class Task5OrderApplicationTests
             CancellationToken cancellationToken)
         {
             LastRequestedItems = requestedItems;
-            return Task.FromResult(new TrustedOrderPricing(
-                "THB",
-                [new TrustedOrderLineInput(
+            var lines = duplicateProductPricing
+                ? requestedItems.Select(item => new TrustedOrderLineInput(
+                    item.ProductReference, "VMI", "trusted", item.Quantity,
+                    Money.Of(100m, "THB"), Money.Of(10m, "THB"), Money.Of(5m, "THB"),
+                    Money.Of(95m * item.Quantity, "THB"), "catalog-v1")).ToArray()
+                : [new TrustedOrderLineInput(
                     "SERVER-DOC", "VMI", "trusted", 2,
                     Money.Of(100m, "THB"), Money.Of(10m, "THB"), Money.Of(5m, "THB"),
-                    Money.Of(195m, "THB"), "catalog-v1")],
-                Money.Of(3m, "THB"), Money.Of(2m, "THB")));
+                    Money.Of(195m, "THB"), "catalog-v1")];
+            return Task.FromResult(new TrustedOrderPricing(
+                "THB", lines, Money.Of(3m, "THB"), Money.Of(2m, "THB")));
         }
     }
 

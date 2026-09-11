@@ -92,7 +92,8 @@ public sealed record ClientKeyAdminCreate(
     string Algorithm,
     DateTime ValidFrom,
     DateTime? ValidUntil,
-    string? AuditReference);
+    string? AuditReference,
+    string PublicJwkJson);
 
 public sealed record MerchantAccessReplace(
     Guid AccountId,

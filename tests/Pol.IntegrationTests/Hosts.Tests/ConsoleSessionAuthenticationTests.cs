@@ -4,6 +4,7 @@ using ApiHost::Api.Iam;
 using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using OpenIddict.Validation.AspNetCore;
 
 namespace Hosts.Tests;
 
@@ -64,12 +65,51 @@ public sealed class ConsoleSessionAuthenticationTests
     }
 
     [Fact]
+    public void Admin_or_identity_order_policy_rejects_merchant_cookie_and_selects_admin()
+    {
+        var context = Context(
+            ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName,
+            $"{UserSessionCookies.SessionCookieNameDevHttp}=merchant");
+
+        Assert.Equal(SessionAuthenticationHandler.SchemeName,
+            ConsoleSessionAuthentication.SelectScheme(context));
+        Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
+    }
+
+    [Fact]
+    public void Admin_or_identity_order_policy_forwards_marked_bearer_to_identity_platform()
+    {
+        var context = Context(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName);
+        context.Request.Headers.Authorization = "Bearer test-token";
+        context.SetEndpoint(new Endpoint(
+            _ => Task.CompletedTask,
+            new EndpointMetadataCollection(
+                new AuthorizeAttribute(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName),
+                new IdentityPermissionAuthorization.IdentityOrderPermissionMarker()),
+            "test"));
+
+        Assert.Equal(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme,
+            ConsoleSessionAuthentication.SelectScheme(context));
+    }
+
+    [Fact]
     public void OpenApi_mapping_returns_two_alternative_schemes_for_dual_console()
     {
         object[] metadata = [new AuthorizeAttribute("dual-console")];
 
         Assert.Equal(
             ["AdminSession", "MerchantUserSession"],
+            AuthPolicyScheme.SecuritySchemeIdsFor(metadata));
+    }
+
+    [Fact]
+    public void OpenApi_mapping_for_admin_or_identity_order_excludes_merchant_user()
+    {
+        object[] metadata =
+        [new AuthorizeAttribute(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)];
+
+        Assert.Equal(
+            ["AdminSession", "IdentityPlatform"],
             AuthPolicyScheme.SecuritySchemeIdsFor(metadata));
     }
 

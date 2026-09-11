@@ -3,6 +3,7 @@ using BuildingBlocks.Infrastructure.Idempotency;
 using BuildingBlocks.Infrastructure.Outbox;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
+using Accounts.Application;
 using Microsoft.EntityFrameworkCore;
 using Payments.Domain;
 using Payments.Domain.Capabilities;
@@ -15,6 +16,7 @@ using InboundWebhookEvent = Payments.Domain.InboundWebhookEvent;
 using OrderAggregate = Orders.Domain.Order;
 using OrderItem = Orders.Domain.Items.Item;
 using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
+using Orders.Application;
 using PaymentLink = Checkouts.Domain.PaymentLink;
 using PaymentLinkReplay = Checkouts.Domain.PaymentLinkReplay;
 using AdminOperationRecord = BuildingBlocks.Infrastructure.Idempotency.AdminOperationRecord;
@@ -32,12 +34,16 @@ namespace Persistence.MerchantRuntime;
 internal sealed class CommerceDbContext : GuardedRuntimeDbContext, IMerchantFilterContext
 {
     private readonly IActorContext _actor;
+    private readonly IOrderIdentityAccessScope? _identityScope;
 
     public CommerceDbContext(
         DbContextOptions options, IActorContext actor, IWriteAuthorizer authorizer,
-        ISecurityTelemetry telemetry)
+        ISecurityTelemetry telemetry, IOrderIdentityAccessScope? identityScope = null)
         : base(options, authorizer, telemetry)
-        => _actor = actor;
+    {
+        _actor = actor;
+        _identityScope = identityScope;
+    }
 
     /// <summary>The read floor's instance member (REQ-1.5): captured PER QUERY from THIS context instance
     /// inside each entity's <c>HasQueryFilter</c> lambda — never baked into the cached model — so a worker's
@@ -49,7 +55,12 @@ internal sealed class CommerceDbContext : GuardedRuntimeDbContext, IMerchantFilt
     /// <summary>The bound merchant user (Tier 1 agent/broker), when the request carries one. Null for an
     /// admin-bound ambient scope, a webhook/worker binding, or an unbound actor — those keep the merchant-wide
     /// read. Read per query like <see cref="CurrentMerchant"/>, never snapshotted into the cached model.</summary>
-    internal Guid? CurrentMerchantUser => _actor.HasActor ? _actor.UserId : null;
+    internal Guid? CurrentMerchantUser => _identityScope?.IsBound == true
+        ? null
+        : _actor.HasActor ? _actor.UserId : null;
+
+    internal AuthorizationSnapshot? CurrentIdentityAuthorization =>
+        _identityScope?.IsBound == true ? _identityScope.Snapshot : null;
 
     public DbSet<CartAggregate> Carts => Set<CartAggregate>();
     public DbSet<CartItem> CartItems => Set<CartItem>();

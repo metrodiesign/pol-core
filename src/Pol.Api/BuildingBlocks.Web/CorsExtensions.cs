@@ -115,6 +115,8 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
         if (path.StartsWithSegments("/api/v1/payments/sessions", out var paymentRest))
             return string.Equals(request.Method, HttpMethods.Post, StringComparison.OrdinalIgnoreCase)
                 || IsGuidOrRouteParameter(paymentRest.Value?.Trim('/').Split('/')[0]);
+        if (string.Equals(path.Value, "/api/v1/orders/from-cart", StringComparison.OrdinalIgnoreCase))
+            return true;
         if (path.StartsWithSegments("/api/v1/orders", out var orderRest))
         {
             var segments = orderRest.Value?.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
@@ -126,6 +128,8 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
                 || segments is [_, "cancel"]
                 || segments is [_, "summary", "resend"]
                 || segments is [_, "issue"]
+                || segments is [_, "items"]
+                || segments is [_, "history"]
                 || segments is [_, "payment-links"];
         }
         if (path.StartsWithSegments("/api/v1/payment-links"))

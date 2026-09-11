@@ -69,9 +69,11 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260910101508_Task7WebhookEndpointUniquenessLive'),
     (N'20260910121500_Task8RuntimeGrants'),
     (N'20260910124500_Task8CommerceRuntimeGrants'),
-    (N'20260910140000_Task9MigrationReadiness');
+    (N'20260910140000_Task9MigrationReadiness'),
+    (N'20260911160508_ReviewFixOrderVersionedMetadata'),
+    (N'20260911163519_ReviewFixPaymentLinkNotificationIntent');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 45
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 47
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -80,7 +82,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 45
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 45 expected migrations through Task9MigrationReadiness; ';
+    SET @fail += N'migration history must contain exactly 47 expected migrations through ReviewFixPaymentLinkNotificationIntent; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -151,8 +153,8 @@ DECLARE @nativeJsonCount int = (
     JOIN sys.types ty ON ty.user_type_id = c.user_type_id
     WHERE ty.name = N'json'
 );
-IF @nativeJsonCount <> 9
-    SET @fail += N'exactly nine native json columns required; ';
+IF @nativeJsonCount <> 11
+    SET @fail += N'exactly eleven native json columns required; ';
 IF (SELECT COUNT(*)
     FROM sys.columns c
     JOIN sys.tables t ON t.object_id = c.object_id
@@ -163,8 +165,16 @@ IF (SELECT COUNT(*)
           (N'admin.ProvisioningOperations.Result', N'merch.UserOutbox.Payload',
            N'merch.Merchants.Metadata', N'shop.CartItems.Metadata', N'shop.OrderItems.Metadata',
            N'acct.Agents.Metadata', N'acct.Employees.Metadata',
-           N'acct.AgentRegistrations.ProfileJson', N'acct.AgentRegistrationAttempts.ProfileJson')) <> 9
+           N'acct.AgentRegistrations.ProfileJson', N'acct.AgentRegistrationAttempts.ProfileJson',
+           N'shop.Orders.Metadata', N'shop.OrderItems.RequestMetadata')) <> 11
     SET @fail += N'native json column allowlist mismatch; ';
+
+IF COL_LENGTH(N'shop.Orders', N'Metadata') IS NULL
+   OR COL_LENGTH(N'shop.OrderItems', N'RequestMetadata') IS NULL
+   OR COL_LENGTH(N'shop.Orders', N'NotificationEmail') IS NULL
+   OR COL_LENGTH(N'shop.Orders', N'NotificationPhoneNumber') IS NULL
+   OR COL_LENGTH(N'shop.Orders', N'NotifyOnIssue') IS NULL
+    SET @fail += N'reviewfix Order metadata/notification columns missing; ';
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'shop.Orders')
                AND name = N'IX_Orders_OrderNo' AND is_unique = 1)

@@ -79,6 +79,7 @@ public static class ControlPlanePersistenceRegistration
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));
         services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<IdentityAccessStore>();
+        services.AddScoped<IIdentityAuthorizationRoleReader, IdentityAuthorizationRoleReader>();
         services.AddScoped<AgentRegistrationStore>();
         services.AddScoped<AccountAuthorizationLease>();
         services.AddScoped<IEmployeeJitStore>(sp => sp.GetRequiredService<IdentityAccessStore>());
@@ -98,6 +99,7 @@ public static class ControlPlanePersistenceRegistration
         services.AddScoped<IamRoleStore>();
         services.AddScoped<IRoleStore>(sp => sp.GetRequiredService<IamRoleStore>());
         services.AddScoped<IRoleAssignmentValidator>(sp => sp.GetRequiredService<IamRoleStore>());
+        services.AddScoped<IRoleAuthorizationInvalidator, RoleAuthorizationInvalidator>();
         services.AddScoped<IApiClientStore>(sp => new ApiClientStore(
             sp.GetRequiredService<ControlPlaneDbContext>(),
             sp.GetRequiredService<IClock>(),

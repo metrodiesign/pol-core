@@ -228,54 +228,74 @@ Independent verification พบ documentation/policy drift หลัง Task10: 
 - Mutation fixtures ยังคง RED สำหรับ third context, missing Commerce context, unsealed guard, missing filter, stale module row และ mixed layout
 - Runtime suite ไม่ rerun เพราะ follow-up เป็น policy/docs/test-only; existing full solution evidence remains authoritative
 
-## Deviation: canonical Order create/draft chain
+## Canonical Order create/draft chain — implemented
 
-หัวข้อนี้ประกาศการเบี่ยงจาก approved design ของ REQ-6/REQ-7 อย่างเปิดเผย (must-fix 1 ทางเลือก ก
-ตาม review รอบ aggregate) ผู้ตัดสินว่ารับได้หรือไม่คือ user
+`POST /api/v1/orders` ใช้ `CreateOrderRequest` และ `CreateOrderHandler` กลางตาม approved design. `issueNow=false`
+สร้าง `DRAFT` โดยไม่มีลิงก์; ค่าเริ่มต้น `true` freeze Order และสร้าง PaymentLink แรกใน transaction เดียว.
+การเขียนผ่าน `identity-platform` ตรวจ Account authorization snapshot, merchant context, trusted pricing,
+Idempotency-Key และ BFF CSRF หรือ bearer ตามชนิด credential. Client quote ที่ไม่ตรง trusted pricing ได้
+`409 pricing_mismatch` ก่อน write.
 
-### ข้อเท็จจริง (ยืนยันด้วย refute pass 2 lens: trace + contract)
+Draft replay เก็บผลลัพธ์ snapshot แบบ Data Protection ciphertext ใน `checkout.PaymentLinkReplays` โดยไม่เก็บ
+raw token และคืน Draft เดิมแม้ Order ถูก PATCH/issue ภายหลัง. Issued replay ใช้ protected raw-token path เดิม.
+เส้นทาง Cart เดิมย้ายไป `POST /api/v1/orders/from-cart` เพื่อคง compatibility โดยไม่ทำ DTO catch-all.
 
-- **API-079** (`POST /api/v1/orders`, `src/Pol.Api/Api/Program.cs:1964`) รับ `CreateOrderFromCartRequest`
-  (`CartId`, `Customer`, `PaymentMethod`, `MerchantId?`, `OriginatorId?`) แล้วลงที่ `Order.Create`
-  ซึ่งตั้ง `Status = OrderStatus.Pending` ไม่ใช่ `Draft`; นี่คือ operation เดียวที่ contract ผิดจาก design จริง
-  (contract test `ApiOperationsContractTests.cs:138` pin ตาม implementation ไม่ใช่ตาม design)
-- design กำหนด `POST /api/v1/orders` รับ `CreateOrderRequest` (`businessType`, `currency`, `items[]`,
-  `issueNow` default true; `issueNow=false` -> DRAFT ไม่มี link) — type `CreateOrderRequest` **ไม่มีอยู่ใน `src/` เลย**
-- ผู้ผลิต `OrderStatus.Draft` ใน production มีจุดเดียวคือ `Order.CreateDraft` (`Order.cs:265`) ซึ่งมี caller
-  ใน `src/` เพียง `CreateOrderHandler` (`OrderWorkflow.cs:424`) และ `CreateOrderHandler` ไม่มีใครสร้าง
-  `CreateOrderCommand` ให้ (0 จุดใน `src/`) โดยถูกตรึงด้วย arch test
-  `PaymentAuthorizationArchitectureTests.cs:22` (`Assert.Empty` ของ `new CreateOrderCommand(`)
-- ผลคือ API-081 (PATCH draft), API-083 (issue), API-087 (rotate payment-link) คืน 409/InvalidOperation
-  เสมอเมื่อยิงกับ order ที่สร้างได้จริง (Pending) และไม่มี production path ใด mint `PaymentLink`
-  (`_issuer.Issue` มี 3 call site ใน `src/` ทั้งหมดอยู่ใน handler ที่ unreachable) จึง `POST /checkout/access`
-  และ `POST /checkout/confirm` ไม่มี input จริง
+Evidence: `.pipeline/platform-restructure-v1/finding2-c1-lifecycle-final.log`,
+`.pipeline/platform-restructure-v1/finding2-owner-auth-green2.log`,
+`.pipeline/platform-restructure-v1/finding2-auth-bff-csrf-fixed.log`,
+`.pipeline/platform-restructure-v1/finding2-apioperations-final.log`, และ contract/OpenAPI evidence
+ที่บันทึกใน `changes-review-fix-pr253.md`/`tests-review-fix-pr253.md`.
 
-### สิ่งที่ส่งมอบจริงในรอบนี้
+`RequireIdentityPermission` ใช้ production `IIdentityAccessQuery` และ authorization handler สำหรับ E/A/S; claim
+`merchant_id` เป็น context ที่จำเป็น, query เป็นเพียง equality check, SYSTEM ต้องมี `order.write`, และ human ต้องมี
+`payment.create`. BFF evidence ใช้ `BffSessionManager` กับ SQL Account จริงและตรวจ missing/invalid/valid CSRF.
+Order owner ของ Agent derive จาก Sale/Branch ที่ trusted; Employee `DataScope.Branch` ต้องมี BranchAccess เดียวและ
+ห้ามเลือก Sale/Branch อื่น. Legacy `/orders/from-cart` ยังคง dual-console แยกจาก canonical route.
 
-- canonical draft/issue/link chain ส่งมอบครบ **ระดับ application layer** (`CreateOrderHandler`,
-  `IssueOrderHandler`, `RotatePaymentLinkHandler`, `OrderLinkIssuer`, `PaymentLinkReplayService`)
-  พร้อม test ระดับ handler และ SQL integration ที่เรียก handler ตรง (`Task5OrdersLinksSqlIntegrationTests`)
-- `POST /api/v1/orders` คงพฤติกรรม cart-based ของเดิม (Pending)
+Review-fix เพิ่มการกู้ Delivery ที่ lease หมดอายุด้วย claim owner/attempt predicate เดียวกับ SQL transition; active lease
+ขโมยไม่ได้และ owner เก่าจบงานหลัง re-lease ไม่ได้. Full Notification capability ปัจจุบันมี Integration 12,
+Architecture 25 และ Unit 8 ผ่านบน owned database; ไม่มี live SMS/provider credential จึงคง `BLOCKED_NOT_CONFIGURED`.
 
-### สิ่งที่ยังไม่ส่งมอบ (หนี้ที่ประกาศ)
+Fixture constraint: C1/Auth/BFF review tests ใช้ database suffix ต่อ test และ bind `ConnectionStrings:App`, `Admin`,
+`Platform` ไปฐานเดียวกัน; `PolPr253ReviewFixTest` ถูก recreate/migrate และ smoke-test แล้วไม่ถูก drop.
 
-- HTTP branch `CreateOrderRequest`/`issueNow` ตาม design
-- producer ผ่าน HTTP ของ API-081/API-083/API-087 (ปัจจุบัน 409 เสมอ)
-- production path ที่ mint `PaymentLink` (checkout จึงไม่มี input จริงจาก production flow)
+Verifier sendback หลัง source freeze ปิด contract regressions เพิ่มเติม: `/orders` และ `/orders/from-cart` รักษา dual-origin
+CORS โดย unknown non-guid order path ถูก deny, canonical `Idempotency-Key` เป็น required ใน OpenAPI, และ named v1/
+Merchant/Admin documents publish `IdentityPlatform` พร้อม operation scheme ของ `POST /api/v1/orders` แบบ exact. Named
+regression tests ผ่าน `6/6`; `Capability=ApiOperations` ผ่าน `57/57`; raw logs อยู่
+`.pipeline/platform-restructure-v1/verifier-sendback4-named-green2.log` และ
+`.pipeline/platform-restructure-v1/verifier-sendback4-apioperations-green.log`.
 
-### ทางเลือก (ข) wire ให้ครบ = follow-up spec แยก (ยังไม่ทำในรอบนี้)
+## Review-fix Phase C — final evidence
 
-ต้องเพิ่ม `CreateOrderRequest` เป็น branch ของ `POST /orders` (หรือ operation แยก) ที่เรียก
-`CreateOrderHandler`, ปลด arch pin `PaymentAuthorizationArchitectureTests.cs:22`, และเปลี่ยน contract pin
-`ApiOperationsContractTests.cs:138` ให้ตรง design; ต้องผ่าน must-fix 2 (`SummaryToken` sentinel, แก้แล้วในรอบนี้)
-ก่อนเสมอ เพราะการ wire draft สองใบขึ้นไปในฐานเดียวกันจะชน filtered unique index ทันทีถ้ายังเขียน sentinel
-งานนี้เป็นการ rewire money path กลาง จึงต้องเป็น follow-up spec ที่ user อนุมัติ ไม่ทำในรอบ rework สุดท้าย
+Insurance source policy ไม่อนุญาต owner omission สำหรับ Account scope ที่ restricted; real SQL AssignedBranches test
+ผ่านด้วย `owner_required` และ explicit trusted Sale/Branch ผ่าน. `VersionedMetadata` ถูกเก็บแยกใน Order/OrderItem
+ด้วย migrations `20260911160508_ReviewFixOrderVersionedMetadata` และ
+`20260911163519_ReviewFixPaymentLinkNotificationIntent`; C1 roundtrip, PATCH omission/reorder และ adjustment
+zero semantics ผ่าน.
+
+`PaymentLinkNotificationRequestedV1` ใช้ `EventId=LinkId`, schema `v1` และ protected raw token purpose แยกจาก
+replay protector. Create issue, draft->issue และ rotate notification intent เขียน outbox ใน transaction เดียว;
+consumer dedupe และ materializer fan-out Email/SMS ครั้งเดียว. Delivery processor unprotect หลัง claim ใน memory,
+SMS unconfigured block และ tampered/expired ciphertext ไม่ส่ง เข้าสู่ retry state. Raw token ไม่อยู่ใน durable
+payload snapshots. Focused evidence: `phaseC-outbox-c1-final.log`, `phaseC-notifications-full-final.log`,
+`phaseC-outbox-delivery-green4.log`, `phaseC-outbox-delivery-tampered-green6.log`,
+`phaseC-outbox-orders-unit-green2.log`, `phaseC-model-consistency-final.log`, `phaseC-outbox-final-build.log`.
+
+FreshBaseline migration tests ที่อาศัย `IntegrationDb.SaConn` ของ shell database ยังมี fixture constraint เมื่อชื่อ
+`POL_DB` ไม่มีอยู่; C1 owned scratch migrations และ model consistency เป็นหลักฐานที่รันได้จริงของ forward migration.
+ไม่มีการ deploy, commit, push, PR หรือ merge.
 
 ## Next Steps
 
-1. ทำ aggregate audit และ verify บน diff รวม โดยคง Task10 KEEP/DEFER inventory เป็นข้อจำกัด
-2. ให้ review ตัดสินคุณภาพและ AC coverage ก่อน ship
-3. ให้ gitops จัดการ checkpoint/ship ตาม authorization; external readiness gap ต้องคงอยู่จนมี sanitized backup, mapping และ production authorization จริง
+1. ทำ aggregate security audit และ final verify/review บน diff รวม โดยคง Task10 KEEP/DEFER inventory เป็นข้อจำกัด
+2. ให้ gitops จัดการ checkpoint/ship ตาม authorization; external readiness gap ต้องคงอยู่จนมี sanitized backup, mapping และ production authorization จริง
+
+## Review-fix final static evidence
+
+รอบสุดท้ายปิด mechanical/static sendback แล้ว: trusted pricing adapter อยู่ physical path ใต้ `Products.Infrastructure`, IAM authorization role union ถูกแยกเป็น resolver repository ที่ confined, BypassPrimitive และ NativeJson assertions เป็น exact set, API-078 marker/CORS/Permission matrix ผ่าน. Migration script และ fresh-db assertions pin 47 migrations, 11 native JSON columns และ reviewfix metadata/notification columns.
+
+Evidence: full build exit 0; non-integration 2262 ผ่าน; architecture static 6/6; host static 9/9; migration drift/fresh unique DB/secret scan/diff-check exit 0. ไม่มี migration source เดิมถูกแก้ย้อนหลัง และไม่มี git/remote action.
 
 ## ผลตรวจ current-base
 

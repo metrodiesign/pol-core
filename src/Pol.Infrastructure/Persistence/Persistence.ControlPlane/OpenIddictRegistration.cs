@@ -61,12 +61,16 @@ public static class OpenIddictRegistration
             options.AddEventHandler<OpenIddictServerEvents.ValidateTokenRequestContext>(descriptor => descriptor
                 .UseScopedHandler<SystemClientTokenRequestHandler>()
                 .SetOrder(100_000));
+
+            options.RegisterScopes(SystemClientScopeRegistry.All.ToArray());
+
         });
 
         openIddict.AddValidation(options =>
         {
             options.UseLocalServer();
             options.UseAspNetCore();
+            options.AddAudiences(SystemClientScopeRegistry.ApiAudience);
             options.EnableTokenEntryValidation();
         });
 

@@ -34,6 +34,18 @@ public static class NotificationTemplates
                 eventType, channel, "payment-succeeded.v1", "th-TH",
                 string.Empty,
                 "signed-event-payload"),
+            ("PaymentLinkNotificationRequestedV1", "email") => new(
+                eventType, channel, "payment-link.v1", "th-TH",
+                "ลิงก์ชำระเงิน",
+                "ลิงก์ชำระเงินของคุณ: {{paymentLinkToken}}"),
+            ("PaymentLinkNotificationRequestedV1", "sms") => new(
+                eventType, channel, "payment-link.v1", "th-TH",
+                string.Empty,
+                "ลิงก์ชำระเงินของคุณ: {{paymentLinkToken}}"),
+            ("PaymentLinkNotificationRequestedV1", "business_webhook") => new(
+                eventType, channel, "payment-link.v1", "th-TH",
+                string.Empty,
+                "signed-event-payload"),
             _ => throw new ArgumentException("Notification event is not supported.", nameof(eventType)),
         };
 }

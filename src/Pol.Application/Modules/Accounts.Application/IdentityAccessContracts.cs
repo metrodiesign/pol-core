@@ -218,7 +218,8 @@ public interface IRegistrationSessionLookup
 public sealed record SystemClientResolution(
     Account Account,
     SystemClient Client,
-    IReadOnlyList<ClientKeyPolicy> KeyPolicies);
+    IReadOnlyList<ClientKeyPolicy> KeyPolicies,
+    IReadOnlyList<string> Scopes);
 
 public interface IIdentityAccessQuery
 {
@@ -307,8 +308,7 @@ public static class AccessEvaluator
                 && snapshot.AgentSaleId is not null && ownerSaleId == snapshot.AgentSaleId
                 => AuthorizationDecision.Allow(),
             DataScope.Self => AuthorizationDecision.Deny(AuthorizationDecisionReason.SelfNotSupported),
-            DataScope.Branch when ownerBranchId is not null
-                && snapshot.HomeBranchId == ownerBranchId
+            DataScope.Branch when snapshot.BranchIds.Count == 1 && ownerBranchId is not null
                 && snapshot.BranchIds.Contains(ownerBranchId.Value)
                 => AuthorizationDecision.Allow(),
             DataScope.AssignedBranches when ownerBranchId is not null

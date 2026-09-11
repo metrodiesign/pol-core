@@ -1,10 +1,19 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Features;
 
 namespace Api.IdentityAccess;
 
 internal sealed record BffCsrfProtected;
+
+internal static class IdentityPlatformMutationProtection
+{
+    public static TBuilder RequireIdentityPlatformMutation<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder =>
+        builder.WithMetadata(new Api.Iam.CsrfProtected("IdentityPlatform"))
+            .AddEndpointFilter<TBuilder, IdentityPlatformMutationFilter>();
+}
 
 internal sealed class BffCsrfFilter : IEndpointFilter
 {
@@ -58,4 +67,16 @@ internal sealed class BffCsrfFilter : IEndpointFilter
             return false;
         }
     }
+}
+
+internal sealed class IdentityPlatformMutationFilter : IEndpointFilter
+{
+    private readonly BffCsrfFilter _bff = new();
+
+    public ValueTask<object?> InvokeAsync(
+        EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
+        context.HttpContext.Request.Headers.Authorization.ToString()
+            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? next(context)
+            : _bff.InvokeAsync(context, next);
 }

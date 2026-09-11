@@ -36,6 +36,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.OwnerSaleId);
         builder.Property(x => x.OwnerBranchIdAtCreation);
         builder.Property(x => x.BusinessType).HasMaxLength(64);
+        builder.Property(x => x.Metadata).HasColumnType("json");
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.PaymentSessionId);
         builder.Property(x => x.SuccessfulTransactionId);
@@ -77,6 +78,9 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property<DateTime?>(nameof(Order.SummaryTokenExpiresAt))
             .HasField("_summaryTokenExpiresAt").IsRequired(false);
         builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
+        builder.Property(x => x.NotifyOnIssue).IsRequired();
+        builder.Property(x => x.NotificationEmail).HasMaxLength(320);
+        builder.Property(x => x.NotificationPhoneNumber).HasMaxLength(32).IsUnicode(false);
 
         // purchase-flow-completion REQ-7.1/7.2. PaymentChannel is nullable: orders that predate this spec
         // have no channel and cannot be paid (the customer pay endpoint answers 409).

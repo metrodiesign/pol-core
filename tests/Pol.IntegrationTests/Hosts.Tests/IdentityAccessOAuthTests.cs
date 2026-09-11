@@ -1,12 +1,17 @@
 extern alias ApiHost;
+using ApiIdentity = ApiHost::Api.IdentityAccess;
+using ApiAdmin = ApiHost::Api.Admins;
 using Accounts.Application;
 using Accounts.Domain;
 using BuildingBlocks.Application;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -18,10 +23,13 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
+using Products.Application.Ports;
+using Products.Domain;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Hosts.Tests;
 
-file sealed class IdentityAccessOAuthFactory : WebApplicationFactory<ApiHost::Program>
+file class IdentityAccessOAuthFactory : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -51,6 +59,64 @@ file sealed class IdentityAccessOAuthFactory : WebApplicationFactory<ApiHost::Pr
         var database = Environment.GetEnvironmentVariable("POL_DB") ?? "PolIdentityAccessTask2Test";
         return $"Server={server};Database={database};User Id=pol_app;Password={password};Encrypt=True;TrustServerCertificate=True;Pooling=False";
     }
+}
+
+file sealed class IdentityAccessOrderFactory(string database, ISpDocumentGateway gateway)
+    : IdentityAccessOAuthFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        var connection = Integration.Tests.IntegrationDb.AppConnFor(database);
+        builder.UseSetting("ConnectionStrings:App", connection);
+        builder.UseSetting("ConnectionStrings:Admin", connection);
+        builder.UseSetting("ConnectionStrings:Platform", connection);
+        builder.UseSetting("OAuth:Issuer", "https://oauth.task2.test");
+        builder.ConfigureServices(services =>
+        {
+            services.PostConfigure<OpenIddictServerAspNetCoreOptions>(
+                options => options.DisableTransportSecurityRequirement = true);
+            services.RemoveAll<ISpDocumentGateway>();
+            services.AddSingleton<ISpDocumentGateway>(gateway);
+        });
+    }
+}
+
+file sealed class IdentityAccessOrderAdminFactory(string database, ISpDocumentGateway gateway)
+    : Task8A1SqlFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        var connection = Integration.Tests.IntegrationDb.AppConnFor(database);
+        builder.UseSetting("ConnectionStrings:App", connection);
+        builder.UseSetting("ConnectionStrings:Admin", connection);
+        builder.UseSetting("ConnectionStrings:Platform", connection);
+        builder.UseSetting("OAuth:Issuer", "https://oauth.task2.test");
+        builder.ConfigureServices(services =>
+        {
+            services.PostConfigure<OpenIddictServerAspNetCoreOptions>(
+                options => options.DisableTransportSecurityRequirement = true);
+            services.RemoveAll<ISpDocumentGateway>();
+            services.AddSingleton<ISpDocumentGateway>(gateway);
+        });
+    }
+}
+
+file sealed class OAuthOrderDocumentGateway(SpDocumentItem document) : ISpDocumentGateway
+{
+    public SpDocumentItem Document { get; set; } = document;
+    public bool ReturnBothRoutes { get; set; }
+
+    public Task<SpDocumentSearchResult> SearchAsync(
+        SpDocumentSearchRequest request, CancellationToken cancellationToken) =>
+        Task.FromResult(new SpDocumentSearchResult(
+            new SpPaginationMetadata(1, 1, 1, 25, false, false, "EXACT", 6), [Document]));
+
+    public Task<SpDocumentItem?> LookupAsync(
+        SpDocumentLookupRequest request, CancellationToken cancellationToken) =>
+        Task.FromResult<SpDocumentItem?>(
+            request.ProductGroup == ProductGroup.CMI || ReturnBothRoutes ? Document : null);
 }
 
 [Trait("Capability", "IdentityAccess")]
@@ -127,7 +193,7 @@ public sealed class IdentityAccessOAuthTests
                 ("@now", now),
                 ("@application", applicationId),
                 ("@jwk", jwkSet),
-                ("@permissions", $"[\"{OpenIddictConstants.Permissions.Endpoints.Token}\",\"{OpenIddictConstants.Permissions.GrantTypes.ClientCredentials}\"]"));
+                ("@permissions", $"[\"{OpenIddictConstants.Permissions.Endpoints.Token}\",\"{OpenIddictConstants.Permissions.GrantTypes.ClientCredentials}\",\"{OpenIddictConstants.Permissions.Prefixes.Scope}order.write\"]"));
         }
 
         try
@@ -166,17 +232,398 @@ public sealed class IdentityAccessOAuthTests
         }
     }
 
-    private static HttpRequestMessage CreateTokenRequest(string clientId, string assertion) =>
-        new(HttpMethod.Post, "/oauth/token")
+    [Fact]
+    [Trait("Requirement", "REQ-2.7")]
+    [Trait("Requirement", "REQ-6.7")]
+    [Trait("Requirement", "REQ-6.8")]
+    public async Task System_client_management_provisions_scope_key_and_canonical_order_uses_production_pricing()
+    {
+        var database = $"PolPr253OAuthOrder{Guid.NewGuid():N}";
+        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+        var merchantId = Guid.CreateVersion7();
+        var branchId = Guid.CreateVersion7();
+        var saleId = Guid.CreateVersion7();
+        var clientId = $"system-order-{Guid.NewGuid():N}";
+        var runTag = Guid.NewGuid().ToString("N");
+        using var rsa = RSA.Create(2048);
+        var keyId = "task-pr253-order-jwk";
+        var gateway = new OAuthOrderDocumentGateway(CreateOrderDocument("DOC-OAUTH", "SALE-OAUTH"));
+        await using (var connection = await Integration.Tests.IntegrationDb.OpenAsync(
+                         Integration.Tests.IntegrationDb.SaConnFor(database)))
         {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                connection, merchantId, $"oauth-order-{Guid.NewGuid():N}"[..20]);
+            await Integration.Tests.IntegrationDb.ExecAsync(connection, """
+                INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                VALUES (@branch, @merchant, N'branch-oauth', N'OAuth branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                VALUES (@sale, @merchant, @branch, N'SALE-OAUTH', N'OAuth sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                """,
+                ("@branch", branchId), ("@merchant", merchantId), ("@sale", saleId));
+        }
+
+        try
+        {
+            using var factory = new IdentityAccessOrderAdminFactory(database, gateway);
+            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+            var create = new HttpRequestMessage(HttpMethod.Post, "/api/v1/system-clients")
             {
-                ["grant_type"] = OpenIddictConstants.GrantTypes.ClientCredentials,
-                ["client_id"] = clientId,
-                ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-                ["client_assertion"] = assertion,
-            })
+                Content = JsonContent.Create(new
+                {
+                    merchantId,
+                    clientId,
+                    displayName = "OAuth Order System",
+                    environment = "SANDBOX",
+                    scopes = new[] { "order.read", "order.write", "checkout.write" },
+                }),
+            };
+            AddOrderAdminHeaders(create, $"create-{runTag}");
+            using var created = await client.SendAsync(create);
+            var createdBody = await created.Content.ReadAsStringAsync();
+            Assert.True(created.StatusCode == HttpStatusCode.Created, createdBody);
+            var createdJson = JsonNode.Parse(createdBody)!.AsObject();
+            var systemClientId = Guid.Parse(createdJson["systemClientId"]!.ToString());
+            var accountId = Guid.Parse(createdJson["accountId"]!.ToString());
+
+            var access = new HttpRequestMessage(
+                HttpMethod.Put, $"/api/v1/accounts/{accountId:D}/merchant-access/{merchantId:D}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    dataScope = "Merchant",
+                    roleIds = Array.Empty<Guid>(),
+                    branchIds = Array.Empty<Guid>(),
+                    paymentMethods = Array.Empty<string>(),
+                }),
+            };
+            AddOrderAdminHeaders(access, $"access-{runTag}", "\"v0\"");
+            using var accessResponse = await client.SendAsync(access);
+            Assert.True(accessResponse.StatusCode == HttpStatusCode.OK,
+                await accessResponse.Content.ReadAsStringAsync());
+
+            var jwk = JsonNode.Parse(CreateJwkSet(rsa, keyId))!.AsObject()["keys"]!.AsArray()[0]!.AsObject();
+            var key = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/system-clients/{systemClientId:D}/keys")
+            {
+                Content = JsonContent.Create(new
+                {
+                    jwk,
+                    applicationId = clientId,
+                    kid = keyId,
+                    algorithm = "PS256",
+                    validFrom = DateTime.UtcNow.AddMinutes(-1),
+                    validUntil = DateTime.UtcNow.AddHours(1),
+                    auditReference = "pr253-order",
+                }),
+            };
+            AddOrderAdminHeaders(key, $"key-{runTag}");
+            using var keyResponse = await client.SendAsync(key);
+            Assert.True(keyResponse.StatusCode == HttpStatusCode.Created,
+                await keyResponse.Content.ReadAsStringAsync());
+
+            using var tokenResponse = await client.SendAsync(
+                CreateTokenRequest(clientId, CreateAssertion(rsa, clientId, keyId, DateTime.UtcNow),
+                    "order.read order.write checkout.write"));
+            var tokenBody = await tokenResponse.Content.ReadAsStringAsync();
+            Assert.True(tokenResponse.StatusCode == HttpStatusCode.OK, tokenBody);
+            var accessToken = JsonDocument.Parse(tokenBody).RootElement.GetProperty("access_token").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(accessToken));
+
+            using var order = CanonicalOrderRequest(
+                merchantId, saleId, "oauth-order-1", accessToken!, "125.0000", "125.0000");
+            using var orderResponse = await client.SendAsync(order);
+            var orderBody = await orderResponse.Content.ReadAsStringAsync();
+            Assert.True(orderResponse.StatusCode == HttpStatusCode.Created, orderBody);
+            using var orderJson = JsonDocument.Parse(orderBody);
+            var orderId = orderJson.RootElement.GetProperty("order").GetProperty("orderId").GetGuid();
+            var draftVersion = orderJson.RootElement.GetProperty("order").GetProperty("version").GetInt64();
+
+            using var get = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}?merchantId={merchantId:D}");
+            get.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var getResponse = await client.SendAsync(get);
+            Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+            using var items = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}/items?merchantId={merchantId:D}");
+            items.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var itemsResponse = await client.SendAsync(items);
+            Assert.Equal(HttpStatusCode.OK, itemsResponse.StatusCode);
+
+            using var history = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}/history?merchantId={merchantId:D}");
+            history.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var historyResponse = await client.SendAsync(history);
+            Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
+
+            using var links = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}/payment-links?merchantId={merchantId:D}");
+            links.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var linksResponse = await client.SendAsync(links);
+            Assert.Equal(HttpStatusCode.OK, linksResponse.StatusCode);
+
+            using var patch = new HttpRequestMessage(
+                HttpMethod.Patch, $"/api/v1/orders/{orderId:D}?merchantId={merchantId:D}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    businessType = "insurance",
+                    items = new[] { new { productReference = "DOC-OAUTH", quantity = 1 } },
+                    ownerSaleId = saleId,
+                    ownerBranchId = (Guid?)null,
+                }),
+            };
+            patch.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            patch.Headers.Add("If-Match", $"\"v{draftVersion}\"");
+            using var patchResponse = await client.SendAsync(patch);
+            var patchBody = await patchResponse.Content.ReadAsStringAsync();
+            Assert.True(patchResponse.StatusCode == HttpStatusCode.OK, patchBody);
+            using var patchJson = JsonDocument.Parse(patchBody);
+            var patchedVersion = patchJson.RootElement.GetProperty("version").GetInt64();
+
+            using var issue = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/orders/{orderId:D}/issue?merchantId={merchantId:D}");
+            issue.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            issue.Headers.Add("If-Match", $"\"v{patchedVersion}\"");
+            issue.Headers.Add("Idempotency-Key", "oauth-order-issue");
+            using var issueResponse = await client.SendAsync(issue);
+            var issueBody = await issueResponse.Content.ReadAsStringAsync();
+            Assert.True(issueResponse.StatusCode == HttpStatusCode.OK, issueBody);
+            using var issueJson = JsonDocument.Parse(issueBody);
+            var issuedVersion = issueJson.RootElement.GetProperty("order").GetProperty("version").GetInt64();
+            var issuedLinkId = issueJson.RootElement.GetProperty("paymentLink").GetProperty("linkId").GetGuid();
+
+            using var legacyResend = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/orders/{orderId:D}/summary/resend?merchantId={merchantId:D}")
+            {
+                Content = JsonContent.Create(new { }),
+            };
+            legacyResend.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            legacyResend.Headers.Add("If-Match", $"\"v{issuedVersion}\"");
+            legacyResend.Headers.Add("Idempotency-Key", "oauth-order-legacy-resend");
+            using var legacyResendResponse = await client.SendAsync(legacyResend);
+            Assert.True(legacyResendResponse.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
+                await legacyResendResponse.Content.ReadAsStringAsync());
+            await using (var legacyVerify = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                Assert.Equal(issuedVersion, Convert.ToInt64(await Integration.Tests.IntegrationDb.ScalarAsync(
+                    legacyVerify, "SELECT Version FROM shop.Orders WHERE Id=@order;", ("@order", orderId))));
+            }
+
+            using var missingReadTokenResponse = await client.SendAsync(CreateTokenRequest(
+                clientId, CreateAssertion(rsa, clientId, keyId, DateTime.UtcNow.AddSeconds(1)),
+                "order.write checkout.write"));
+            var missingReadTokenBody = await missingReadTokenResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, missingReadTokenResponse.StatusCode);
+            var missingReadToken = JsonDocument.Parse(missingReadTokenBody)
+                .RootElement.GetProperty("access_token").GetString();
+            using var missingRead = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}?merchantId={merchantId:D}");
+            missingRead.Headers.Authorization = new AuthenticationHeaderValue("Bearer", missingReadToken);
+            using var missingReadResponse = await client.SendAsync(missingRead);
+            Assert.Equal(HttpStatusCode.Forbidden, missingReadResponse.StatusCode);
+            using var missingReadList = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders?merchantId={merchantId:D}");
+            missingReadList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", missingReadToken);
+            using var missingReadListResponse = await client.SendAsync(missingReadList);
+            Assert.Equal(HttpStatusCode.Forbidden, missingReadListResponse.StatusCode);
+
+            using var missingCheckoutTokenResponse = await client.SendAsync(CreateTokenRequest(
+                clientId, CreateAssertion(rsa, clientId, keyId, DateTime.UtcNow.AddSeconds(2)),
+                "order.read order.write"));
+            var missingCheckoutTokenBody = await missingCheckoutTokenResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, missingCheckoutTokenResponse.StatusCode);
+            var missingCheckoutToken = JsonDocument.Parse(missingCheckoutTokenBody)
+                .RootElement.GetProperty("access_token").GetString();
+            using var missingCheckoutRotate = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/orders/{orderId:D}/payment-links?merchantId={merchantId:D}")
+            {
+                Content = JsonContent.Create(new { sendNotification = false }),
+            };
+            missingCheckoutRotate.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", missingCheckoutToken);
+            missingCheckoutRotate.Headers.Add("If-Match", $"\"v{issuedVersion}\"");
+            missingCheckoutRotate.Headers.Add("Idempotency-Key", "oauth-order-missing-checkout");
+            using var missingCheckoutResponse = await client.SendAsync(missingCheckoutRotate);
+            Assert.Equal(HttpStatusCode.Forbidden, missingCheckoutResponse.StatusCode);
+
+            using var mixedBff = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}?merchantId={merchantId:D}");
+            mixedBff.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            mixedBff.Headers.Add("Cookie",
+                $"{ApiIdentity.BffSessionManager.SessionCookieNameDevHttp}=mixed");
+            using var mixedBffResponse = await client.SendAsync(mixedBff);
+            Assert.Equal(HttpStatusCode.BadRequest, mixedBffResponse.StatusCode);
+            Assert.Contains("ambiguous_authentication_context",
+                await mixedBffResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            using var mixedConsole = new HttpRequestMessage(
+                HttpMethod.Get, $"/api/v1/orders/{orderId:D}?merchantId={merchantId:D}");
+            mixedConsole.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            mixedConsole.Headers.Add("Cookie",
+                $"{ApiAdmin.SessionCookies.SessionCookieNameDevHttp}=mixed");
+            using var mixedConsoleResponse = await client.SendAsync(mixedConsole);
+            Assert.Equal(HttpStatusCode.BadRequest, mixedConsoleResponse.StatusCode);
+            Assert.Contains("ambiguous_authentication_context",
+                await mixedConsoleResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            using var rotate = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/orders/{orderId:D}/payment-links?merchantId={merchantId:D}")
+            {
+                Content = JsonContent.Create(new { sendNotification = false }),
+            };
+            rotate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            rotate.Headers.Add("If-Match", $"\"v{issuedVersion}\"");
+            rotate.Headers.Add("Idempotency-Key", "oauth-order-rotate");
+            using var rotateResponse = await client.SendAsync(rotate);
+            var rotateBody = await rotateResponse.Content.ReadAsStringAsync();
+            Assert.True(rotateResponse.StatusCode == HttpStatusCode.Created, rotateBody);
+            using var rotateJson = JsonDocument.Parse(rotateBody);
+            var rotatedVersion = rotateJson.RootElement.GetProperty("order").GetProperty("version").GetInt64();
+            var rotatedLinkId = rotateJson.RootElement.GetProperty("paymentLink").GetProperty("linkId").GetGuid();
+
+            using var revoke = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/payment-links/{rotatedLinkId:D}/revoke")
+            {
+                Content = JsonContent.Create(new { reason = "phase-a" }),
+            };
+            revoke.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            revoke.Headers.Add("Idempotency-Key", "oauth-order-revoke");
+            using var revokeResponse = await client.SendAsync(revoke);
+            Assert.Equal(HttpStatusCode.OK, revokeResponse.StatusCode);
+
+            using var cancelCreate = CanonicalOrderRequest(
+                merchantId, saleId, $"oauth-order-cancel-{runTag}", accessToken!, "125.0000", "125.0000");
+            using var cancelCreateResponse = await client.SendAsync(cancelCreate);
+            var cancelCreateBody = await cancelCreateResponse.Content.ReadAsStringAsync();
+            Assert.True(cancelCreateResponse.StatusCode == HttpStatusCode.Created, cancelCreateBody);
+            using var cancelCreateJson = JsonDocument.Parse(cancelCreateBody);
+            var cancelOrderId = cancelCreateJson.RootElement.GetProperty("order").GetProperty("orderId").GetGuid();
+            var cancelVersion = cancelCreateJson.RootElement.GetProperty("order").GetProperty("version").GetInt64();
+            using var cancel = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/orders/{cancelOrderId:D}/cancel?merchantId={merchantId:D}")
+            {
+                Content = JsonContent.Create(new { reason = "phase-a" }),
+            };
+            cancel.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            cancel.Headers.Add("If-Match", $"\"v{cancelVersion}\"");
+            cancel.Headers.Add("Idempotency-Key", "oauth-order-cancel");
+            using var cancelResponse = await client.SendAsync(cancel);
+            var cancelBody = await cancelResponse.Content.ReadAsStringAsync();
+            Assert.True(cancelResponse.StatusCode == HttpStatusCode.OK, cancelBody);
+
+            using var forged = CanonicalOrderRequest(
+                merchantId, saleId, "oauth-order-forged", accessToken!, "999.0000", "999.0000");
+            using var forgedResponse = await client.SendAsync(forged);
+            Assert.Equal(HttpStatusCode.Conflict, forgedResponse.StatusCode);
+            Assert.Contains("pricing_mismatch", await forgedResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            using var noOwner = CanonicalOrderRequest(
+                merchantId, null, "oauth-order-no-owner", accessToken!, "125.0000", "125.0000");
+            using var noOwnerResponse = await client.SendAsync(noOwner);
+            Assert.Equal(HttpStatusCode.Conflict, noOwnerResponse.StatusCode);
+            Assert.Contains("owner_required", await noOwnerResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            gateway.ReturnBothRoutes = true;
+            using var ambiguous = CanonicalOrderRequest(
+                merchantId, saleId, "oauth-order-ambiguous", accessToken!, "125.0000", "125.0000");
+            using var ambiguousResponse = await client.SendAsync(ambiguous);
+            Assert.Equal(HttpStatusCode.Conflict, ambiguousResponse.StatusCode);
+            Assert.Contains("source_ambiguous", await ambiguousResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            gateway.ReturnBothRoutes = false;
+            gateway.Document = gateway.Document with { PaymentStatus = "PAID" };
+            using var paid = CanonicalOrderRequest(
+                merchantId, saleId, "oauth-order-paid", accessToken!, "125.0000", "125.0000");
+            using var paidResponse = await client.SendAsync(paid);
+            Assert.Equal(HttpStatusCode.Conflict, paidResponse.StatusCode);
+            Assert.Contains("product_unpayable", await paidResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            using var invalidScope = await client.SendAsync(CreateTokenRequest(
+                clientId, CreateAssertion(rsa, clientId, keyId, DateTime.UtcNow.AddSeconds(1)), "payment.create"));
+            Assert.Equal(HttpStatusCode.BadRequest, invalidScope.StatusCode);
+            Assert.Contains("invalid_scope", await invalidScope.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+            await using var verify = await Integration.Tests.IntegrationDb.OpenAsync(
+                Integration.Tests.IntegrationDb.SaConnFor(database));
+            Assert.Equal(2, Convert.ToInt32(await Integration.Tests.IntegrationDb.ScalarAsync(
+                verify, "SELECT COUNT(*) FROM shop.Orders WHERE MerchantId=@merchant;", ("@merchant", merchantId))));
+        }
+        finally
+        {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.DropScratchDatabaseAsync(database);
+        }
+    }
+
+    private static void AddOrderAdminHeaders(HttpRequestMessage request, string key, string? etag = null)
+    {
+        const string csrf = "pr253-oauth-admin-csrf";
+        request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
+        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, csrf);
+        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
+        request.Headers.Add("Cookie", $"{cookieName}={csrf}");
+        request.Headers.Add("Idempotency-Key", key);
+        if (etag is not null)
+            request.Headers.Add("If-Match", etag);
+    }
+
+    private static HttpRequestMessage CreateTokenRequest(string clientId, string assertion, string? scope = null)
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["grant_type"] = OpenIddictConstants.GrantTypes.ClientCredentials,
+            ["client_id"] = clientId,
+            ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+            ["client_assertion"] = assertion,
         };
+        if (scope is not null)
+            values["scope"] = scope;
+        return new HttpRequestMessage(HttpMethod.Post, "/oauth/token")
+        {
+            Content = new FormUrlEncodedContent(values),
+        };
+    }
+
+    private static HttpRequestMessage CanonicalOrderRequest(
+        Guid merchantId, Guid? ownerSaleId, string key, string accessToken,
+        string unitPrice, string lineAmount)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/orders?merchantId={merchantId:D}")
+        {
+            Content = JsonContent.Create(new
+            {
+                businessType = "insurance",
+                currency = "THB",
+                issueNow = false,
+                ownerSaleId,
+                items = new[]
+                {
+                    new
+                    {
+                        productReference = "DOC-OAUTH",
+                        productCode = "DOC-OAUTH",
+                        productName = "OAuth policy",
+                        quantity = 1,
+                        unitPrice,
+                        discountAmount = "0.0000",
+                        taxAmount = "0.0000",
+                        lineAmount,
+                    },
+                },
+            }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.Add("Idempotency-Key", key);
+        return request;
+    }
+
+    private static SpDocumentItem CreateOrderDocument(string documentNo, string saleCode) => new(
+        "Motor", "CMI", "POLICY", documentNo, "2026", "BKK", "REF", "1", "2026", "1",
+        "BKK", "AUTO", saleCode, "OAuth sale", null, null, "POL-1", "APP-1", null, null,
+        DateTime.UtcNow, DateTime.UtcNow.AddYears(1), "OAuth policy", 100m, 5m, 20m, 125m, 10m,
+        10m, DateTime.UtcNow, "1กก1234", "UNPAID");
 
     private static async Task SetStatusAsync(Guid accountId, Guid systemClientId, int accountStatus, int clientStatus)
     {

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Checkouts.Application;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.AspNetCore.DataProtection;
+using Orders.Application;
 
 namespace Persistence.MerchantRuntime.Orders;
 
@@ -33,6 +34,29 @@ public sealed class DataProtectedPaymentLinkReplayProtector(IDataProtectionProvi
 {
     private readonly ITimeLimitedDataProtector _protector = provider
         .CreateProtector("pol.checkout.payment-link-replay.v1")
+        .ToTimeLimitedDataProtector();
+
+    public string Protect(string rawToken, DateTime expiresAt) =>
+        _protector.Protect(rawToken, new DateTimeOffset(expiresAt, TimeSpan.Zero));
+
+    public string? Unprotect(string protectedToken)
+    {
+        try
+        {
+            return _protector.Unprotect(protectedToken);
+        }
+        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
+        {
+            return null;
+        }
+    }
+}
+
+public sealed class DataProtectedPaymentLinkNotificationProtector(IDataProtectionProvider provider)
+    : IPaymentLinkNotificationProtector
+{
+    private readonly ITimeLimitedDataProtector _protector = provider
+        .CreateProtector("pol.checkout.payment-link-notification.v1")
         .ToTimeLimitedDataProtector();
 
     public string Protect(string rawToken, DateTime expiresAt) =>

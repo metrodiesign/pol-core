@@ -31,6 +31,13 @@ internal static class CsrfProtection
         builder.WithMetadata(new CsrfProtected("AdminSession"), new CsrfProtected("MerchantUserSession"));
         return builder.AddEndpointFilter<TBuilder, AudienceCsrfFilter>();
     }
+
+    public static TBuilder RequireAdminOrIdentityCsrf<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        builder.WithMetadata(new CsrfProtected("AdminSession"), new CsrfProtected("IdentityPlatform"));
+        return builder.AddEndpointFilter<TBuilder, AudienceCsrfFilter>();
+    }
 }
 
 internal sealed class AudienceCsrfFilter : IEndpointFilter
@@ -38,8 +45,18 @@ internal sealed class AudienceCsrfFilter : IEndpointFilter
     private static readonly CsrfFilter Admin = new();
     private static readonly UserCsrfFilter Merchant = new();
 
-    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
-        context.HttpContext.Features.Get<SelectedConsoleAudience>()?.Value switch
+    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        if (IdentityPermissionAuthorization.IsIdentityOrderRoute(context.HttpContext)
+            && IdentityPermissionAuthorization.IsIdentityRequest(context.HttpContext))
+        {
+            return context.HttpContext.Request.Headers.Authorization.ToString()
+                .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? next(context)
+                : new Api.IdentityAccess.BffCsrfFilter().InvokeAsync(context, next);
+        }
+
+        return context.HttpContext.Features.Get<SelectedConsoleAudience>()?.Value switch
         {
             ConsoleAudience.Admin => Admin.InvokeAsync(context, next),
             ConsoleAudience.Merchant => Merchant.InvokeAsync(context, next),
@@ -47,6 +64,7 @@ internal sealed class AudienceCsrfFilter : IEndpointFilter
                 statusCode: StatusCodes.Status403Forbidden,
                 title: "No authenticated console audience is bound.")),
         };
+    }
 }
 
 /// <summary>

@@ -2,6 +2,7 @@ extern alias ApiHost;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Accounts.Application;
 using Admins.Application;
@@ -17,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using ApiIdentity = ApiHost::Api.IdentityAccess;
 
 namespace Hosts.Tests;
@@ -134,7 +136,7 @@ public sealed class Task8IdentityAccessA1SqlTests
                     clientId,
                     displayName = "Task8 A1 SYSTEM",
                     environment = "SANDBOX",
-                    scopes = new[] { "payment.view" },
+                    scopes = new[] { "order.read" },
                 }),
             };
             AddAdminHeaders(create, $"create-{runTag}");
@@ -154,7 +156,7 @@ public sealed class Task8IdentityAccessA1SqlTests
                     clientId,
                     displayName = "Task8 A1 SYSTEM",
                     environment = "SANDBOX",
-                    scopes = new[] { "payment.view" },
+                    scopes = new[] { "order.read" },
                 }),
             };
             AddAdminHeaders(replay, $"create-{runTag}");
@@ -171,7 +173,7 @@ public sealed class Task8IdentityAccessA1SqlTests
                     clientId,
                     displayName = "Task8 A1 SYSTEM changed",
                     environment = "SANDBOX",
-                    scopes = new[] { "payment.view" },
+                    scopes = new[] { "order.read" },
                 }),
             };
             AddAdminHeaders(reused, $"create-{runTag}");
@@ -232,7 +234,7 @@ public sealed class Task8IdentityAccessA1SqlTests
             {
                 Content = JsonContent.Create(new
                 {
-                    jwk = new { kty = "RSA", n = "AQ", e = "AQAB" },
+                    jwk = CreatePublicRsaJwk("task8-key-1"),
                     applicationId = clientId,
                     kid = "task8-key-1",
                     algorithm = "RS256",
@@ -253,7 +255,7 @@ public sealed class Task8IdentityAccessA1SqlTests
 
             var access = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/system-clients/{systemClientId}/access")
             {
-                Content = JsonContent.Create(new { scopes = new[] { "payment.view", "payment.create" } }),
+                Content = JsonContent.Create(new { scopes = new[] { "order.read", "order.write" } }),
             };
             AddAdminHeaders(access, $"access-{runTag}", secondEtag);
             using var replaced = await client.SendAsync(access);
@@ -281,6 +283,21 @@ public sealed class Task8IdentityAccessA1SqlTests
                 "DELETE FROM acct.ClientKeyPolicies WHERE SystemClientId=@client; DELETE FROM access.SystemClientScopes WHERE SystemClientId=@client; DELETE FROM acct.SystemClients WHERE Id=@client; DELETE FROM acct.Accounts WHERE Id=@account; DELETE FROM merch.Merchants WHERE Id=@merchant;",
                 ("@client", systemClientId), ("@account", accountId), ("@merchant", merchantId));
         }
+    }
+
+    private static object CreatePublicRsaJwk(string kid)
+    {
+        using var rsa = RSA.Create(2048);
+        var parameters = rsa.ExportParameters(false);
+        return new
+        {
+            kty = "RSA",
+            n = Base64UrlEncoder.Encode(parameters.Modulus!),
+            e = Base64UrlEncoder.Encode(parameters.Exponent!),
+            kid,
+            alg = "RS256",
+            use = "sig",
+        };
     }
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpMethod method, string path)

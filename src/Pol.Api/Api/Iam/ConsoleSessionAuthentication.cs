@@ -2,6 +2,7 @@ using Api.Admins;
 using Api.Merchants;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using OpenIddict.Validation.AspNetCore;
 
 namespace Api.Iam;
 
@@ -12,6 +13,7 @@ internal static class ConsoleSessionAuthentication
 {
     public const string SchemeName = "ConsoleSession";
     public const string PolicyName = "dual-console";
+    public const string AdminOrIdentityOrderPolicyName = "admin-or-identity-order";
 
     public static IServiceCollection AddConsoleSessionAuthentication(this IServiceCollection services)
     {
@@ -20,6 +22,9 @@ internal static class ConsoleSessionAuthentication
                 options => options.ForwardDefaultSelector = SelectScheme);
         services.AddAuthorizationBuilder()
             .AddPolicy(PolicyName, policy => policy
+                .AddAuthenticationSchemes(SchemeName)
+                .RequireAuthenticatedUser())
+            .AddPolicy(AdminOrIdentityOrderPolicyName, policy => policy
                 .AddAuthenticationSchemes(SchemeName)
                 .RequireAuthenticatedUser());
         return services;
@@ -35,8 +40,19 @@ internal static class ConsoleSessionAuthentication
             "admin" => ConsoleAudience.Admin,
             "merchant-user" => ConsoleAudience.Merchant,
             PolicyName when HasAdminCookie(context.Request.Cookies) => ConsoleAudience.Admin,
+            AdminOrIdentityOrderPolicyName => ConsoleAudience.Admin,
             _ => ConsoleAudience.Merchant,
         };
+        if (policy is PolicyName or AdminOrIdentityOrderPolicyName
+            && IdentityPermissionAuthorization.IsIdentityOrderRoute(context)
+            && IdentityPermissionAuthorization.IsIdentityRequest(context))
+        {
+            context.Features.Set(new SelectedConsoleAudience(ConsoleAudience.Merchant));
+            return context.Request.Headers.Authorization.ToString()
+                .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme
+                : Api.IdentityAccess.BffSessionAuthenticationHandler.SchemeName;
+        }
         context.Features.Set(new SelectedConsoleAudience(audience));
         return audience == ConsoleAudience.Admin
             ? SessionAuthenticationHandler.SchemeName

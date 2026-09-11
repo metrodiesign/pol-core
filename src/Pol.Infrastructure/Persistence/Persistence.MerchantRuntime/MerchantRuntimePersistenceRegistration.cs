@@ -16,6 +16,7 @@ using Payments.Application.Ports.Psp;
 using Payments.Application.HandlePspWebhook;
 using Platform.Application.Transactions;
 using Persistence.MerchantRuntime.Carts;
+using Persistence.MerchantRuntime.Authorization;
 using Persistence.MerchantRuntime.Idempotency;
 using Persistence.ControlPlane.Orders;
 using Persistence.MerchantRuntime.Orders;
@@ -29,6 +30,7 @@ using Persistence.MerchantRuntime.Notifications;
 using Products.Application;
 using Reporting.Application;
 using Notifications.Application;
+using TrustedOrderPricingSource = Products.Infrastructure.Orders.TrustedOrderPricingSource;
 
 namespace Persistence.MerchantRuntime;
 
@@ -53,7 +55,8 @@ public static class MerchantRuntimePersistenceRegistration
                 .Options;
             return new CommerceDbContext(
                 options, sp.GetRequiredService<IActorContext>(), authorizerFactory(sp),
-                sp.GetRequiredService<ISecurityTelemetry>());
+                sp.GetRequiredService<ISecurityTelemetry>(),
+                sp.GetRequiredService<IOrderIdentityAccessScope>());
         });
 
         services.AddScoped<CartRepository>();
@@ -74,10 +77,13 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<IOrderOwnerResolver, OrderOwnerResolver>();
         services.AddSingleton<IPaymentLinkTokenService, DataProtectedPaymentLinkTokenService>();
         services.AddSingleton<IPaymentLinkReplayProtector, DataProtectedPaymentLinkReplayProtector>();
+        services.AddSingleton<IPaymentLinkNotificationProtector, DataProtectedPaymentLinkNotificationProtector>();
         services.AddSingleton<ICheckoutCapabilityService, DataProtectedCheckoutCapabilityService>();
         services.AddSingleton<ITransactionReturnBindingService, DataProtectedTransactionReturnBindingService>();
         services.AddScoped<ICustomerCheckoutReader, CustomerCheckoutReader>();
-        services.AddScoped<ITrustedOrderPricingSource, UnconfiguredTrustedOrderPricingSource>();
+        services.AddScoped<TrustedOrderPricingSource>();
+        services.AddScoped<ITrustedOrderPricingSource>(sp => sp.GetRequiredService<TrustedOrderPricingSource>());
+        services.AddScoped<IOrderSourcePolicy>(sp => sp.GetRequiredService<TrustedOrderPricingSource>());
         services.AddScoped<IAdminOrderReader, AdminOrderReader>();
         services.AddScoped<IOrderSummaryReader, OrderSummaryReader>();
         services.AddScoped<IOrderNoSequence, OrderNoSequence>();
@@ -108,6 +114,7 @@ public static class MerchantRuntimePersistenceRegistration
 
 
         services.AddScoped<IUnitOfWork, MerchantRuntimeUnitOfWork>();
+        services.AddScoped<ICommerceAuthorizationLease, CommerceAuthorizationLease>();
         services.AddScoped<IAdminOperationExecutor>(sp =>
             new Idempotency.AdminOperationExecutor(
                 sp.GetRequiredService<CommerceDbContext>(),

@@ -10,6 +10,7 @@ using Persistence.MerchantRuntime;
 using Persistence.MerchantUsers;
 using CartItem = Carts.Domain.Items.Item;
 using OrderItem = Orders.Domain.Items.Item;
+using Order = Orders.Domain.Order;
 
 namespace Architecture.Tests;
 
@@ -30,7 +31,7 @@ public sealed class NativeJsonConfigurationTests
         "Server=localhost;Database=pol_model_only;User Id=model;Password=not-a-secret;TrustServerCertificate=True";
 
     [Fact]
-    public void Migration_owner_maps_exactly_the_nine_snapshot_native_json_columns()
+    public void Migration_owner_maps_exactly_the_eleven_snapshot_native_json_columns()
     {
         using var db = new PolDbContext(
             new DbContextOptionsBuilder<PolDbContext>()
@@ -42,6 +43,8 @@ public sealed class NativeJsonConfigurationTests
         AssertJson(db, typeof(Merchant), nameof(Merchant.Metadata));
         AssertJson(db, typeof(CartItem), nameof(CartItem.Metadata));
         AssertJson(db, typeof(OrderItem), nameof(OrderItem.Metadata));
+        AssertJson(db, typeof(Order), nameof(Order.Metadata));
+        AssertJson(db, typeof(OrderItem), nameof(OrderItem.RequestMetadata));
 
         var actual = db.Model.GetEntityTypes()
             .SelectMany(entity => entity.GetProperties())
@@ -51,7 +54,7 @@ public sealed class NativeJsonConfigurationTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(9, actual.Length);
+        Assert.Equal(11, actual.Length);
         Assert.Equal(
             new[]
             {
@@ -63,7 +66,9 @@ public sealed class NativeJsonConfigurationTests
                 "merch.Merchants.Metadata",
                 "merch.UserOutbox.Payload",
                 "shop.CartItems.Metadata",
+                "shop.OrderItems.RequestMetadata",
                 "shop.OrderItems.Metadata",
+                "shop.Orders.Metadata",
             }.Order(StringComparer.Ordinal),
             actual);
 
@@ -92,6 +97,8 @@ public sealed class NativeJsonConfigurationTests
         AssertJson(merchantUsers, typeof(MerchantUserOutbox), nameof(MerchantUserOutbox.Payload));
         AssertJson(merchantRuntime, typeof(CartItem), nameof(CartItem.Metadata));
         AssertJson(merchantRuntime, typeof(OrderItem), nameof(OrderItem.Metadata));
+        AssertJson(merchantRuntime, typeof(Order), nameof(Order.Metadata));
+        AssertJson(merchantRuntime, typeof(OrderItem), nameof(OrderItem.RequestMetadata));
     }
 
     [Fact]

@@ -22,15 +22,18 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, RoleL
     private readonly IRoleStore _roles;
     private readonly IRoleAssignmentCounter _counter;
     private readonly IRoleAuditSink _audit;
+    private readonly IRoleAuthorizationInvalidator _authorizationInvalidator;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateRoleHandler(
         IRoleStore roles, IRoleAssignmentCounter counter, IRoleAuditSink audit,
+        IRoleAuthorizationInvalidator authorizationInvalidator,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork)
     {
         _roles = roles;
         _counter = counter;
         _audit = audit;
+        _authorizationInvalidator = authorizationInvalidator;
         _unitOfWork = unitOfWork;
     }
 
@@ -51,6 +54,9 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, RoleL
             if (role.IsSeedAnchor && command.Status == RoleStatus.Inactive)
                 throw new ConflictException($"The {role.Code} role cannot be deactivated.");
 
+            // Acquire every assigned Account row lock before touching the Role. Commerce authorization leases
+            // use the same Account-first ordering, so one side cannot commit against the other's stale version.
+            await _authorizationInvalidator.InvalidateAssignedAccountsAsync(role.Id, ct);
             role.Rename(command.Name);
             role.SetDescription(command.Description);
             role.SetColor(command.Color);

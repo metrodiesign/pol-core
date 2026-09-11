@@ -8178,3 +8178,79 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911160508_ReviewFixOrderVersionedMetadata'
+)
+BEGIN
+    ALTER TABLE [shop].[Orders] ADD [Metadata] json NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911160508_ReviewFixOrderVersionedMetadata'
+)
+BEGIN
+    ALTER TABLE [shop].[OrderItems] ADD [RequestMetadata] json NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911160508_ReviewFixOrderVersionedMetadata'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260911160508_ReviewFixOrderVersionedMetadata', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911163519_ReviewFixPaymentLinkNotificationIntent'
+)
+BEGIN
+    ALTER TABLE [shop].[Orders] ADD [NotificationEmail] nvarchar(320) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911163519_ReviewFixPaymentLinkNotificationIntent'
+)
+BEGIN
+    ALTER TABLE [shop].[Orders] ADD [NotificationPhoneNumber] varchar(32) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911163519_ReviewFixPaymentLinkNotificationIntent'
+)
+BEGIN
+    ALTER TABLE [shop].[Orders] ADD [NotifyOnIssue] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260911163519_ReviewFixPaymentLinkNotificationIntent'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260911163519_ReviewFixPaymentLinkNotificationIntent', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

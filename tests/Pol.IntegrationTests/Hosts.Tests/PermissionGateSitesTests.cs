@@ -61,7 +61,8 @@ public sealed class PermissionGateSitesTests
         new("POST", "/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "dual-console", "payment.redirect"),
         new("GET", "/api/v1/payments/methods", "merchant-user", "payment.view"),
         new("GET", "/api/v1/payments/methods/{method}/options", "merchant-user", "payment.view"),
-        new("POST", "/api/v1/orders", "dual-console", "payment.create"),
+        new("POST", "/api/v1/orders", "identity-platform", "payment.create"),
+        new("POST", "/api/v1/orders/from-cart", "dual-console", "payment.create"),
         new("GET", "/api/v1/orders", "dual-console", "payment.view"),
         new("GET", "/api/v1/orders/{orderId:guid}", "dual-console", "payment.view"),
         new("POST", "/api/v1/orders/{orderId:guid}/cancel", "dual-console", "payment.create"),
@@ -129,10 +130,10 @@ public sealed class PermissionGateSitesTests
         new("POST", "/api/v1/notification-deliveries/{deliveryId:guid}/retries", "admin", "settings.manage"),
         new("GET", "/api/v1/notifications", "admin", "settings.manage"),
         new("GET", "/api/v1/notifications/{notificationId:guid}", "admin", "settings.manage"),
-        new("PATCH", "/api/v1/orders/{orderId:guid}", "admin", "payment.create"),
-        new("GET", "/api/v1/orders/{orderId:guid}/history", "admin", "payment.view"),
+        new("PATCH", "/api/v1/orders/{orderId:guid}", "admin-or-identity-order", "payment.create"),
+        new("GET", "/api/v1/orders/{orderId:guid}/history", "admin-or-identity-order", "payment.view"),
         new("POST", "/api/v1/orders/{orderId:guid}/issue", "dual-console", "payment.create"),
-        new("GET", "/api/v1/orders/{orderId:guid}/items", "admin", "payment.view"),
+        new("GET", "/api/v1/orders/{orderId:guid}/items", "admin-or-identity-order", "payment.view"),
         new("GET", "/api/v1/orders/{orderId:guid}/payment-links", "dual-console", "payment.view"),
         new("POST", "/api/v1/orders/{orderId:guid}/payment-links", "dual-console", "payment.create"),
         new("POST", "/api/v1/payment-links/{linkId:guid}/revoke", "dual-console", "payment.create"),
@@ -320,7 +321,22 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_219_active_gate_sites_are_pinned() => Assert.Equal(219, Sites.Length);
+    public void Exactly_220_active_gate_sites_are_pinned() => Assert.Equal(220, Sites.Length);
+
+    [Fact]
+    public void Api078_order_list_carries_the_identity_owner_scope_marker()
+    {
+        using var factory = new GateFactory();
+        using var _ = factory.CreateClient();
+        var endpoint = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Single(e => e.RoutePattern.RawText == "/api/v1/orders"
+                && e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(HttpMethods.Get) == true);
+
+        Assert.NotNull(endpoint.Metadata.GetMetadata<ApiHost::Api.Iam.IdentityPermissionAuthorization.IdentityOrderPermissionMarker>());
+        Assert.Contains(endpoint.Metadata.OfType<ApiHost::Api.Iam.RequiredPermission>(),
+            required => required.Permission == "payment.view");
+    }
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]
@@ -331,5 +347,10 @@ public sealed class PermissionGateSitesTests
         Assert.Equal(
             ["AdminSession", "MerchantUserSession"],
             ApiHost::Api.Iam.AuthPolicyScheme.AllFor("dual-console").Select(x => x.SchemeId));
+        Assert.Equal(
+            ["AdminSession", "IdentityPlatform"],
+            ApiHost::Api.Iam.AuthPolicyScheme.AllFor(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
+                .Select(x => x.SchemeId));
     }
 }

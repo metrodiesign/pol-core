@@ -56,7 +56,7 @@ public sealed class AdminTask6ContractTests
         AssertQuery(orders, "merchantId", required: false);
         AssertDual(AssertOperation(paths, "/api/v1/orders/{orderId}", "get", "GetOrderDetail"));
         AssertResponseEtag(AssertOperation(paths, "/api/v1/orders/{orderId}", "get", "GetOrderDetail"), "200");
-        AssertAdminCreate(AssertOperation(paths, "/api/v1/orders", "post", "CreateOrderFromCart"));
+        AssertIdentityCreate(AssertOperation(paths, "/api/v1/orders", "post", "CreateOrder"));
         AssertCommerceMutation(AssertOperation(paths,
             "/api/v1/orders/{orderId}/cancel", "post", "CancelOrder"), update: true);
         AssertCommerceMutation(AssertOperation(paths,
@@ -80,6 +80,12 @@ public sealed class AdminTask6ContractTests
     {
         AssertDual(operation);
         AssertConditionalHeader(operation, "Idempotency-Key");
+    }
+
+    private static void AssertIdentityCreate(JsonElement operation)
+    {
+        Assert.Equal(["IdentityPlatform"], Schemes(operation));
+        AssertRequiredHeader(operation, "Idempotency-Key");
     }
 
     private static void AssertAdminUpdate(JsonElement operation)
@@ -112,6 +118,14 @@ public sealed class AdminTask6ContractTests
             x.GetProperty("in").GetString() == "header"
             && string.Equals(x.GetProperty("name").GetString(), name, StringComparison.OrdinalIgnoreCase));
         Assert.False(header.TryGetProperty("required", out var required) && required.GetBoolean());
+    }
+
+    private static void AssertRequiredHeader(JsonElement operation, string name)
+    {
+        var header = operation.GetProperty("parameters").EnumerateArray().Single(x =>
+            x.GetProperty("in").GetString() == "header"
+            && string.Equals(x.GetProperty("name").GetString(), name, StringComparison.OrdinalIgnoreCase));
+        Assert.True(header.TryGetProperty("required", out var required) && required.GetBoolean());
     }
 
     private static void AssertQuery(JsonElement operation, string name, bool required)

@@ -33,6 +33,9 @@ public sealed class Order : AggregateRoot<Guid>
 
     public string? BusinessType { get; private set; }
 
+    /// <summary>Canonical client metadata envelope, stored separately from trusted product facts.</summary>
+    public string? Metadata { get; private set; }
+
     public Money OrderDiscountAmount { get; private set; }
 
     public Money OrderChargeAmount { get; private set; }
@@ -95,6 +98,12 @@ public sealed class Order : AggregateRoot<Guid>
     /// Derived at creation from <see cref="CustomerPhone"/> then <see cref="CustomerEmail"/>, and still the
     /// single source of truth for WHERE the link goes (purchase-flow-completion F-03).</summary>
     public string? NotificationRecipient { get; private set; }
+
+    /// <summary>Canonical payment-link notification intent. Email and phone remain separate so both
+    /// channels can be materialized without overloading the legacy summary recipient.</summary>
+    public bool NotifyOnIssue { get; private set; }
+    public string? NotificationEmail { get; private set; }
+    public string? NotificationPhoneNumber { get; private set; }
 
     /// <summary>Canonical payment method of the currently attached attempt. Null before first attempt.</summary>
     public string? PaymentChannel { get; private set; }
@@ -260,6 +269,10 @@ public sealed class Order : AggregateRoot<Guid>
             OwnerSaleId = input.OwnerSaleId,
             OwnerBranchIdAtCreation = input.OwnerBranchId,
             BusinessType = Required(input.BusinessType, nameof(input.BusinessType), 64),
+            Metadata = input.Metadata?.ToCanonicalJson(),
+            NotifyOnIssue = input.NotifyOnIssue,
+            NotificationEmail = input.NotificationEmail,
+            NotificationPhoneNumber = input.NotificationPhoneNumber,
             OrderDiscountAmount = input.OrderDiscountAmount,
             OrderChargeAmount = input.OrderChargeAmount,
             Status = OrderStatus.Draft,
@@ -280,7 +293,7 @@ public sealed class Order : AggregateRoot<Guid>
             order._items.Add(new Item(
                 Guid.CreateVersion7(), order.Id, input.MerchantId, line.Quantity, line.UnitPrice,
                 line.DiscountAmount, line.TaxAmount, line.LineAmount, line.ProductCode, line.VariantCode,
-                line.VariantName, line.Metadata));
+                line.VariantName, line.Metadata, line.RequestMetadata));
         }
 
         var totalAmount = subtotal.Amount - input.OrderDiscountAmount.Amount + input.OrderChargeAmount.Amount;
@@ -307,15 +320,29 @@ public sealed class Order : AggregateRoot<Guid>
             Customer = Customer,
             NotificationRecipient = NotificationRecipient,
         });
-        _items.Clear();
-        foreach (var replacementItem in replacement._items)
+        if (input.PreserveItemIdentity)
         {
-            replacementItem.Reparent(Id);
-            _items.Add(replacementItem);
+            if (input.Items.Count != _items.Count)
+                throw new InvalidOperationException("An omitted order item set must preserve cardinality.");
+            for (var index = 0; index < _items.Count; index++)
+                _items[index].ApplyTrustedSnapshot(Id, MerchantId, input.Items[index]);
+        }
+        else
+        {
+            _items.Clear();
+            foreach (var replacementItem in replacement._items)
+            {
+                replacementItem.Reparent(Id);
+                _items.Add(replacementItem);
+            }
         }
         OwnerSaleId = replacement.OwnerSaleId;
         OwnerBranchIdAtCreation = replacement.OwnerBranchIdAtCreation;
         BusinessType = replacement.BusinessType;
+        Metadata = replacement.Metadata;
+        NotifyOnIssue = replacement.NotifyOnIssue;
+        NotificationEmail = replacement.NotificationEmail;
+        NotificationPhoneNumber = replacement.NotificationPhoneNumber;
         OrderDiscountAmount = replacement.OrderDiscountAmount;
         OrderChargeAmount = replacement.OrderChargeAmount;
         SubtotalAmount = replacement.SubtotalAmount;
@@ -583,7 +610,8 @@ public sealed record TrustedOrderLineInput(
     Money TaxAmount,
     Money LineAmount,
     string PriceSource,
-    CommerceItemMetadata? Metadata = null);
+    CommerceItemMetadata? Metadata = null,
+    VersionedMetadata? RequestMetadata = null);
 
 public sealed record OrderDraftInput(
     Guid MerchantId,
@@ -597,5 +625,10 @@ public sealed record OrderDraftInput(
     Guid? OwnerBranchId,
     DateTime CreatedAt,
     string OrderNo,
-    CustomerContact? Customer = null,
-    string? NotificationRecipient = null);
+        CustomerContact? Customer = null,
+        string? NotificationRecipient = null,
+        VersionedMetadata? Metadata = null,
+        bool NotifyOnIssue = false,
+        string? NotificationEmail = null,
+        string? NotificationPhoneNumber = null,
+        bool PreserveItemIdentity = false);

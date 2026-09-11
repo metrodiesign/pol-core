@@ -64,6 +64,8 @@ public sealed class AudienceOpenApiDocumentTests
         Assert.DoesNotContain("get /api/v1/admins", merchantOperations);
         Assert.Contains("post /api/v1/carts", merchantOperations);
         Assert.Contains("post /api/v1/carts", adminOperations);
+        Assert.Contains("post /api/v1/orders", merchantOperations);
+        Assert.Contains("post /api/v1/orders", adminOperations);
         Assert.Contains("get /api/v1/orders/{token}/summary", merchantOperations);
         Assert.Contains("get /api/v1/orders/{token}/summary", integrationOperations);
         Assert.Contains("post /api/v1/webhooks/{pspConnectionId}", integrationOperations);
@@ -71,13 +73,32 @@ public sealed class AudienceOpenApiDocumentTests
             operation.Contains("/admins", StringComparison.Ordinal)
             || operation.Contains("/merchants/users", StringComparison.Ordinal));
 
-        Assert.Equal(["AdminSession", "MerchantUserSession"], SecuritySchemes(v1));
-        Assert.Equal(["MerchantUserSession"], SecuritySchemes(merchant));
-        Assert.Equal(["AdminSession"], SecuritySchemes(admin));
+        Assert.Equal(["AdminSession", "IdentityPlatform", "MerchantUserSession"], SecuritySchemes(v1));
+        Assert.Equal(["IdentityPlatform", "MerchantUserSession"], SecuritySchemes(merchant));
+        Assert.Equal(["AdminSession", "IdentityPlatform"], SecuritySchemes(admin));
         Assert.Empty(SecuritySchemes(integration));
         Assert.Equal(["MerchantUserSession"],
             OperationSecuritySchemes(merchant, "/api/v1/carts", "post"));
         Assert.Equal(["AdminSession"], OperationSecuritySchemes(admin, "/api/v1/carts", "post"));
+        Assert.Equal(["IdentityPlatform"],
+            OperationSecuritySchemes(merchant, "/api/v1/orders", "post"));
+        Assert.Equal(["IdentityPlatform"],
+            OperationSecuritySchemes(admin, "/api/v1/orders", "post"));
+        Assert.Equal(["AdminSession", "IdentityPlatform"],
+            OperationSecuritySchemes(v1, "/api/v1/orders/{orderId}", "patch"));
+        Assert.Equal(["IdentityPlatform"],
+            OperationSecuritySchemes(merchant, "/api/v1/orders/{orderId}", "patch"));
+        Assert.Equal(["AdminSession", "IdentityPlatform"],
+            OperationSecuritySchemes(admin, "/api/v1/orders/{orderId}", "patch"));
+        foreach (var path in new[] { "/api/v1/orders/{orderId}/items", "/api/v1/orders/{orderId}/history" })
+        {
+            Assert.Equal(["AdminSession", "IdentityPlatform"],
+                OperationSecuritySchemes(v1, path, "get"));
+            Assert.Equal(["IdentityPlatform"],
+                OperationSecuritySchemes(merchant, path, "get"));
+            Assert.Equal(["AdminSession", "IdentityPlatform"],
+                OperationSecuritySchemes(admin, path, "get"));
+        }
         Assert.Empty(OperationSecuritySchemes(integration, "/api/v1/orders/{token}/summary", "get"));
 
         var combinedRequest = RequestSchema(v1, "/api/v1/payments/sessions", "post");
@@ -119,7 +140,7 @@ public sealed class AudienceOpenApiDocumentTests
         Assert.DoesNotContain("/api/v1/admins/auth/login", publishedText, StringComparison.Ordinal);
         Assert.DoesNotContain("/api/v1/merchants/users/auth/login", publishedText, StringComparison.Ordinal);
         Assert.DoesNotMatch("\\bT[0-9]+\\b", publishedText);
-        Assert.DoesNotContain("Bearer", publishedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("IdentityPlatform", publishedText, StringComparison.Ordinal);
         Assert.DoesNotContain("merchant-user.approve", publishedText, StringComparison.Ordinal);
         Assert.DoesNotContain("merchant-user.reject", publishedText, StringComparison.Ordinal);
         AssertAudienceDescription(v1, "/api/v1/payments/sessions", "post");

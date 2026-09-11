@@ -221,7 +221,7 @@ public sealed class OpenApiDocumentTests
     public async Task OpenApi_security_scheme_ids_are_the_published_contract()
     {
         // REQ-11.4/12.4 (hierarchical-naming): the security-scheme ids are flat FE contracts (L8) that
-        // generated clients key on — AdminSession + MerchantUserSession, nothing else. No other test
+        // generated clients key on — AdminSession + IdentityPlatform + MerchantUserSession, nothing else. No other test
         // pins the literals (a mid-branch sweep once silently renamed the admin id and nothing failed);
         // this one does.
         using var factory = new HardeningFactory<ApiHost::Program>();
@@ -233,7 +233,7 @@ public sealed class OpenApiDocumentTests
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var schemes = doc.RootElement.GetProperty("components").GetProperty("securitySchemes");
         var ids = schemes.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
-        Assert.Equal(["AdminSession", "MerchantUserSession"], ids);
+        Assert.Equal(["AdminSession", "IdentityPlatform", "MerchantUserSession"], ids);
     }
 }
 

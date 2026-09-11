@@ -1,4 +1,5 @@
 using SharedKernel;
+using Orders.Domain;
 
 namespace Orders.Domain.Items;
 
@@ -36,23 +37,28 @@ public sealed class Item : Entity<Guid>
     /// <summary>Canonical server-owned business facts. Never accepts arbitrary client JSON.</summary>
     public string? Metadata { get; private set; }
 
+    /// <summary>Canonical client metadata envelope. Kept separate from trusted product facts in
+    /// <see cref="Metadata"/>.</summary>
+    public string? RequestMetadata { get; private set; }
+
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Item() { }
 
     internal Item(
         Guid id, Guid orderId, Guid merchantId, int quantity, Money unitPrice, Money discount,
-        string productCode, string variantCode, string? variantName, CommerceItemMetadata? metadata)
+        string productCode, string variantCode, string? variantName, CommerceItemMetadata? metadata,
+        VersionedMetadata? requestMetadata = null)
         : this(id, orderId, merchantId, quantity, unitPrice, discount,
             Money.Zero(unitPrice.Currency),
             LineAmounts.Net(LineAmounts.Gross(unitPrice, quantity), discount),
-            productCode, variantCode, variantName, metadata)
+            productCode, variantCode, variantName, metadata, requestMetadata)
     {
     }
 
     internal Item(
         Guid id, Guid orderId, Guid merchantId, int quantity, Money unitPrice, Money discount,
         Money taxAmount, Money lineAmount, string productCode, string variantCode, string? variantName,
-        CommerceItemMetadata? metadata)
+        CommerceItemMetadata? metadata, VersionedMetadata? requestMetadata = null)
         : base(id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(productCode, nameof(productCode));
@@ -80,6 +86,7 @@ public sealed class Item : Entity<Guid>
         VariantCode = variantCode.Trim();
         VariantName = string.IsNullOrWhiteSpace(variantName) ? null : variantName.Trim();
         Metadata = metadata is null ? null : CommerceItemMetadataCodec.Serialize(metadata);
+        RequestMetadata = requestMetadata?.ToCanonicalJson();
     }
 
     internal void Reparent(Guid orderId)
@@ -87,5 +94,29 @@ public sealed class Item : Entity<Guid>
         if (orderId == Guid.Empty)
             throw new ArgumentException("OrderId is required.", nameof(orderId));
         OrderId = orderId;
+    }
+
+    /// <summary>Updates trusted price facts in place while preserving this item's identity.</summary>
+    internal void ApplyTrustedSnapshot(Guid orderId, Guid merchantId, TrustedOrderLineInput line)
+    {
+        if (OrderId != orderId || MerchantId != merchantId)
+            throw new InvalidOperationException("Order item ownership is immutable.");
+        if (!string.Equals(ProductCode, line.ProductCode, StringComparison.Ordinal)
+            || !string.Equals(VariantCode, line.VariantCode, StringComparison.Ordinal))
+            throw new InvalidOperationException("An omitted order item cannot change product identity.");
+        if (line.Quantity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(line), "Quantity must be positive.");
+        if (!line.UnitPrice.SameCurrencyAs(line.DiscountAmount)
+            || !line.UnitPrice.SameCurrencyAs(line.TaxAmount)
+            || !line.UnitPrice.SameCurrencyAs(line.LineAmount))
+            throw new ArgumentException("Item money values must use one currency.", nameof(line));
+
+        Quantity = line.Quantity;
+        UnitPrice = line.UnitPrice;
+        Discount = line.DiscountAmount;
+        TaxAmount = line.TaxAmount;
+        LineAmount = line.LineAmount;
+        Metadata = line.Metadata is null ? null : CommerceItemMetadataCodec.Serialize(line.Metadata);
+        RequestMetadata = line.RequestMetadata?.ToCanonicalJson();
     }
 }

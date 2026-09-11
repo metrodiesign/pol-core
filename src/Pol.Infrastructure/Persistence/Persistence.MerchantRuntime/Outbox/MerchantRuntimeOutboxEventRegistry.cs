@@ -22,6 +22,8 @@ internal static class MerchantRuntimeOutboxEventRegistry
         new(ApprovalRequested.EventType, ApprovalRequested.SchemaVersion, typeof(ApprovalRequested)),
         new(ApprovalExecutionReported.EventType, ApprovalExecutionReported.SchemaVersion, typeof(ApprovalExecutionReported)),
         new(nameof(CustomerOrderNotification), CustomerOrderNotification.SchemaVersion, typeof(CustomerOrderNotification)),
+        new(PaymentLinkNotificationRequestedV1.EventType, PaymentLinkNotificationRequestedV1.SchemaVersion,
+            typeof(PaymentLinkNotificationRequestedV1)),
     ];
 
     private static readonly IReadOnlyDictionary<Type, Descriptor> ByClrType =
@@ -49,6 +51,7 @@ internal static class MerchantRuntimeOutboxEventRegistry
             ApprovalRequested x => (x.EventId, x.OccurredAt),
             ApprovalExecutionReported x => (x.EventId, x.OccurredAt),
             CustomerOrderNotification x => (Guid.CreateVersion7(), x.OccurredAt),
+            PaymentLinkNotificationRequestedV1 x => (x.EventId, x.OccurredAt),
             _ => (Guid.CreateVersion7(), fallbackOccurredAt),
         };
 

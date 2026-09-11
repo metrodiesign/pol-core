@@ -9,7 +9,10 @@ namespace Orders.Application;
 /// the lookup to the bound merchant, so another company's order reads as absent (404). Releasing whatever
 /// payment session is holding the order happens BEFORE this, at the endpoint — an order is only cancellable
 /// once no money can still arrive for it.</summary>
-public sealed record CancelOrderCommand(Guid OrderId, long? ExpectedVersion = null)
+public sealed record CancelOrderCommand(
+    Guid OrderId,
+    long? ExpectedVersion = null,
+    CommerceAuthorizationProof? Authorization = null)
     : ICommand<CancelOrderResult>, IMerchantScoped;
 
 public sealed record CancelOrderResult(Guid OrderId, string Status);
@@ -20,17 +23,20 @@ public sealed class CancelOrderHandler : ICommandHandler<CancelOrderCommand, Can
     private readonly IPaymentSessionProbe _sessions;
     private readonly IPaymentLinkStore? _links;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICommerceAuthorizationLease _authorizationLease;
 
     public CancelOrderHandler(
         IOrderRepository orders,
         IPaymentSessionProbe sessions,
         IUnitOfWork unitOfWork,
-        IPaymentLinkStore? links = null)
+        IPaymentLinkStore? links = null,
+        ICommerceAuthorizationLease? authorizationLease = null)
     {
         _orders = orders;
         _sessions = sessions;
         _unitOfWork = unitOfWork;
         _links = links;
+        _authorizationLease = authorizationLease ?? new NoopCommerceAuthorizationLease();
     }
 
     public async ValueTask<CancelOrderResult> Handle(CancelOrderCommand command, CancellationToken cancellationToken)
@@ -38,6 +44,7 @@ public sealed class CancelOrderHandler : ICommandHandler<CancelOrderCommand, Can
         return await _unitOfWork.ExecuteInTransactionAsync(
             async ct =>
             {
+                await _authorizationLease.VerifyAsync(command.Authorization, ct).ConfigureAwait(false);
                 var order = await _orders.GetForUpdateAsync(command.OrderId, ct).ConfigureAwait(false)
                     ?? throw new NotFoundException($"Order {command.OrderId} was not found.");
 

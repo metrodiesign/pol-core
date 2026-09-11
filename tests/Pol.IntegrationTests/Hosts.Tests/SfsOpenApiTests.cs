@@ -202,17 +202,19 @@ public sealed class SfsOpenApiTests
         Assert.False(addProperties.TryGetProperty("metadata", out _));
 
         var createOrder = paths.GetProperty("/api/v1/orders").GetProperty("post");
-        Assert.Equal("#/components/schemas/CreateOrderFromCartRequest",
+        Assert.Equal("#/components/schemas/CreateOrderRequest",
             createOrder.GetProperty("requestBody").GetProperty("content").GetProperty("application/json")
                 .GetProperty("schema").GetProperty("$ref").GetString());
-        Assert.Equal("#/components/schemas/DirectOrderResult",
+        Assert.Equal("#/components/schemas/OrderCommandResult",
             createOrder.GetProperty("responses").GetProperty("201").GetProperty("content")
                 .GetProperty("application/json").GetProperty("schema").GetProperty("$ref").GetString());
         foreach (var status in new[] { "400", "403", "404", "409", "503" })
             Assert.True(createOrder.GetProperty("responses").TryGetProperty(status, out _), status);
 
-        var createOrderProperties = schemas.GetProperty("CreateOrderFromCartRequest").GetProperty("properties");
-        Assert.True(createOrderProperties.TryGetProperty("paymentMethod", out _));
+        var createOrderProperties = schemas.GetProperty("CreateOrderRequest").GetProperty("properties");
+        Assert.True(createOrderProperties.TryGetProperty("businessType", out _));
+        Assert.True(createOrderProperties.TryGetProperty("currency", out _));
+        Assert.True(createOrderProperties.TryGetProperty("items", out _));
         Assert.False(createOrderProperties.TryGetProperty("amount", out _));
 
         var canonicalCheckoutPaths = new HashSet<string>(StringComparer.Ordinal)

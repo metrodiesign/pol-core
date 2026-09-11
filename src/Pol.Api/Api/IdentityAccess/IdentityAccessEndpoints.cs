@@ -187,6 +187,22 @@ internal static class IdentityAccessEndpoints
                 || resolved.Client.Status != SystemClientStatus.Active)
                 return InvalidClient(http);
 
+            var requestedScopes = request.GetScopes()
+                .Where(scope => !string.IsNullOrWhiteSpace(scope))
+                .Select(scope => scope.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var registeredScopes = resolved.Scopes
+                .Where(scope => !string.IsNullOrWhiteSpace(scope))
+                .Select(scope => scope.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToHashSet(StringComparer.Ordinal);
+            var grantedScopes = requestedScopes.Length == 0
+                ? registeredScopes.Order(StringComparer.Ordinal).ToArray()
+                : requestedScopes;
+            if (grantedScopes.Any(scope => !registeredScopes.Contains(scope)))
+                return InvalidScope(http);
+
             var identity = new ClaimsIdentity(
                 OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,
                 nameType: "sub",
@@ -196,6 +212,9 @@ internal static class IdentityAccessEndpoints
             identity.SetClaim("authz_version", resolved.Account.AuthorizationVersion.ToString());
             identity.SetClaim("client_id", resolved.Client.ClientId);
             identity.SetClaim("merchant_id", resolved.Client.MerchantId.ToString("D"));
+            identity.SetScopes(grantedScopes);
+            identity.SetResources(SystemClientScopeRegistry.ApiAudience);
+            identity.SetAudiences(SystemClientScopeRegistry.ApiAudience);
             identity.SetDestinations(_ => [OpenIddictConstants.Destinations.AccessToken]);
             return Results.SignIn(new ClaimsPrincipal(identity),
                 authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -214,6 +233,11 @@ internal static class IdentityAccessEndpoints
             statusCode: StatusCodes.Status401Unauthorized,
             contentType: "application/json");
     }
+
+    private static IResult InvalidScope(HttpContext http) => Results.Json(
+        new { error = OpenIddictConstants.Errors.InvalidScope },
+        statusCode: StatusCodes.Status400BadRequest,
+        contentType: "application/json");
 
     private static IResult Discovery(HttpContext http, IConfiguration configuration)
     {
@@ -269,7 +293,8 @@ internal static class IdentityAccessEndpoints
         identity.SetClaim(OpenIddictConstants.Claims.Subject, subject);
         identity.SetClaim(OpenIddictConstants.Claims.Name, http.User.Identity?.Name ?? subject);
         identity.SetScopes(request.GetScopes());
-        identity.SetResources(request.GetResources());
+        identity.SetResources(SystemClientScopeRegistry.ApiAudience);
+        identity.SetAudiences(SystemClientScopeRegistry.ApiAudience);
         identity.SetDestinations(_ => [OpenIddictConstants.Destinations.AccessToken]);
         return Results.SignIn(new ClaimsPrincipal(identity),
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -403,7 +428,7 @@ internal static class IdentityAccessEndpoints
         var key = IdempotencyKeys.Require(http);
         var result = await store.CreateClientKeyIdempotentAsync(scope.Current.AdminId, key, new ClientKeyAdminCreate(
             clientId, body.ApplicationId, body.Kid, body.Algorithm, body.ValidFrom, body.ValidUntil,
-            body.AuditReference), cancellationToken);
+            body.AuditReference, body.Jwk.ToJsonString()), cancellationToken);
         return result.Replayed
             ? Results.Ok(result.Value)
             : Results.Created($"/api/v1/system-clients/{clientId:D}/keys/{result.Value.KeyId:D}", result.Value);

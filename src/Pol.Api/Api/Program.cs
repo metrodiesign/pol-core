@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -12,6 +13,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Admins.Application;
+using Accounts.Application;
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.Roles;
@@ -31,6 +33,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Data.SqlClient;
 using Orders.Application;
+using VersionedMetadata = Orders.Domain.VersionedMetadata;
 using Orders.Domain.Items;
 using Orders.Infrastructure;
 using Payments.Application.ConfirmPaymentStatus;
@@ -328,6 +331,7 @@ builder.Services.AddAdminDataProtection();
 
 // Merchant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<Orders.Application.IOrderIdentityAccessScope, Api.Iam.OrderIdentityAccessScope>();
 
 // multi-tier-deployment task 1: HTTP requests resolve HttpActorContext (unchanged); a scope the outbox
 // dispatcher creates for a background batch (no HttpContext) resolves WorkerActorContext instead — the
@@ -538,6 +542,14 @@ Action<OpenApiOptions> configureOpenApi = options =>
                 Description = "คุกกี้ session ของ Merchant Console ที่ browser ได้รับอัตโนมัติหลังเข้าสู่ระบบผ่าน "
                     + "GET /api/v1/merchants/auth/{provider}/login โดย provider คือ microsoft; "
                     + "บน production (HTTPS) ใช้ชื่อ `__Host-mch_session`",
+            };
+        if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, "IdentityPlatform"))
+            document.Components.SecuritySchemes["IdentityPlatform"] = new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "Identity platform access token หรือ BFF session ที่ผ่าน Account authorization snapshot",
             };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
@@ -1089,13 +1101,20 @@ api.MapGet("/orders/{orderId:guid}/payment-links", async (
     Guid orderId,
     HttpContext http,
     IActorContext actor,
+    IActorScope actorScope,
+    IOrderRepository orders,
+    IIdentityAccessQuery identities,
     IPaymentLinkStore links,
     CancellationToken ct) =>
 {
+    if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+    {
+        await EnsureIdentityOrderOwnerAsync(orderId, actor, orders, identities, ct);
+    }
     var values = await links.ListForOrderAsync(actor.MerchantId, orderId, ct);
     return Results.Ok(values.Select(OrderViewMapper.ToView).ToList());
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentView)
+    .RequireOrderIdentityPermission(Keys.PaymentView, "order.read")
     .WithTags("การชำระเงิน")
     .WithName("ListPaymentLinks")
     .WithSummary("อ่านสถานะลิงก์ของ Order")
@@ -1109,21 +1128,43 @@ api.MapPost("/orders/{orderId:guid}/payment-links", async (
     [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RotatePaymentLinkRequest body,
     HttpContext http,
     IActorContext actor,
+    IActorScope actorScope,
+    IOrderRepository orders,
+    IIdentityAccessQuery identities,
+    IAdminScope adminScope,
+    IAdminOrderReader adminOrders,
     IMediator mediator,
     CancellationToken ct) =>
 {
-    if (body?.SendNotification == true)
-        throw new DependencyUnavailableException(
-            "Payment-link notification delivery is not configured.",
-            new InvalidOperationException("No notification sender is configured for this operation."));
+    var merchantId = Guid.Empty;
+    IDisposable? actorBinding = null;
+    if (IsAdminCommerceRequest(http))
+    {
+        merchantId = RequireCommerceQueryGuid(http, "merchantId");
+        _ = await RequireAdminOrderAsync(adminOrders, adminScope, orderId, merchantId, true, ct);
+        actorBinding = actorScope.Begin(merchantId);
+    }
+    else
+    {
+        merchantId = actor.MerchantId;
+        if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+        {
+            await EnsureIdentityOrderOwnerAsync(orderId, actor, orders, identities, ct);
+        }
+    }
+    using (actorBinding)
+    {
     var expected = VersionEtags.Require(http);
     var result = await mediator.Send(new RotatePaymentLinkCommand(
-        actor.MerchantId, orderId, expected, IdempotencyKeys.Require(http)), ct);
+        merchantId, orderId, expected, IdempotencyKeys.Require(http),
+        IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http),
+        SendNotification: body?.SendNotification == true), ct);
     VersionEtags.Set(http, result.Order.Version);
     return Results.Created($"/api/v1/orders/{orderId}/payment-links/{result.PaymentLink!.LinkId}", result);
+    }
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
-    .WithMetadata(new IfMatchMutationMarker("201"), new IdempotencyMutationMarker())
+    .RequireOrderIdentityPermission(Keys.PaymentCreate, "checkout.write").RequireAudienceCsrf()
+    .WithMetadata(new IfMatchMutationMarker("201"), new IdempotencyMutationMarker(), requiredMerchantQuery)
     .WithTags("การชำระเงิน")
     .WithName("RotatePaymentLink")
     .WithSummary("ออกหรือหมุน PaymentLink")
@@ -1139,16 +1180,41 @@ api.MapPost("/orders/{orderId:guid}/issue", async (
     Guid orderId,
     HttpContext http,
     IActorContext actor,
+    IActorScope actorScope,
+    IOrderRepository orders,
+    IIdentityAccessQuery identities,
+    IAdminScope adminScope,
+    IAdminOrderReader adminOrders,
     IMediator mediator,
     CancellationToken ct) =>
 {
+    var merchantId = Guid.Empty;
+    IDisposable? actorBinding = null;
+    if (IsAdminCommerceRequest(http))
+    {
+        merchantId = RequireCommerceQueryGuid(http, "merchantId");
+        _ = await RequireAdminOrderAsync(adminOrders, adminScope, orderId, merchantId, true, ct);
+        actorBinding = actorScope.Begin(merchantId);
+    }
+    else
+    {
+        merchantId = actor.MerchantId;
+        if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+        {
+            await EnsureIdentityOrderOwnerAsync(orderId, actor, orders, identities, ct);
+        }
+    }
+    using (actorBinding)
+    {
     var result = await mediator.Send(new IssueOrderCommand(
-        actor.MerchantId, orderId, VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
+        merchantId, orderId, VersionEtags.Require(http), IdempotencyKeys.Require(http),
+        IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http)), ct);
     VersionEtags.Set(http, result.Order.Version);
     return Results.Ok(result);
+    }
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
-    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+    .RequireOrderIdentityPermission(Keys.PaymentCreate, "order.write").RequireAudienceCsrf()
+    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker(), requiredMerchantQuery)
     .WithTags("คำสั่งซื้อ")
     .WithName("IssueOrder")
     .WithSummary("ออกคำสั่งซื้อและ PaymentLink แรก")
@@ -1164,16 +1230,29 @@ api.MapPost("/payment-links/{linkId:guid}/revoke", async (
     [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RevokePaymentLinkRequest body,
     HttpContext http,
     IActorContext actor,
+    IActorScope actorScope,
+    IOrderRepository orders,
+    IIdentityAccessQuery identities,
+    IPaymentLinkStore links,
     IMediator mediator,
     CancellationToken ct) =>
 {
     if (body is { Reason: { } reason } && (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length > 1000))
         throw new InvalidRequestException("Revoke reason is invalid.", "validation_failed");
+    if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+    {
+        // Revoke resolves its parent Order inside the application store; the identity owner proof is checked
+        // here before the command can claim idempotency or mutate the link.
+        var link = await links.GetLinkAsync(actor.MerchantId, linkId, ct)
+            ?? throw new NotFoundException("Payment link was not found.");
+        await EnsureIdentityOrderOwnerAsync(link.OrderId, actor, orders, identities, ct);
+    }
     var result = await mediator.Send(new RevokePaymentLinkCommand(
-        actor.MerchantId, linkId, IdempotencyKeys.Require(http)), ct);
+        actor.MerchantId, linkId, IdempotencyKeys.Require(http),
+        IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http)), ct);
     return Results.Ok(result);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequireOrderIdentityPermission(Keys.PaymentCreate, "checkout.write").RequireAudienceCsrf()
     .WithMetadata(new IdempotencyMutationMarker())
     .WithTags("การชำระเงิน")
     .WithName("RevokePaymentLink")
@@ -1912,7 +1991,8 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
 // transaction after taking the order row's lock, and a mint holds that same row locked while it verifies the
 // order is still AwaitingPayment (REQ-3.6/4.7) — so one of the two always sees the other and answers 409.
 api.MapPost("/orders/{orderId:guid}/cancel", async (
-    Guid orderId, HttpContext http, IActorScope actorScope, IAdminScope adminScope,
+    Guid orderId, HttpContext http, IActorContext actor, IActorScope actorScope,
+    IOrderRepository orders, IIdentityAccessQuery identities, IAdminScope adminScope,
     IAdminOrderReader adminOrders, IAdminOperationExecutor operations,
     [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] CancelOrderRequest body,
     IMediator mediator, CancellationToken ct) =>
@@ -1921,8 +2001,24 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
         throw new InvalidRequestException("Cancel reason is invalid.", "validation_failed");
     if (!IsAdminCommerceRequest(http))
     {
+        if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+        {
+            await EnsureIdentityOrderOwnerAsync(orderId, actor, orders, identities, ct);
+            var cancelled = await mediator.Send(new CancelManagedOrderCommand(
+                actor.MerchantId,
+                orderId,
+                VersionEtags.Require(http),
+                body?.Reason ?? string.Empty,
+                IdempotencyKeys.Require(http),
+                IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http)), ct);
+            VersionEtags.Set(http, cancelled.Order.Version);
+            return Results.Ok(new CancelOrderResult(
+                cancelled.Order.OrderId, cancelled.Order.OrderStatus.ToString()));
+        }
         await mediator.Send(new ReleaseOpenSessionCommand(orderId), ct);
-        return Results.Ok(await mediator.Send(new CancelOrderCommand(orderId), ct));
+        return Results.Ok(await mediator.Send(new CancelOrderCommand(
+            orderId,
+            Authorization: IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http)), ct));
     }
 
     var merchantId = RequireCommerceQueryGuid(http, "merchantId");
@@ -1943,7 +2039,7 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
     VersionEtags.Set(http, updated.Version);
     return Results.Ok(result.Value);
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentCreate).RequireAudienceCsrf()
+    .RequireOrderIdentityPermission(Keys.PaymentCreate, "order.write").RequireAudienceCsrf()
     .WithMetadata(
         new AdminIfMatchMutationMarker("200"),
         new AdminIdempotencyMutationMarker(),
@@ -1959,9 +2055,70 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-// Direct Cart -> Order. Product availability checks happen before the transaction; coordinator then reloads
-// the Cart and atomically writes Order + lines + notification outbox + CheckedOut state.
+// Canonical Order create. Prices and line snapshots come from the trusted pricing port; the client shape only
+// identifies products and the requested lifecycle branch. The draft and issue paths share CreateOrderHandler.
 api.MapPost("/orders", async (
+    CreateOrderRequest body,
+    HttpContext http,
+    IActorContext actor,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    ValidateCanonicalCreateRequest(body);
+    var items = body.Items!.Select(item => new OrderItemRequest(
+        item.ProductReference.Trim(),
+        item.Quantity,
+        item.Metadata is { } metadata && metadata.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined
+            ? metadata.GetRawText()
+            : null,
+        new OrderItemClientSnapshot(
+            item.ProductCode.Trim(),
+            item.ProductName.Trim(),
+            item.UnitPrice,
+            item.DiscountAmount,
+            item.TaxAmount,
+            item.LineAmount))).ToArray();
+    var owner = new OrderOwnerRequest(body.OwnerSaleId, body.OwnerBranchId);
+    var notification = NotificationRecipients(body.NotificationIntent);
+    var notificationRecipient = notification.Phone ?? notification.Email;
+    var idempotencyKey = IdempotencyKeys.Require(http);
+    var merchantId = ResolveIdentityMerchantId(http);
+    var accountId = actor.UserId
+        ?? throw new AccessDeniedException("No verified Account identity is bound.", "account_context_missing");
+    if (accountId == Guid.Empty)
+        throw new AccessDeniedException("No verified Account identity is bound.", "account_context_missing");
+    var result = await mediator.Send(new CreateOrderCommand(
+        merchantId, accountId, body.BusinessType.Trim(), items, owner, body.IssueNow,
+        idempotencyKey, Currency: body.Currency.Trim(), NotificationRecipient: notificationRecipient,
+        NotifyOnIssue: notification.Send,
+        NotificationEmail: notification.Email,
+        NotificationPhoneNumber: notification.Phone,
+        OrderDiscountAmount: body.OrderDiscountAmount, OrderChargeAmount: body.OrderChargeAmount,
+        Metadata: body.Metadata,
+        Authorization: IdentityPermissionAuthorization.GetCommerceAuthorizationProof(http)), ct);
+    VersionEtags.Set(http, result.Order.Version);
+    return Results.Created($"/api/v1/orders/{result.Order.OrderId}", result);
+}).RequireAuthorization("identity-platform")
+    .RequireIdentityPermission(Keys.PaymentCreate)
+    .RequireIdentityPlatformMutation()
+    .WithMetadata(new IdempotencyMutationMarker())
+    .WithTags("คำสั่งซื้อ")
+    .WithName("CreateOrder")
+    .WithSummary("สร้างคำสั่งซื้อแบบ canonical")
+    .WithDescription("ใช้ trusted pricing และ CreateOrderHandler กลาง; issueNow=false สร้าง Draft โดยไม่มี PaymentLink ส่วนค่าเริ่มต้น true จะ freeze Order และออกลิงก์แรกใน transaction เดียว")
+    .Accepts<CreateOrderRequest>("application/json")
+    .Produces<OrderCommandResult>(StatusCodes.Status201Created)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+// Legacy Direct Cart -> Order compatibility route. Product availability checks happen before the transaction; coordinator then reloads
+// the Cart and atomically writes Order + lines + notification outbox + CheckedOut state.
+api.MapPost("/orders/from-cart", async (
     CreateOrderFromCartRequest body,
     HttpContext http,
     IActorContext actor,
@@ -2065,7 +2222,7 @@ api.MapGet("/orders", async (
     return Results.Ok(new PagedResult<AdminOrderListResponse>(
         result.Items.Select(AdminOrderList).ToArray(), result.Page, result.Limit, result.Total));
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentView)
+    .RequireOrderIdentityPermission(Keys.PaymentView, "order.read")
     .WithMetadata(
         new SfsQueryParamsMarker(100),
         optionalMerchantQuery,
@@ -2156,6 +2313,8 @@ api.MapGet("/orders/{orderId:guid}", async (
     HttpContext http,
     IActorContext actor,
     IActorScope actorScope,
+    IOrderRepository orders,
+    IIdentityAccessQuery identities,
     IAdminScope adminScope,
     IAdminOrderReader adminOrders,
     IClock clock,
@@ -2164,6 +2323,10 @@ api.MapGet("/orders/{orderId:guid}", async (
 {
     if (!IsAdminCommerceRequest(http))
     {
+        if (IdentityPermissionAuthorization.IsIdentityRequest(http))
+        {
+            await EnsureIdentityOrderOwnerAsync(orderId, actor, orders, identities, ct);
+        }
         var merchantResult = await mediator.Send(
             new GetOrderDetailCommand(actor.MerchantId, orderId, "merchant-user", actor.UserId!.Value.ToString()), ct);
         return Results.Ok(merchantResult);
@@ -2196,7 +2359,7 @@ api.MapGet("/orders/{orderId:guid}", async (
         session is null ? null : AdminPaymentSession(session), lifecycle,
         OrderCapabilities(result.Status), result.Version));
 }).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
-    .RequirePermission(Keys.PaymentView)
+    .RequireOrderIdentityPermission(Keys.PaymentView, "order.read")
     .WithMetadata(
         new AdminEtagResponseMarker("200"),
         new AudienceResponseMarker("200", typeof(OrderDetailView), typeof(AdminOrderDetailResponse)))
@@ -3564,6 +3727,111 @@ static Guid RequireCommerceQueryGuid(HttpContext http, string name)
     return value;
 }
 
+static Guid ResolveIdentityMerchantId(HttpContext http)
+{
+    var claim = http.User.FindFirst("merchant_id")?.Value;
+    var claimMerchant = Guid.TryParse(claim, out var parsedClaim) && parsedClaim != Guid.Empty
+        ? parsedClaim
+        : (Guid?)null;
+    var raw = http.Request.Query["merchantId"].ToString();
+    if (claimMerchant is { } merchant)
+    {
+        if (!string.IsNullOrWhiteSpace(raw)
+            && (!Guid.TryParse(raw, out var requested) || requested != merchant))
+            throw new AccessDeniedException("Merchant context does not match the Account token.", "merchant_context_mismatch");
+        return merchant;
+    }
+    throw new AccessDeniedException("A verified merchant context is required.", "merchant_context_missing");
+}
+
+static async Task EnsureIdentityOrderOwnerAsync(
+    Guid orderId,
+    IActorContext actor,
+    IOrderRepository orders,
+    IIdentityAccessQuery identities,
+    CancellationToken cancellationToken)
+{
+    var accountId = actor.UserId
+        ?? throw new AccessDeniedException("No verified Account identity is bound.", "account_context_missing");
+    var order = await orders.GetAsync(orderId, cancellationToken)
+        ?? throw new NotFoundException("Order was not found.");
+    var authorization = await identities.ResolveAuthorizationAsync(
+        accountId, actor.MerchantId, null, cancellationToken);
+    if (authorization is null
+        || !AccessEvaluator.CanReadOrder(
+            authorization, actor.MerchantId, order.OwnerSaleId, order.OwnerBranchIdAtCreation).Allowed)
+        throw new NotFoundException("Order was not found.");
+}
+
+static void ValidateCanonicalCreateRequest(CreateOrderRequest request)
+{
+    if (request is null || string.IsNullOrWhiteSpace(request.BusinessType)
+        || request.BusinessType.Trim().Length > 64)
+        throw new InvalidRequestException("Business type is invalid.", "validation_failed");
+    if (string.IsNullOrWhiteSpace(request.Currency)
+        || request.Currency.Trim().Length != 3
+        || request.Currency.Trim().Any(c => !char.IsAsciiLetter(c)))
+        throw new InvalidRequestException("Currency is invalid.", "validation_failed");
+    if (request.Items is null || request.Items.Count == 0)
+        throw new InvalidRequestException("At least one order item is required.", "items_required");
+    ValidateCanonicalMetadata(request.Metadata);
+
+    RequireCanonicalMoney(request.OrderDiscountAmount, "orderDiscountAmount", allowNonZero: true);
+    RequireCanonicalMoney(request.OrderChargeAmount, "orderChargeAmount", allowNonZero: true);
+    foreach (var item in request.Items)
+    {
+        if (string.IsNullOrWhiteSpace(item.ProductReference)
+            || string.IsNullOrWhiteSpace(item.ProductCode)
+            || string.IsNullOrWhiteSpace(item.ProductName)
+            || item.Quantity <= 0)
+            throw new InvalidRequestException("Order item identity is invalid.", "validation_failed");
+        ValidateCanonicalMetadata(item.Metadata);
+        RequireCanonicalMoney(item.UnitPrice, "unitPrice", allowNonZero: true);
+        RequireCanonicalMoney(item.DiscountAmount, "discountAmount", allowNonZero: true);
+        RequireCanonicalMoney(item.TaxAmount, "taxAmount", allowNonZero: true);
+        RequireCanonicalMoney(item.LineAmount, "lineAmount", allowNonZero: true);
+    }
+
+    if (request.NotificationIntent is { Send: true }
+        && string.IsNullOrWhiteSpace(request.NotificationIntent.Email)
+        && string.IsNullOrWhiteSpace(request.NotificationIntent.PhoneNumber))
+        throw new InvalidRequestException(
+            "A notification recipient is required when send is true.", "notification_recipient_required");
+}
+
+static void ValidateCanonicalMetadata(JsonElement? metadata)
+{
+    if (metadata is not { } value || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        return;
+    try
+    {
+        _ = VersionedMetadata.Parse(value.GetRawText());
+    }
+    catch (ArgumentException)
+    {
+        throw new InvalidRequestException(
+            "Metadata must use the supported VersionedMetadata envelope.", "metadata_invalid");
+    }
+}
+
+static void RequireCanonicalMoney(string value, string name, bool allowNonZero)
+{
+    if (!decimal.TryParse(value, System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.InvariantCulture, out var amount)
+        || amount < 0m
+        || !allowNonZero && amount != 0m)
+        throw new InvalidRequestException($"{name} is invalid.", "validation_failed");
+}
+
+static (bool Send, string? Email, string? Phone) NotificationRecipients(NotificationIntentRequest? intent)
+{
+    var normalized = NotificationIntentNormalizer.Normalize(
+        intent?.Send == true,
+        intent?.Email,
+        intent?.PhoneNumber);
+    return (normalized.Send, normalized.Email, normalized.PhoneNumber);
+}
+
 static int RequireCartVersion(HttpContext http)
 {
     var version = VersionEtags.Require(http);
@@ -3851,6 +4119,34 @@ internal sealed record CreateOrderCustomerRequest(string? Name, string? Phone, s
 internal sealed record CreateOrderFromCartRequest(
     Guid CartId, CreateOrderCustomerRequest? Customer, string PaymentMethod,
     Guid? MerchantId, Guid? OriginatorId);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record CreateOrderRequest(
+    [property: Required] string BusinessType,
+    [property: Required] string Currency,
+    [property: Required] IReadOnlyList<CreateOrderItemRequest> Items,
+    string OrderDiscountAmount = "0.0000",
+    string OrderChargeAmount = "0.0000",
+    Guid? OwnerSaleId = null,
+    Guid? OwnerBranchId = null,
+    JsonElement? Metadata = null,
+    NotificationIntentRequest? NotificationIntent = null,
+    bool IssueNow = true);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record CreateOrderItemRequest(
+    [property: Required] string ProductReference,
+    [property: Required] string ProductCode,
+    [property: Required] string ProductName,
+    [property: Range(1, int.MaxValue)] int Quantity,
+    [property: Required] string UnitPrice,
+    [property: Required] string DiscountAmount,
+    [property: Required] string TaxAmount,
+    [property: Required] string LineAmount,
+    JsonElement? Metadata = null);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record NotificationIntentRequest(
+    [property: Required] bool Send,
+    string? Email = null,
+    string? PhoneNumber = null);
 internal sealed record CancelOrderRequest(string Reason);
 internal sealed record RotatePaymentLinkRequest(bool SendNotification = false);
 internal sealed record RevokePaymentLinkRequest(string Reason);

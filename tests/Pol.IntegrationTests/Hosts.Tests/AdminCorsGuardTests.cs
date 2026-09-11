@@ -114,5 +114,33 @@ public sealed class AdminCorsGuardTests
                     + "PolCorsPolicyProvider does not route it to the dual CORS policy.");
             }
         }
+
+        foreach (var (route, method) in new[]
+        {
+            (Route: "/api/v1/orders", Method: HttpMethods.Post),
+            (Route: "/api/v1/orders/from-cart", Method: HttpMethods.Post),
+            (Route: "/api/v1/orders/{orderId:guid}", Method: HttpMethods.Patch),
+            (Route: "/api/v1/orders/{orderId:guid}/items", Method: HttpMethods.Get),
+            (Route: "/api/v1/orders/{orderId:guid}/history", Method: HttpMethods.Get),
+        })
+        {
+            var endpoint = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+                .OfType<RouteEndpoint>()
+                .Single(e => string.Equals(e.RoutePattern.RawText, route, StringComparison.Ordinal)
+                    && e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(method) == true);
+            var http = new DefaultHttpContext();
+            http.Request.Path = route;
+            http.Request.Method = method;
+            http.SetEndpoint(endpoint);
+            var resolved = await provider.GetPolicyAsync(http, policyName: null);
+            Assert.True(ReferenceEquals(dualPolicy, resolved),
+                $"'{route}' must preserve the dual-console CORS origin set.");
+        }
+
+        var unknown = new DefaultHttpContext();
+        unknown.Request.Path = "/api/v1/orders/not-a-guid";
+        unknown.Request.Method = HttpMethods.Post;
+        Assert.False(ReferenceEquals(dualPolicy, await provider.GetPolicyAsync(unknown, policyName: null)),
+            "An unknown non-guid order path must not inherit dual-console CORS.");
     }
 }

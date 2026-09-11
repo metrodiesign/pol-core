@@ -200,6 +200,7 @@ internal sealed class AdminApprovalWriteAuthorizer : IWriteAuthorizer
         (typeof(VaultRevealAudit), WriteOperation.Insert),
         (typeof(AdminOperationRecord), WriteOperation.Insert),
         (typeof(AdminOperationRecord), WriteOperation.Update),
+        (typeof(IdempotencyRecord), WriteOperation.Insert),
         (typeof(CartAggregate), WriteOperation.Insert),
         (typeof(CartAggregate), WriteOperation.Update),
         (typeof(CartItem), WriteOperation.Insert),

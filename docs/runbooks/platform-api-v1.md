@@ -16,6 +16,22 @@
 
 ระบบตรวจ Merchant/account ownership จากข้อมูล server-side ทุกครั้ง. ห้ามใช้ `merchantId`, owner, role หรือ permission ที่ส่งใน body เป็นหลักฐานแทน session และห้ามอ่าน child resource โดยข้ามการตรวจ parent.
 
+## สร้าง Order แบบ canonical
+
+`POST /api/v1/orders` เป็น operation canonical ของ API-079 และรับ `CreateOrderRequest` ตาม OpenAPI โดยต้องส่ง `businessType`, `currency` และ `items`; แต่ละรายการต้องมี `productReference`, `productCode`, `productName`, `quantity`, `unitPrice`, `discountAmount`, `taxAmount` และ `lineAmount` เป็น decimal string. `orderDiscountAmount` และ `orderChargeAmount` มีค่าเริ่มต้น `0.0000`; `issueNow` มีค่าเริ่มต้น `true`.
+
+ระบบตรวจ `merchant_id` จาก identity token และใช้ query `merchantId` ได้เฉพาะเป็นค่าตรวจความตรงกัน. การไม่มี claim หรือ claim/query ไม่ตรงกันได้ `403` พร้อม stable `code`; owner ของ Agent derive จาก trusted `AgentSaleId`. Employee และ SYSTEM ระบุ `ownerSaleId`/`ownerBranchId` ได้เมื่ออยู่ใน `MerchantAccess`/`BranchAccess` ที่ active เท่านั้น. ระบบไม่รับ client quote เป็นแหล่งราคา: quote, currency หรือ adjustment ที่ไม่ตรง trusted pricing ได้ `409` พร้อม `code=pricing_mismatch` และต้องไม่มี Order หรือ link ใหม่.
+
+เมื่อ `issueNow=false` ระบบสร้าง `DRAFT` โดยไม่มี `PaymentLink`; caller เดิม replay ด้วย `Idempotency-Key` จะได้ผล Draft snapshot เดิมแม้มีการ PATCH, issue หรือ rotate ภายหลัง. เมื่อ field ถูกละเว้นหรือ `issueNow=true` ระบบ freeze Order และสร้าง PaymentLink แรกใน transaction เดียว. Issued replay คืน raw token ได้เฉพาะจาก protected replay mechanism ที่มี purpose/expiry; ห้ามค้นคืนจาก hash หรือเขียน raw token ลง `AdminOperationRecords`/log.
+
+การเขียน canonical ใช้ `identity-platform`: Employee/Agent ใช้ Account permission `payment.create`, SYSTEM ต้องมี scope `order.write`. Bearer request ไม่ต้องใช้ BFF CSRF; BFF session ต้องส่ง `pol_session`, `pol_csrf` และ `X-CSRF-Token` ที่ตรงกัน รวมถึง origin ที่ตรวจได้. Operations ที่กำหนด `Idempotency-Key` จะ reject intent ใหม่ด้วย `409`; PATCH ใช้ `If-Match` และ Draft-only โดยไม่รับ idempotency header ส่วน issue/rotate ต้องตรง ETag เดิม มิฉะนั้นได้ `412` โดยไม่เขียนซ้ำ.
+
+เส้นทางเดิมจาก Cart ยังคงเป็น compatibility route ที่ระบุชัด `POST /api/v1/orders/from-cart` และยังใช้ `CreateOrderFromCartRequest` กับ dual-console auth. Client ใหม่ต้องย้ายไป canonical route; ห้ามใช้ DTO เดียวกันเพื่อเดาความหมายระหว่างสอง workflow.
+
+`metadata` ของ Order และ item ต้องเป็น `VersionedMetadata` รูป `{ "schemaVersion": 1, "data": { ... } }` โดยจำกัดขนาดและโครงสร้างตาม schema contract. PATCH ที่ไม่ส่ง metadata จะคง snapshot เดิม; metadata ที่จับคู่กับ item ซ้ำหรือคลุมเครือจะถูกปฏิเสธ. Trusted CommerceItemMetadata เป็นข้อมูลคนละชุดและไม่ถูกเขียนทับ.
+
+`notificationIntent.send=true` เก็บ email/phone แยกกันบน Order. Draft จะเก็บ intent แต่ยังไม่ enqueue; issue และ `issueNow=true` จะ enqueue `PaymentLinkNotificationRequestedV1`, ส่วน rotate ใช้ `sendNotification=true`. Outbox payload เก็บเฉพาะ protected token; consumer สร้าง Email/SMS delivery แบบ dedupe และ delivery worker เปิด token หลัง claim ใน memory เท่านั้น. SMS ที่ยังไม่มี sender เป็น `BLOCKED_NOT_CONFIGURED`; ไม่มี recipient สำหรับ create ได้ `400 notification_recipient_required` และ rotate ได้ `409 notification_recipient_required`.
+
 ## Headers และการเขียนข้อมูล
 
 การเปลี่ยนแปลงที่รองรับ retry ต้องส่ง `Idempotency-Key` เป็น key ที่คงเดิมสำหรับ intent เดิม. Key เดิมกับ request hash ต่างกันต้องได้ `409` และ `code=idempotency_key_reused` หรือ stable conflict code ของ operation; ระบบห้ามสร้างแถวซ้ำหรือทำ side effect ซ้ำ.

@@ -323,7 +323,7 @@ public sealed class MerchantLifecycleEndpointTests
             Merchant, document, [cart], saleProbe: probe, orders: orders, orderOutbox: outbox);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/orders", CreateOrderBody(cart)));
+        var response = await client.SendAsync(Post("/api/v1/orders/from-cart", CreateOrderBody(cart)));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
@@ -357,7 +357,7 @@ public sealed class MerchantLifecycleEndpointTests
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post(
-            "/api/v1/orders", CreateOrderBody(cart, "{\"amount\":\"999.0000\",\"currency\":\"THB\"}")));
+            "/api/v1/orders/from-cart", CreateOrderBody(cart, "{\"amount\":\"999.0000\",\"currency\":\"THB\"}")));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(orders);
@@ -375,9 +375,9 @@ public sealed class MerchantLifecycleEndpointTests
         using var client = factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.Created,
-            (await client.SendAsync(Post("/api/v1/orders", CreateOrderBody(cart)))).StatusCode);
+            (await client.SendAsync(Post("/api/v1/orders/from-cart", CreateOrderBody(cart)))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict,
-            (await client.SendAsync(Post("/api/v1/orders", CreateOrderBody(cart)))).StatusCode);
+            (await client.SendAsync(Post("/api/v1/orders/from-cart", CreateOrderBody(cart)))).StatusCode);
         Assert.Single(orders);
     }
 
@@ -389,12 +389,12 @@ public sealed class MerchantLifecycleEndpointTests
         using var noSaleFactory = new CartFactory(Merchant, document, [cart], saleCode: null);
         using var noSaleClient = noSaleFactory.CreateClient();
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await noSaleClient.SendAsync(Post("/api/v1/orders", CreateOrderBody(cart)))).StatusCode);
+            (await noSaleClient.SendAsync(Post("/api/v1/orders/from-cart", CreateOrderBody(cart)))).StatusCode);
 
         using var factory = new CartFactory(Merchant, document, [CartWith(document)]);
         using var client = factory.CreateClient();
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await client.SendAsync(Post("/api/v1/orders", CreateOrderBody(cart), csrf: false))).StatusCode);
+            (await client.SendAsync(Post("/api/v1/orders/from-cart", CreateOrderBody(cart), csrf: false))).StatusCode);
     }
 
     [Fact]
@@ -407,7 +407,7 @@ public sealed class MerchantLifecycleEndpointTests
             Merchant, document, [cart], saleProbe: new SoldProbe(DocumentNo), orders: orders);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/orders", CreateOrderBody(cart)));
+        var response = await client.SendAsync(Post("/api/v1/orders/from-cart", CreateOrderBody(cart)));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Empty(orders);

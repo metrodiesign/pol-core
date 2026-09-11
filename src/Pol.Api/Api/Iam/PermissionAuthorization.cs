@@ -17,11 +17,16 @@ internal static class AuthPolicyScheme
     private static readonly (string SchemeId, Scope Side)[] Merchant = [("MerchantUserSession", Scope.Merchant)];
     private static readonly (string SchemeId, Scope Side)[] Dual =
         [("AdminSession", Scope.Platform), ("MerchantUserSession", Scope.Merchant)];
+    private static readonly (string SchemeId, Scope Side)[] IdentityPlatform =
+        [("IdentityPlatform", Scope.Shared)];
+    private static readonly (string SchemeId, Scope Side)[] AdminOrIdentityOrder =
+        [("AdminSession", Scope.Platform), ("IdentityPlatform", Scope.Shared)];
 
     public static (string SchemeId, Scope Side)? For(string? policy) => policy switch
     {
         "admin" => Admin[0],
         "merchant-user" => Merchant[0],
+        "identity-platform" => IdentityPlatform[0],
         _ => null,
     };
 
@@ -30,6 +35,8 @@ internal static class AuthPolicyScheme
         "admin" => Admin,
         "merchant-user" => Merchant,
         ConsoleSessionAuthentication.PolicyName => Dual,
+        ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName => AdminOrIdentityOrder,
+        "identity-platform" => IdentityPlatform,
         _ => [],
     };
 
@@ -42,6 +49,8 @@ internal static class AuthPolicyScheme
         "admin" => new HashSet<Scope> { Scope.Platform, Scope.Shared },
         "merchant-user" => new HashSet<Scope> { Scope.Merchant, Scope.Shared },
         ConsoleSessionAuthentication.PolicyName => new HashSet<Scope> { Scope.Shared },
+        ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName => new HashSet<Scope> { Scope.Platform, Scope.Shared },
+        "identity-platform" => new HashSet<Scope> { Scope.Platform, Scope.Merchant, Scope.Shared },
         _ => null,
     };
 
@@ -75,13 +84,18 @@ internal static class PermissionAuthorization
     {
         builder.WithMetadata(new RequiredPermission(permission));
         return builder.AddEndpointFilter(async (context, next) =>
-            IsAllowed(
+        {
+            if (IdentityPermissionAuthorization.IsIdentityOrderRoute(context.HttpContext)
+                && IdentityPermissionAuthorization.IsIdentityRequest(context.HttpContext))
+                return await next(context);
+            return IsAllowed(
                 context.HttpContext.RequestServices.GetRequiredService<IAdminScope>(),
                 context.HttpContext.RequestServices.GetRequiredService<IUserScope>(),
                 permission)
                 ? await next(context)
                 : Results.Problem(statusCode: StatusCodes.Status403Forbidden,
-                    title: "You do not have permission for this action."));
+                    title: "You do not have permission for this action.");
+        });
     }
 
     /// <summary>Fail-closed permission decision (REQ-4.3): whichever scope is bound must hold the key.</summary>

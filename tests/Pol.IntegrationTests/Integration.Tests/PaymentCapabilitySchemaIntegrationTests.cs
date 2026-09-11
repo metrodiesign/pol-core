@@ -207,16 +207,22 @@ public sealed class PaymentCapabilitySchemaIntegrationTests
 
     internal static async Task CreateScratchDatabaseAsync(string database)
     {
-        await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
+        await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor("master"));
         await IntegrationDb.ExecAsync(master, $"EXEC(N'CREATE DATABASE [{database}] COLLATE Thai_100_CI_AS');");
         await IntegrationDb.ExecAsync(master, $"ALTER DATABASE [{database}] SET COMPATIBILITY_LEVEL = 170;");
         await using var scratch = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database));
-        await IntegrationDb.ExecAsync(scratch, "CREATE USER pol_app WITHOUT LOGIN;");
+        await IntegrationDb.ExecAsync(scratch, "CREATE USER pol_app FOR LOGIN pol_app;");
+    }
+
+    internal static async Task MigrateScratchDatabaseAsync(string database)
+    {
+        await using var context = CreateContext(database);
+        await context.Database.MigrateAsync();
     }
 
     internal static async Task DropScratchDatabaseAsync(string database)
     {
-        await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
+        await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor("master"));
         await IntegrationDb.ExecAsync(master,
             $"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}];");
     }

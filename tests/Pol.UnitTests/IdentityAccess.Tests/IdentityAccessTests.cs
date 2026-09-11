@@ -181,6 +181,12 @@ public sealed class IdentityAccessTests
         var branch = Snapshot(AccountType.Employee, merchantId, DataScope.Branch, null, branchId);
         Assert.True(AccessEvaluator.CanReadOrder(branch, merchantId, null, branchId).Allowed);
         Assert.False(AccessEvaluator.CanReadOrder(branch, merchantId, null, Guid.NewGuid()).Allowed);
+        Assert.False(AccessEvaluator.CanReadOrder(
+            branch with { BranchIds = new HashSet<Guid>() }, merchantId, null, branchId).Allowed);
+        Assert.False(AccessEvaluator.CanReadOrder(
+            branch with { BranchIds = new HashSet<Guid>([branchId, Guid.NewGuid()]) }, merchantId, null, branchId).Allowed);
+        Assert.True(AccessEvaluator.CanReadOrder(
+            branch with { HomeBranchId = null }, merchantId, null, branchId).Allowed);
         var assignedBranches = Snapshot(AccountType.Agent, merchantId, DataScope.AssignedBranches, saleId, branchId);
         Assert.True(AccessEvaluator.CanReadOrder(assignedBranches, merchantId, null, branchId).Allowed);
         Assert.False(AccessEvaluator.CanReadOrder(assignedBranches, merchantId, null, Guid.NewGuid()).Allowed);

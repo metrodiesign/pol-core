@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Accounts.Application;
 using Accounts.Domain;
+using Api.Iam;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
@@ -88,7 +89,14 @@ internal static class IdentityAccessWiring
                 .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
             var hasBffCookie = context.Request.Cookies.ContainsKey(BffSessionManager.SessionCookieName)
                 || context.Request.Cookies.ContainsKey(BffSessionManager.SessionCookieNameDevHttp);
-            if (hasBearer && hasBffCookie)
+            var hasConsoleCookie = context.Request.Cookies.ContainsKey(Api.Admins.SessionCookies.SessionCookieName)
+                || context.Request.Cookies.ContainsKey(Api.Admins.SessionCookies.SessionCookieNameDevHttp)
+                || context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieName)
+                || context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieNameDevHttp);
+            var ambiguousOrderContext = IdentityPermissionAuthorization.IsIdentityOrderRoute(context)
+                && ((hasBearer && (hasBffCookie || hasConsoleCookie))
+                    || (hasBffCookie && hasConsoleCookie));
+            if (ambiguousOrderContext)
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await Results.Problem(

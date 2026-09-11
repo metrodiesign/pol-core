@@ -41,6 +41,23 @@ public sealed class Task5PaymentLinkAccessTests
 
     [Fact]
     [Trait("Requirement", "REQ-7.3")]
+    public async Task Rotate_notification_without_persisted_recipient_returns_conflict_before_link_write()
+    {
+        var h = NewLinkHarness();
+        var order = NewIssuedOrder(h);
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() => h.Rotate.Handle(
+            new RotatePaymentLinkCommand(
+                MerchantId, order.Id, order.Version, "rotate-missing-recipient",
+                SendNotification: true), default).AsTask());
+
+        Assert.Equal("notification_recipient_required", error.Code);
+        Assert.Single(h.Links.Values);
+        Assert.Equal(OrderStatus.Open, order.Status);
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-7.3")]
     public async Task Rotate_rejects_changed_intent_and_expired_protected_replay()
     {
         var h = NewLinkHarness();
