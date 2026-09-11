@@ -89,11 +89,13 @@ class SandboxBuilder:
     def persistence_context(self, project: str, cls: str,
                             guard_base: bool = False,
                             query_filter_cfg: bool = False,
-                            legacy: bool = False) -> Path:
+                            legacy: bool = False,
+                            file_name: str | None = None) -> Path:
         base = "src/Persistence" if legacy else "src/Pol.Infrastructure/Persistence"
-        ctx = self.root / base / project / f"{cls}.cs"
+        ctx = self.root / base / project / f"{file_name or cls}.cs"
         ctx.parent.mkdir(parents=True, exist_ok=True)
-        body = f"class {cls} " + (" : GuardedRuntimeDbContext " if guard_base else "") + "{}"
+        modifier = "internal sealed " if guard_base else ""
+        body = f"{modifier}class {cls} " + (" : GuardedRuntimeDbContext " if guard_base else "") + "{}"
         ctx.write_text(body, encoding="utf-8")
         if query_filter_cfg:
             cfg = ctx.parent / f"{cls[:4]}Cfg.cs"
@@ -117,11 +119,16 @@ class SandboxBuilder:
     def isolation_tree(self, legacy: bool = False) -> None:
         self.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext",
                                  guard_base=True, legacy=legacy)
-        self.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext",
-                                 guard_base=True, query_filter_cfg=True, legacy=legacy)
-        self.persistence_context("Persistence.MerchantRuntime",
-                                 "MerchantRuntimeDbContext",
-                                 guard_base=True, query_filter_cfg=True, legacy=legacy)
+        if legacy:
+            self.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext",
+                                     guard_base=True, query_filter_cfg=True, legacy=True)
+            self.persistence_context("Persistence.MerchantRuntime", "MerchantRuntimeDbContext",
+                                     guard_base=True, query_filter_cfg=True, legacy=True)
+        else:
+            self.persistence_context("Persistence.MerchantRuntime",
+                                     "CommerceDbContext",
+                                     guard_base=True, query_filter_cfg=True, legacy=False,
+                                     file_name="MerchantRuntimeDbContext")
         tests = self.root / ("tests/Architecture.Tests" if legacy
                              else "tests/Pol.ArchitectureTests/Architecture.Tests")
         tests.mkdir(parents=True, exist_ok=True)
@@ -187,9 +194,12 @@ class SandboxBuilder:
         dguard.write_text("# blocks destructive commands", encoding="utf-8")
 
 
-MODULE_SET = ("Admins", "Carts", "Orders")
-CONTEXT_SET = ("ControlPlaneDbContext", "MerchantUserDbContext",
-               "MerchantRuntimeDbContext")
+MODULE_SET = ("Access", "Accounts", "Admins", "Carts", "Checkouts",
+              "Governance", "Iam", "Merchants", "Migration", "Notifications",
+              "Orders", "Payments", "Platform", "Products", "Reporting")
+CONTEXT_SET = ("ControlPlaneDbContext", "CommerceDbContext")
+LEGACY_CONTEXT_SET = ("ControlPlaneDbContext", "MerchantUserDbContext",
+                      "MerchantRuntimeDbContext")
 CI_SET = ("github:verify", "github:dotnet", "github:docker-build",
           "github:dotnet-integration", "gitlab:verify", "gitlab:dotnet",
           "gitlab:integration", "gitlab:package", "gitlab:deploy-uat",
@@ -203,7 +213,6 @@ class ModulesRowTest(AlignmentFixtureBase):
         s.architecture_with_registry(modules=MODULE_SET)
         for name in MODULE_SET:
             s.module_dir(name)
-        (self.root / "src/Pol.Domain/Modules/Checkouts.Domain").mkdir(parents=True)
 
     def test_positive_aligned_and_extractor_not_empty(self):
         self.build_valid()
@@ -241,22 +250,22 @@ class ModulesRowTest(AlignmentFixtureBase):
         self.assertTrue(any(d.code == "ALIGN_MODULES_MISMATCH"
                             and "FakeModule" in d.message for d in diags))
 
-    def test_csproj_in_retired_container_counts_as_module(self):
+    def test_unregistered_module_project_counts_as_module(self):
         self.build_valid()
         s = SandboxBuilder(self.root)
-        s.module_dir("Checkouts")  # retired container gains a csproj
+        s.module_dir("FakeModule")
         diags = rpa.check_modules(self.root)
         self.assertTrue(any(d.code == "ALIGN_MODULES_MISMATCH"
-                            and "Checkouts" in d.message for d in diags))
+                            and "FakeModule" in d.message for d in diags))
 
-    def test_csproj_only_in_canonical_retired_container_counts_as_module(self):
+    def test_csproj_only_in_unregistered_module_counts_as_module(self):
         self.build_valid()
         s = SandboxBuilder(self.root)
-        module = s.module_dir("Checkouts")
+        module = s.module_dir("FakeModule")
         (module / "Marker.cs").unlink()
         diags = rpa.check_modules(self.root)
         self.assertTrue(any(d.code == "ALIGN_MODULES_MISMATCH"
-                            and "Checkouts" in d.message for d in diags))
+                            and "FakeModule" in d.message for d in diags))
 
     def test_mixed_canonical_and_legacy_layout_fails_closed(self):
         self.build_valid()
@@ -293,6 +302,15 @@ class ModulesRowTest(AlignmentFixtureBase):
         self.assertTrue(all(d.code == "ALIGN_MODULES_MISMATCH" for d in diags)
                         and diags)
 
+    def test_stale_retired_checkouts_claim_fails(self):
+        self.build_valid()
+        s = SandboxBuilder(self.root)
+        s.architecture_with_registry(
+            modules=tuple(name for name in MODULE_SET if name != "Checkouts"))
+        diags = rpa.check_modules(self.root)
+        self.assertTrue(any(d.code == "ALIGN_MODULES_MISMATCH"
+                            and "Checkouts" in d.message for d in diags))
+
 
 class DbContextsRowTest(AlignmentFixtureBase):
 
@@ -301,9 +319,8 @@ class DbContextsRowTest(AlignmentFixtureBase):
         s.persistence_infra(snapshot=False)
         s.architecture_with_registry(contexts=CONTEXT_SET)
         s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext")
-        s.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext")
-        s.persistence_context("Persistence.MerchantRuntime",
-                              "MerchantRuntimeDbContext")
+        s.persistence_context("Persistence.MerchantRuntime", "CommerceDbContext",
+                              file_name="MerchantRuntimeDbContext")
 
     def test_positive(self):
         self.build_valid()
@@ -312,16 +329,16 @@ class DbContextsRowTest(AlignmentFixtureBase):
     def test_legacy_layout_is_aligned(self):
         s = SandboxBuilder(self.root)
         s.persistence_infra(snapshot=False, legacy=True)
-        s.architecture_with_registry(contexts=CONTEXT_SET)
+        s.architecture_with_registry(contexts=LEGACY_CONTEXT_SET)
         s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext", legacy=True)
         s.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext", legacy=True)
         s.persistence_context("Persistence.MerchantRuntime", "MerchantRuntimeDbContext", legacy=True)
         self.assertEqual(rpa.check_dbcontexts(self.root), [])
 
-    def test_empty_canonical_root_does_not_shadow_legacy_layout(self):
+    def test_empty_canonical_root_does_not_hide_missing_current_layout(self):
         s = SandboxBuilder(self.root)
         s.persistence_infra(snapshot=False, legacy=True)
-        s.architecture_with_registry(contexts=CONTEXT_SET)
+        s.architecture_with_registry(contexts=LEGACY_CONTEXT_SET)
         s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext", legacy=True)
         s.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext", legacy=True)
         s.persistence_context("Persistence.MerchantRuntime", "MerchantRuntimeDbContext", legacy=True)
@@ -339,20 +356,18 @@ class DbContextsRowTest(AlignmentFixtureBase):
     def test_removed_context_fails_both_ways(self):
         self.build_valid()
         s = SandboxBuilder(self.root)
-        s.architecture_with_registry(contexts=CONTEXT_SET[:2])
+        s.architecture_with_registry(contexts=CONTEXT_SET[:1])
         diags = rpa.check_dbcontexts(self.root)
         self.assertTrue(any(d.code == "ALIGN_DBCONTEXTS_MISMATCH"
-                            and "MerchantRuntimeDbContext" in d.message
+                            and "CommerceDbContext" in d.message
                             for d in diags))
 
     def test_mixed_canonical_and_legacy_layout_fails_closed(self):
         self.build_valid()
         s = SandboxBuilder(self.root)
-        for project, cls in (
-                ("Persistence.ControlPlane", "ControlPlaneDbContext"),
-                ("Persistence.MerchantUsers", "MerchantUserDbContext"),
-                ("Persistence.MerchantRuntime", "MerchantRuntimeDbContext")):
-            s.persistence_context(project, cls, legacy=True)
+        s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext", legacy=True)
+        s.persistence_context("Persistence.MerchantRuntime", "CommerceDbContext",
+                              legacy=True, file_name="MerchantRuntimeDbContext")
         diags = rpa.check_dbcontexts(self.root)
         self.assertEqual(["ALIGN_DBCONTEXTS_MISMATCH"], [d.code for d in diags])
         self.assertIn("canonical", diags[0].message)
@@ -423,12 +438,12 @@ class IsolationRowTest(AlignmentFixtureBase):
     def test_unsealed_context_fails(self):
         s = SandboxBuilder(self.root)
         s.isolation_tree()
-        victim = (s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantUsers/"
-                  "MerchantUserDbContext.cs")
-        victim.write_text("class MerchantUserDbContext {}", encoding="utf-8")
+        victim = (s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/"
+                  "MerchantRuntimeDbContext.cs")
+        victim.write_text("class CommerceDbContext {}", encoding="utf-8")
         diags = rpa.check_isolation(self.root)
         self.assertTrue(any(d.code == "ALIGN_ISOLATION_MISMATCH"
-                            and "MerchantUsers" in d.message for d in diags))
+                            and "Commerce" in d.message for d in diags))
 
     def test_no_filter_config_fails(self):
         s = SandboxBuilder(self.root)
@@ -437,7 +452,24 @@ class IsolationRowTest(AlignmentFixtureBase):
             cfg.unlink()
         diags = rpa.check_isolation(self.root)
         self.assertTrue(any(d.code == "ALIGN_ISOLATION_MISMATCH"
-                            and "MerchantRuntime" in d.message for d in diags))
+                            and "Commerce" in d.message for d in diags))
+
+    def test_comment_only_query_filter_in_context_fails(self):
+        # The real filter configs are gone and the only remaining `HasQueryFilter` mention is a
+        # comment inside the context file itself. That must NOT satisfy the guard: the guard proves
+        # a sibling config still declares a deny-default filter, not that the word appears anywhere.
+        s = SandboxBuilder(self.root)
+        s.isolation_tree()
+        runtime = s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime"
+        for cfg in runtime.glob("*Cfg.cs"):
+            cfg.unlink()
+        context = runtime / "MerchantRuntimeDbContext.cs"
+        context.write_text(
+            context.read_text(encoding="utf-8") + "\n// TODO restore HasQueryFilter someday\n",
+            encoding="utf-8")
+        diags = rpa.check_isolation(self.root)
+        self.assertTrue(any(d.code == "ALIGN_ISOLATION_MISMATCH"
+                            and "Commerce" in d.message for d in diags))
 
     def test_mixed_canonical_and_legacy_layout_fails_closed(self):
         s = SandboxBuilder(self.root)
