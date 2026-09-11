@@ -166,7 +166,7 @@ Summary token TTL คือ 72 ชั่วโมง. `POST /api/v1/orders/{orde
 
 ## PSP boundary
 
-Ports อยู่ `src/Modules/Payments/Payments.Application/Ports`:
+Ports อยู่ `src/Pol.Application/Modules/Payments.Application/Ports`:
 
 - `IPspAdapter`
 - `IPspAdapterFactory`
@@ -227,11 +227,11 @@ Migration ล่าสุด: `20260811024015_AdminDeliveryRuntimeGrants`; field
 
 ## Source of truth
 
-- `src/Modules/Payments/Payments.Domain/Session.cs`
-- `src/Modules/Payments/Payments.Domain/SessionStatus.cs`
-- `src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs`
-- `src/Modules/Payments/Payments.Application/StartRedirect/StartRedirectHandler.cs`
-- `src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs`
-- `src/Modules/Payments/Payments.Application/ConfirmPaymentStatus/ConfirmPaymentStatusHandler.cs`
-- `src/Hosts/Api/Program.cs`
-- `src/Persistence/Persistence.MerchantRuntime/Payments/`
+- `src/Pol.Domain/Modules/Payments.Domain/Session.cs`
+- `src/Pol.Domain/Modules/Payments.Domain/SessionStatus.cs`
+- `src/Pol.Application/Modules/Payments.Application/CreateSession/CreateSessionHandler.cs`
+- `src/Pol.Application/Modules/Payments.Application/StartRedirect/StartRedirectHandler.cs`
+- `src/Pol.Application/Modules/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs`
+- `src/Pol.Application/Modules/Payments.Application/ConfirmPaymentStatus/ConfirmPaymentStatusHandler.cs`
+- `src/Pol.Api/Api/Program.cs`
+- `src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/`

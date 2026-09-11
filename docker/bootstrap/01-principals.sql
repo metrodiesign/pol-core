@@ -24,7 +24,7 @@ IF (SELECT compatibility_level FROM sys.databases WHERE name = N'$(DbName)') <> 
 GO
 
 -- Collation gate: a fresh CREATE DATABASE above always pins Thai_100_CI_AS, but the EF dev
--- auto-migrate path (src/Hosts/Api/Program.cs MigrateAsync()) can also create $(DbName) itself —
+-- auto-migrate path (src/Pol.Api/Api/Program.cs MigrateAsync()) can also create $(DbName) itself —
 -- without COLLATE — if it races ahead of this script, and the guard above then never runs again.
 -- Fail loudly here instead of shipping mojibake into every downstream varchar column.
 DECLARE @dbCollation nvarchar(128) = ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(N'$(DbName)', N'Collation')), N'');

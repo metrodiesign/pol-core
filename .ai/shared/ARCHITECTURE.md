@@ -106,11 +106,10 @@ Orders → Paid. จบ ไม่มี issuance.
   `sec.fn_merchant_predicate`/security policy/`SESSION_CONTEXT` stamping/`EXECUTE AS` proc เหลืออยู่เลย. DB เหลือ
   **1 principal เดียว (`pol_app`)**. Floor ตัวจริงตอนนี้คือ **app layer ล้วน**, สองชั้นประกบกันต่อ context:
   1. **EF global query filter, deny-default** (`MerchantId == CurrentMerchant`; ไม่มี actor ผูก → เห็นศูนย์แถว ไม่ใช่เห็นหมด)
-     ต่อ 3 runtime `DbContext` ที่แยกตาม cluster: `ControlPlaneDbContext` (admin/iam/masterdata, ไม่มี filter — ไม่มี
-     merchant dimension), `MerchantUserDbContext` (merchant identity/session, filter เฉพาะ `Users`/`RoleAssignments`),
-     `MerchantRuntimeDbContext` (shop/txn data, filter ทุก entity ที่ implement `IMerchantFiltered`). `PolDbContext`
-     เดิมเหลือแค่ **migration-owner** (`NOT REGISTERED AT RUNTIME`).
-  2. **Sealed write guard** (`GuardedRuntimeDbContext.GuardPendingChanges`/`GuardTenantKey`, base class ของทั้ง 3
+     ใช้กับ Commerce cluster ผ่าน `CommerceDbContext`; Control Plane มี owner-specific filters สำหรับ identity rows
+     ที่มี merchant dimension และ owner-specific scope ports สำหรับ admin reads. Runtime มีเพียง 2 contexts:
+     `ControlPlaneDbContext` และ `CommerceDbContext`. `PolDbContext` เหลือ **migration-owner** (`NOT REGISTERED AT RUNTIME`).
+  2. **Sealed write guard** (`GuardedRuntimeDbContext.GuardPendingChanges`/`GuardTenantKey`, base class ของทั้ง 2
      context) — 4-overload `IWriteAuthorizer.CanWrite` ต่อ (entity, operation), concurrency token, tenant-key
      immutable-after-insert, `MerchantId == Guid.Empty` reject, ban set-based DML นอก allowlist.
   `IgnoreQueryFilters`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL ที่ข้าม merchant ยัง **ban เหมือนเดิม** — บังคับผ่าน
@@ -155,9 +154,9 @@ Orders → Paid. จบ ไม่มี issuance.
   ไม่มี query filter) ใน **Admin module**, schema `admin`; MerchantUser identity/session/RBAC ตารางข้างต้นอยู่ schema
   `merch` — **คนละ schema กันแล้ว** (เดิมทั้งคู่ schema เดียว `producer` ก่อน rf1). schema ยังไม่ใช่เส้นแบ่งของ floor (หลัง
   rls-to-query-filter ยิ่งชัดกว่าเดิม — ไม่มี DB policy ให้ผูกกับ schema เลย): floor บังคับตาม **`DbContext` cluster** —
-  `merch.Merchants`/`merch.VaultSecrets`/`VaultRevealAudits` อยู่ใต้ `MerchantRuntimeDbContext`'s query filter
-  แม้อยู่ schema เดียวกับตาราง identity/session ข้างบนที่อยู่คนละ context (`MerchantUserDbContext`, filter แค่
-  `Users`/`RoleAssignments`) และไม่อยู่ใต้ filter เดียวกัน
+  `merch.Merchants`/`merch.VaultSecrets`/`VaultRevealAudits` เป็น Control Plane owner rows; Commerce rows อยู่ใต้
+  `CommerceDbContext` filter. Historical MerchantUser/MerchantRuntime context names may appear in migration notes only,
+  never as current runtime registrations.
 - RBAC catalog — **rf2 (2026-07-13, spec `rf2-iam-rbac`)**: catalog ที่เดิมซ้ำ 2 ชุดต่อ console (schema `admin` + `merch`,
   16 keys/6 groups + 7 keys/3 groups) ยุบเป็น **catalog กลางเดียว module `Iam` schema `iam`** — 4 tables
   `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary (ณ rf2 — supersede 2026-09-06 เป็น 25 keys / 36 grants, ดู bullet Shared role scope ด้านล่าง) = **26 keys /
@@ -179,7 +178,7 @@ Orders → Paid. จบ ไม่มี issuance.
   Shared ทั้งสองฝั่ง, parity guard อนุญาต Shared ใต้ทุก policy และ**เฉพาะ** Shared ใต้ `dual-console`, DB CHECK
   `CK_Roles_ScopeMerchant` = `([Scope] IN (1, 3) AND [MerchantId] IS NULL) OR [Scope] = 2` (migration
   `20260906151900_SharedRoleScope`). catalog = **25 keys / 7 groups / 4 roles / 36 grants**
-- Per-agent visibility — **2026-09-06 (ปิด "rf6" ที่ค้าง)**: `MerchantRuntimeDbContext.CurrentMerchantUser` (จาก
+- Per-agent visibility — **2026-09-06 (ปิด "rf6" ที่ค้าง)**: `CommerceDbContext.CurrentMerchantUser` (จาก
   `IActorContext.UserId`) เข้า query filter ของ `Order` เป็นชั้นที่สอง — merchant user (Tier 1) เห็นเฉพาะ order ที่
   `InitiatingMerchantUserId == ตนเอง`; admin ambient scope / webhook / worker ไม่มี user จึงยังเห็นทั้ง merchant. seam
   เดียวครอบ list/detail/resend/cancel/reconciliation/payment-session mint ทั้งหมด และ `Session` ใช้ predicate เดียวกัน
@@ -280,26 +279,31 @@ parses เพื่อเทียบกับ filesystem/workflow จริง 
 
 | Module | Role |
 |---|---|
+| `Access` | authorization scopes, merchant access and role visibility |
+| `Accounts` | account, client and agent identity lifecycle |
 | `Admins` | admin identity, sessions, RBAC tier |
 | `Carts` | cart aggregate + checkout command |
+| `Checkouts` | checkout access, payment links and customer capability |
 | `Governance` | maker-checker approvals |
 | `Iam` | merchant-user identity plane |
 | `Merchants` | provisioning saga + vault |
+| `Migration` | migration readiness, conflict and recovery workflow |
 | `Notifications` | cross-module `INotification` host |
 | `Orders` | order lifecycle |
 | `Payments` | PSP adapter + webhook source of truth |
+| `Platform` | shared transaction and platform application seams |
 | `Products` | product catalog |
 | `Reporting` | read-side reports |
 
-(Empty retired containers `Checkouts`/`MasterData`/`Divisions`/`Levels`/`Offices`/`Positions` ไม่นับเป็น module)
+Module directories are source modules when they contain the canonical Domain/Application/Infrastructure
+markers. Historical retired containers are not registry rows.
 
 ### Runtime DbContexts
 
 | Context | Cluster |
 |---|---|
-| `ControlPlaneDbContext` | admin/iam/masterdata — no merchant filter |
-| `MerchantUserDbContext` | merchant identity/session — filter Users/RoleAssignments |
-| `MerchantRuntimeDbContext` | shop/txn data — filter IMerchant-bound entities |
+| `ControlPlaneDbContext` | admin/IAM/merchant configuration — owner-specific query filters and scoped ports |
+| `CommerceDbContext` | shop/checkout/txn/notification data — deny-default merchant filters |
 
 (`PolDbContext` = migration owner only, NOT registered at runtime)
 

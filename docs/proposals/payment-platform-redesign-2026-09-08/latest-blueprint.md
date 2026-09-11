@@ -194,7 +194,7 @@ Reporting เป็น query/read model บน Order และ Transaction ไ�
 ## 10. Source anchors
 
 - Target: `/Users/king_developer/Downloads/pol-platform-latest/01-business-overview.md`, `/Users/king_developer/Downloads/pol-platform-latest/04-data-model-and-migration.md`
-- Current identity/access: `src/Modules/Admins/Admins.Domain/Users/User.cs`, `src/Modules/Merchants/Merchants.Domain/Users/User.cs`, `src/Modules/Iam/Iam.Domain/ApiClients/ApiClient.cs`
-- Current merchant/order/checkout: `src/Modules/Merchants/Merchants.Domain/Originator.cs`, `src/Modules/Orders/Orders.Domain/Order.cs`
-- Current transaction/event: `src/Modules/Payments/Payments.Domain/Session.cs`, `src/Contracts/PaymentPaid.cs`
-- Current notification: `src/Modules/Notifications/`, `src/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs`
+- Current identity/access: `src/Pol.Domain/Modules/Admins.Domain/Users/User.cs`, `src/Pol.Domain/Modules/Merchants.Domain/Users/User.cs`, `src/Pol.Domain/Modules/Iam.Domain/ApiClients/ApiClient.cs`
+- Current merchant/order/checkout: `src/Pol.Domain/Modules/Merchants.Domain/Originator.cs`, `src/Pol.Domain/Modules/Orders.Domain/Order.cs`
+- Current transaction/event: `src/Pol.Domain/Modules/Payments.Domain/Session.cs`, `src/Pol.Application/Contracts/PaymentPaid.cs`
+- Current notification: `src/Modules/Notifications/`, `src/Pol.Infrastructure/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs`

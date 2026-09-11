@@ -38,7 +38,7 @@ product catalogue contract ใน source ที่ใช้งาน.
 
 ## 1. SharedKernel
 
-Path: `src/SharedKernel`.
+Path: `src/Pol.Domain/SharedKernel`.
 
 - `Entity<TId>` และ `AggregateRoot<TId>` เป็น base identity/aggregate.
 - `Money` เป็นเงินกลาง; amount ใช้ `decimal` และ currency ใช้ ISO code.
@@ -49,7 +49,7 @@ SharedKernel ไม่มี reference ไป layer อื่น.
 
 ## 2. Contracts
 
-Path: `src/Contracts`.
+Path: `src/Pol.Application/Contracts`.
 
 Contracts เป็น event/data seam ไม่ใช่บ้านของ HTTP DTO. Current event families ครอบคลุม:
 
@@ -66,9 +66,9 @@ Outbox enqueue เกิดใน transaction owner; background dispatcher เ�
 
 Paths:
 
-- `src/BuildingBlocks/BuildingBlocks.Application`
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure`
-- `src/BuildingBlocks/BuildingBlocks.Web`
+- `src/Pol.Application/BuildingBlocks.Application`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure`
+- `src/Pol.Api/BuildingBlocks.Web`
 
 หน้าที่หลัก:
 
@@ -149,7 +149,7 @@ Merchant user ใช้ OIDC BFF/session cookie. KYC photo ผ่าน private 
 
 ## 6. Hosts
 
-Path: `src/Hosts/Api`.
+Path: `src/Pol.Api/Api`.
 
 `Program.cs` เป็น composition root ของ current API:
 
@@ -177,7 +177,7 @@ Test projects ปัจจุบันแยกตาม module และ bounda
 
 - `.ai/shared/ARCHITECTURE.md`
 - `.ai/shared/CODING_STANDARDS.md`
-- `src/Hosts/Api/Program.cs`
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/`
+- `src/Pol.Api/Api/Program.cs`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/`
 - `docs/reference/src-structure.md`
 - `docs/reference/entity-fields.md`

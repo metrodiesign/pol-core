@@ -310,8 +310,8 @@ Non-production only may prove dependency-safe `Down` with:
 
 ```bash
 dotnet ef database update 0 --context PolDbContext \
-  --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-  --startup-project src/Hosts/Api
+  --project src/Pol.Infrastructure \
+  --startup-project src/Pol.Api
 ```
 
 Production rollback is backup restore, never this command.

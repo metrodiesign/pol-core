@@ -46,13 +46,14 @@ erDiagram
 | `admin` | `Users`, `Sessions`, `RoleAssignments`, `MerchantAccess`, `AuthAudits`, `UserAudits`, `ProvisioningOperations`, governance, operation, webhook/notification delivery tables | `ControlPlaneDbContext` |
 | `iam` | `PermissionGroups`, `Permissions`, `Roles`, `RolePermissions`, `ApiClients`, `OneTimeSecretTickets` | `ControlPlaneDbContext` |
 | `cfg` | `Divisions`, `Levels`, `Offices`, `Positions` | `ControlPlaneDbContext` |
-| `merch` | `Merchants`, `Users`, `Sessions`, `ExternalLogins`, `RoleAssignments`, `MerchantUserInvitations`, `MerchantUserManagementAudits`, `AdminUserOperationRecords`, `Originators`, `RegistrationAttempts`, `RegistrationAudits`, `RegistrationNotices`, `ProvisioningAudits`, `UserOutbox`, `VaultSecrets`, `VaultSecretVersions`, `VaultRevealAudits` | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
-| `shop` | `Carts`, `CartItems`, `Orders`, `OrderItems`, `OrderItemRevealAudits` | `MerchantRuntimeDbContext` |
-| `txn` | `PaymentSessions`, `PspConnections`, `AdminOperationRecords`, `RoutingRulesets`, `RoutingRules`, `InboundWebhookEvents`, `IdempotencyRecords`, `OutboxMessages` | `MerchantRuntimeDbContext` |
+| `merch` identity | `Users`, `Sessions`, `ExternalLogins`, `RoleAssignments`, `MerchantUserInvitations`, `MerchantUserManagementAudits`, `AdminUserOperationRecords`, `RegistrationAttempts`, `RegistrationAudits`, `RegistrationNotices`, `UserOutbox` | `ControlPlaneDbContext` |
+| `merch` commerce | `Merchants`, `Branches`, `Sales`, `Originators`, `ProvisioningAudits`, `VaultSecrets`, `VaultSecretVersions`, `VaultRevealAudits` | `CommerceDbContext` |
+| `shop` | `Carts`, `CartItems`, `Orders`, `OrderItems`, `OrderItemRevealAudits` | `CommerceDbContext` |
+| `txn` | `PaymentSessions`, `PspConnections`, `AdminOperationRecords`, `RoutingRulesets`, `RoutingRules`, `InboundWebhookEvents`, `IdempotencyRecords`, `OutboxMessages` | `CommerceDbContext` |
 | `dbo` | `DataProtectionKeys` | migration owner / ASP.NET Core |
 
-`PolDbContext` เป็น migration owner เท่านั้น. Runtime ใช้ `ControlPlaneDbContext`, `MerchantUserDbContext` และ
-`MerchantRuntimeDbContext`. ทุก runtime context ใช้ principal `pol_app`; ไม่มี SQL RLS, bypass principal หรือ
+`PolDbContext` เป็น migration owner เท่านั้น. Runtime ใช้ `ControlPlaneDbContext` และ `CommerceDbContext`.
+ชื่อ context เดิมของ merchant-user/merchant-runtime เหลือ compatibility fixture ที่ไม่ register. ทุก runtime context ใช้ principal `pol_app`; ไม่มี SQL RLS, bypass principal หรือ
 `SESSION_CONTEXT`. Merchant isolation ใช้ query filter, actor context และ guarded write.
 
 ## Merchant and KYC
@@ -195,11 +196,11 @@ Production rollback ใช้ verified backup/restore ตาม runbook; ไม�
 
 ## Source of truth
 
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
 - migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants`
-- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
+- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
 - `docs/reference/entity-fields.md`
-- `src/Hosts/Api/Program.cs`
+- `src/Pol.Api/Api/Program.cs`

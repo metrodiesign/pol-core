@@ -85,7 +85,7 @@ migrations: API auto-migrate ตอน boot ใน Dev (ถ้าตั้ง `C
 ```bash
 set -a && source .env && set +a
 dotnet ef database update --context PolDbContext \
-  --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
+  --project src/Pol.Infrastructure --startup-project src/Pol.Api
 ```
 
 ### Topology
@@ -93,7 +93,7 @@ dotnet ef database update --context PolDbContext \
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
 | SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
-| API (`src/Hosts/Api`) | `5001` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
+| API (`src/Pol.Api`) | `5001` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (dispatcher อยู่ `src/Pol.Api/Api/BackgroundDispatch/`) |
 | FE customer (repo แยก) | `3000` (https) | — | Customer checkout/return, proxy `/api` -> `https://localhost:5001` |
 | FE admin console (repo แยก) | `3001` (https) | — | Next.js, proxy Admin routes ไป `https://localhost:5001` ตาม [Admin control plane reference](docs/reference/admin-control-plane.md) |
 | FE merchant-user console (repo แยก) | `3002` (https) | — | Next.js, proxy `/api/v1/merchants/*` -> `https://localhost:5001` |
@@ -113,7 +113,7 @@ connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>
 ```bash
 docker compose up -d                                      # DB (ถ้ายังไม่ขึ้น)
 dotnet dev-certs https --trust                            # ครั้งแรกของเครื่อง
-dotnet watch --project src/Hosts/Api/Api.csproj run       # API https://localhost:5001 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
+dotnet watch --project src/Pol.Api/Pol.Api.csproj run       # API https://localhost:5001 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
 ```
 
 > config change (`appsettings.*.json`) / DI ต้อง **restart เต็ม** (hot reload ไม่จับ).

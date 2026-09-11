@@ -56,7 +56,7 @@ cat >"$STUB_BIN/dotnet" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$DOTNET_LOG"
 case "$*" in
-    *"WorkforceIdentityMigrator"*) exit "${WORKFORCE_TOOL_EXIT:-0}" ;;
+    *"Pol.Infrastructure/Pol.Infrastructure.csproj"*) exit "${WORKFORCE_TOOL_EXIT:-0}" ;;
 esac
 EOF
 chmod +x "$STUB_BIN/dotnet"
@@ -175,7 +175,7 @@ check_not_contains "privacy: motor source target absent from output" "$out_ok" "
 check_not_contains "privacy: non-motor source target absent from output" "$out_ok" "mammothhost.internal"
 check_contains "reachable: single probe attempt (DB_SERVER)" "$(cat "$(probe_file dbhost.internal 1433)" 2>/dev/null)" "1"
 dotnet_log="$(cat "$TMPDIR/dotnet.log")"
-check_contains "workforce tool: invoked" "$dotnet_log" "src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj"
+check_contains "workforce tool: invoked" "$dotnet_log" "src/Pol.Infrastructure/Pol.Infrastructure.csproj"
 schema_call="$(grep 'docker/migrations/schema.sql' "$TMPDIR/sqlcmd.log")"
 check_contains "schema script: applied via sqlcmd"           "$schema_call" "-i docker/migrations/schema.sql"
 check_contains "schema script: targets DB_NAME"              "$schema_call" "-d AppDb"

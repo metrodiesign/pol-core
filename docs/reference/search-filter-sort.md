@@ -5,7 +5,7 @@
 
 ## Generic contract
 
-Parser อยู่ที่ `src/Hosts/Api/SfsQueryParser.cs` และแปลง query string เป็น shared value types ใน
+Parser อยู่ที่ `src/Pol.Api/Api/SfsQueryParser.cs` และแปลง query string เป็น shared value types ใน
 `BuildingBlocks.Application`.
 
 | Parameter | รูปแบบ | กฎ |
@@ -69,7 +69,7 @@ dynamic. ค่า filter ถูก parse เป็น type ของ field แ�
 `GET /api/v1/admins/roles` ใช้ generic SFS. Role implementation รองรับ whitelist:
 
 - filters: `status`, `code`, `name`, `description`
-- operators ต่างกันตาม field; ตรวจที่ `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs`
+- operators ต่างกันตาม field; ตรวจที่ `src/Pol.Infrastructure/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs`
 - sort/search ใช้ whitelist ใน implementation เดียวกัน
 
 ### Merchant order list
@@ -120,15 +120,15 @@ Dashboard และ operations report ใช้ `from`, `to`, `merchantId` แ�
 
 | Concern | Path |
 |---|---|
-| Query parser | `src/Hosts/Api/SfsQueryParser.cs` |
-| Filter value | `src/BuildingBlocks/BuildingBlocks.Application/FilterOption.cs` |
-| Filter operators | `src/BuildingBlocks/BuildingBlocks.Application/FilterOperator.cs` |
-| Sort value/direction | `src/BuildingBlocks/BuildingBlocks.Application/SortOption.cs`, `SortDirection.cs` |
-| Search value | `src/BuildingBlocks/BuildingBlocks.Application/SearchOption.cs` |
-| Admin whitelist | `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` |
-| Role whitelist | `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` |
-| Products typed filters | `src/Modules/Products/Products.Application/ListProducts.cs` |
-| API route composition | `src/Hosts/Api/Program.cs` |
+| Query parser | `src/Pol.Api/Api/SfsQueryParser.cs` |
+| Filter value | `src/Pol.Application/BuildingBlocks.Application/FilterOption.cs` |
+| Filter operators | `src/Pol.Application/BuildingBlocks.Application/FilterOperator.cs` |
+| Sort value/direction | `src/Pol.Application/BuildingBlocks.Application/SortOption.cs`, `SortDirection.cs` |
+| Search value | `src/Pol.Application/BuildingBlocks.Application/SearchOption.cs` |
+| Admin whitelist | `src/Pol.Infrastructure/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` |
+| Role whitelist | `src/Pol.Infrastructure/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` |
+| Products typed filters | `src/Pol.Application/Modules/Products.Application/ListProducts.cs` |
+| API route composition | `src/Pol.Api/Api/Program.cs` |
 
 ## Explicitly not current
 

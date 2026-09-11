@@ -109,13 +109,13 @@ metadata. `OrderItems` ไม่เก็บ upstream document ทุก field; 
 
 | Path | หน้าที่ |
 |---|---|
-| `src/Modules/Products/Products.Application/ListProducts.cs` | `ProductFilterDto`, `ListProductsQuery`, `ProductPage`, `ProductListItem`, live list handler |
-| `src/Modules/Products/Products.Application/LookupDocument.cs` | internal document lookup สำหรับ Cart และ Order creation |
-| `src/Modules/Products/Products.Application/Ports/ISpDocumentGateway.cs` | upstream port |
-| `src/Modules/Products/Products.Infrastructure/Sp/SpDocumentGateway.cs` | ADO.NET stored-procedure adapter |
-| `src/Hosts/Api/Program.cs` | `/api/v1/products` และ Cart add-item composition |
-| `src/Hosts/Api/Orders/OrderCreationCoordinator.cs` | live revalidation และ atomic Cart-to-Order |
-| `src/Persistence/Persistence.MerchantRuntime/Orders/DocumentSaleProbe.cs` | cross-module sale probe |
+| `src/Pol.Application/Modules/Products.Application/ListProducts.cs` | `ProductFilterDto`, `ListProductsQuery`, `ProductPage`, `ProductListItem`, live list handler |
+| `src/Pol.Application/Modules/Products.Application/LookupDocument.cs` | internal document lookup สำหรับ Cart และ Order creation |
+| `src/Pol.Application/Modules/Products.Application/Ports/ISpDocumentGateway.cs` | upstream port |
+| `src/Pol.Infrastructure/Modules/Products.Infrastructure/Sp/SpDocumentGateway.cs` | ADO.NET stored-procedure adapter |
+| `src/Pol.Api/Api/Program.cs` | `/api/v1/products` และ Cart add-item composition |
+| `src/Pol.Api/Api/Orders/OrderCreationCoordinator.cs` | live revalidation และ atomic Cart-to-Order |
+| `src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/Orders/DocumentSaleProbe.cs` | cross-module sale probe |
 
 ## Retired contract
 
@@ -125,9 +125,9 @@ metadata. `OrderItems` ไม่เก็บ upstream document ทุก field; 
 
 ## Source of truth
 
-- `src/Modules/Products/Products.Application/ListProducts.cs`
-- `src/Modules/Products/Products.Application/LookupDocument.cs`
-- `src/Modules/Products/Products.Infrastructure/Sp/SpDocumentGateway.cs`
-- `src/Hosts/Api/Program.cs`
-- `src/Hosts/Api/Orders/OrderCreationCoordinator.cs`
-- `src/Persistence/Persistence.MerchantRuntime/Orders/DocumentSaleProbe.cs`
+- `src/Pol.Application/Modules/Products.Application/ListProducts.cs`
+- `src/Pol.Application/Modules/Products.Application/LookupDocument.cs`
+- `src/Pol.Infrastructure/Modules/Products.Infrastructure/Sp/SpDocumentGateway.cs`
+- `src/Pol.Api/Api/Program.cs`
+- `src/Pol.Api/Api/Orders/OrderCreationCoordinator.cs`
+- `src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/Orders/DocumentSaleProbe.cs`

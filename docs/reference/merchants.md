@@ -146,9 +146,9 @@ horizontal or multi-host deployment.
 
 ## Persistence boundaries
 
-- Merchant identity/session/invitation/outbox: `MerchantUserDbContext`
-- Merchant profile/vault/originator/Carts/Orders/Payments: `MerchantRuntimeDbContext`
-- Admin control-plane operation records: `ControlPlaneDbContext`, `MerchantUserDbContext` หรือ `MerchantRuntimeDbContext`
+- Merchant identity/session/invitation/outbox: `ControlPlaneDbContext`
+- Merchant profile/vault/originator/Carts/Orders/Payments: `CommerceDbContext`
+- Admin control-plane operation records: `ControlPlaneDbContext` หรือ `CommerceDbContext` ตาม aggregate ที่ถูกแก้
   ตาม aggregate ที่ถูกแก้
 - global query filters deny unbound/wrong merchant
 - sealed write guard rechecks tenant key and operation authority

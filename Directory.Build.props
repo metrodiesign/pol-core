@@ -11,6 +11,8 @@
          connection. Unit tests use Sqlite (invariant-safe) so this only surfaces against real SQL. -->
     <InvariantGlobalization>false</InvariantGlobalization>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Aggregated projects own nested source directories; exclude their legacy build outputs too. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/bin/**;**/obj/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Scriban 6.2.0 transitive-vuln suppression (spike 2026-06-21, CODING_STANDARDS.md).
@@ -78,6 +80,18 @@
     <Error
       Condition="'@(_ForbiddenControlPlaneRef)' != '' AND !$(_ControlPlaneReferenceAllowlist.Contains(';$(MSBuildProjectName);'))"
       Text="Forbidden ProjectReference: '$(MSBuildProjectName)' may not reference Persistence.ControlPlane (compile-time control-plane isolation boundary, rls-to-query-filter REQ-11.8). Allowed: $(_ControlPlaneReferenceAllowlist)" />
+  </Target>
+
+  <Target Name="PlatformRestructure_EnforceLayerDependencies" BeforeTargets="Build">
+    <ItemGroup>
+      <_ForbiddenLayerReference Include="@(ProjectReference)"
+        Condition="'$(PlatformLayer)' == 'Domain' AND ('%(Filename)' == 'Pol.Application' OR '%(Filename)' == 'Pol.Infrastructure' OR '%(Filename)' == 'Pol.Api')" />
+      <_ForbiddenLayerReference Include="@(ProjectReference)"
+        Condition="'$(PlatformLayer)' == 'Application' AND ('%(Filename)' == 'Pol.Infrastructure' OR '%(Filename)' == 'Pol.Api')" />
+    </ItemGroup>
+    <Error
+      Condition="'@(_ForbiddenLayerReference)' != ''"
+      Text="Forbidden ProjectReference: platform layer '$(PlatformLayer)' may not reference the lower-layer project '%(_ForbiddenLayerReference.Filename)'." />
   </Target>
 
 </Project>

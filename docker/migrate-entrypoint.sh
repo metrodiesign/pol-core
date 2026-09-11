@@ -129,7 +129,7 @@ sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b -I \
   -i docker/migrations/schema.sql
 
 echo "[migrate] validating and converting workforce identities..."
-dotnet run --project src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj \
+dotnet run --project src/Pol.Infrastructure/Pol.Infrastructure.csproj \
   -c Release --no-build
 
 echo "[migrate] done."

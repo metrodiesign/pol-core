@@ -10,14 +10,14 @@
     <PackageVersion Include="Mediator.Abstractions" Version="3.0.1" />
     <PackageVersion Include="Mediator.SourceGenerator" Version="3.0.1" />
     <!-- EF Core 10 + SQL Server provider -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.8" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <!-- In-memory Sqlite for ProducerDbContext model/integration tests -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
     <!-- Direct ADO.NET for the VCentralPay document-search procedures (two result sets from databases
          outside every DbContext model). Exact patch = the version EF SqlServer 10.0.8 already resolves
          transitively, so the direct reference never splits the graph. -->
-    <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.1.6" />
     <!-- ASP.NET Core auth (Google SSO via OIDC/JWT) -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
     <!-- Admin BFF: server-side OIDC Authorization Code flow (confidential client) -->
@@ -35,6 +35,11 @@
          REQ-7.6/7.7). Abstractions only — no provider, no configuration — and the same 10.0.8 that EF Core
          already resolves transitively everywhere else. -->
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+    <!-- OAuth owner for Account/Access tokens, codes, grants and replay-safe revocation. -->
+    <PackageVersion Include="OpenIddict.EntityFrameworkCore" Version="7.7.0" />
+    <PackageVersion Include="OpenIddict.Server.AspNetCore" Version="7.7.0" />
+    <PackageVersion Include="OpenIddict.Validation.AspNetCore" Version="7.7.0" />
+    <PackageVersion Include="OpenIddict.Validation.ServerIntegration" Version="7.7.0" />
     <!-- Test stack -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.8" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

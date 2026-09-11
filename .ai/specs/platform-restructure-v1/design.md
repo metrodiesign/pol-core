@@ -76,7 +76,7 @@ Outbox consumer ใช้ `SourceEventId` เป็น inbox key เมื่อ
 
 ### Scope and migration boundary
 
-รุ่นแรกเป็น maintenance cutover เดียว ไม่มี rolling dual writer ลำดับบังคับคือ inventory, deterministic mapping, dry-run report, rehearsal จาก backup, pause business writers, final backfill, verify invariants, switch routes/workers แล้วเฝ้าระวัง PSP callbacks
+รุ่นแรกเป็น maintenance cutover เดียว ไม่มี rolling dual writer ลำดับบังคับคือ inventory, deterministic mapping, dry-run report, rehearsal จาก backup, pause business writers, final backfill, verify invariants, switch routes/workers แล้วเฝ้าระวัง PSP callbacks. เนื่องจาก environment นี้ไม่มี sanitized backup ที่ได้รับอนุมัติ การทดสอบ local ของ Task 9 ใช้ synthetic backup ที่สร้างและ restore เข้า isolated SQL เพื่อพิสูจน์ machinery เท่านั้น; ผลนี้ไม่ใช่หลักฐาน dataset readiness หรือ production cutover readiness.
 
 - ระหว่าง pause ยังรับ callback เข้า durable recovery inbox หรือคิวหน้าระบบ และ replay หลัง target พร้อม ห้ามทิ้งผลเงินจริง
 - Backfill ไม่เรียก PSP, ไม่สร้าง charge, ไม่ส่ง Email/SMS/business event และติด `MigrationProvenance`
@@ -690,7 +690,7 @@ Integration suite ต้องครอบ JIT race, registration approve/reject
 
 Contract tests โหลด `api-scope.json` แล้วตรวจ IDs API-001–116, method/path unique, v1 count 111, deferred count 5, route metadata/caller policy ครบ และยืนยันว่า API-033/034/108–110 ไม่มี route Mapping tests ตรวจว่า runtime contexts กับ migration composition ใช้ configuration types เดียวกันและ migration model ไม่มี table owner ซ้ำ
 
-Migration rehearsal เริ่มจาก sanitized backup ตรวจ count ต่อ legacy kind, mapping completeness, Order IDs, `Session.Id -> Transaction.Id`, provider references, amount sums แยก currency, snapshot provenance, pending callbacks และ zero generated external side effects การพบ unknown/conflict ต้องทำ rehearsal fail
+Migration rehearsal สำหรับ external acceptance ต้องเริ่มจาก sanitized backup ที่มีเจ้าของและ chain of custody ตรวจ count ต่อ legacy kind, mapping completeness, Order IDs, `Session.Id -> Transaction.Id`, provider references, amount sums แยก currency, snapshot provenance, pending callbacks และ zero generated external side effects. Local synthetic backup ที่ใช้แทนใน Task 9 ระบุเป็น implementation/local tests complete เท่านั้น และไม่ยกสถานะเป็น production/cutover ready. การพบ unknown/conflict ต้องทำ rehearsal fail
 
 External contract tests แยก capability ต่อ Entra/PSP/Email/SMS การใช้ fake ผ่านพิสูจน์ orchestration เท่านั้น Live-readiness test ต้องมี environment evidence จริง มิฉะนั้นคาดหวัง disabled/`BLOCKED_NOT_CONFIGURED` ไม่ประกาศ cutover-ready
 

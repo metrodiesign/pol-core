@@ -16,12 +16,11 @@ Credentials come from environment/file secret manager only. Runtime principal ha
 
 ## Context ownership
 
-- `ControlPlaneDbContext`: admin/IAM/cfg; no merchant dimension
-- `MerchantUserDbContext`: merchant identity/session; merchant query filters on owned rows
-- `MerchantRuntimeDbContext`: merchant profile/vault/shop/txn; deny-default merchant filters
+- `ControlPlaneDbContext`: admin/IAM/cfg และ merchant identity/session; merchant-user adapters ใช้ context นี้
+- `CommerceDbContext`: merchant profile/vault/shop/txn; deny-default merchant filters
 - `PolDbContext`: full migration model only; never runtime registered
 
-All runtime contexts derive guarded base. Read filter requires bound current merchant. Write guard rejects unbound actor,
+ทั้งสอง runtime contexts derive guarded base. Read filter requires bound current merchant. Write guard rejects unbound actor,
 empty/mismatched/changed tenant key, forbidden operation and banned bulk/raw bypass.
 
 ## Escape hatches

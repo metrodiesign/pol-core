@@ -11,7 +11,7 @@
 | Collation | `Thai_100_CI_AS` |
 | Migration chain | `20260807042818_InitialSchema` → `20260807042828_SecurityObjects` → `20260807042833_SeedData` → `20260808161508_OneBasedPersistedEnumStorage` → `20260809183210_MerchantRealApiIdentity` → `20260810041211_AdminConsolePermissionKeys` → `20260810055607_GovernanceFoundation` → `20260810055818_GovernancePlatformHeadUniqueness` → `20260810074055_AdminConsoleResourceVersions` → `20260810112718_AdminTenantPspRoutingControlPlane` → `20260810133139_AdminMerchantIdentityControl` → `20260810150130_AdminCommerceLifecycle` → `20260810153008_AdminCommerceUpdatedAtDefault` → `20260810162000_AdminCommerceOperationUpdateGrant` → `20260810184403_AdminDeliveryControlAndInboundWebhook` → `20260811024015_AdminDeliveryRuntimeGrants` |
 | Runtime principal | `pol_app` |
-| Runtime contexts | `ControlPlaneDbContext`, `MerchantUserDbContext`, `MerchantRuntimeDbContext` |
+| Runtime contexts | `ControlPlaneDbContext`, `CommerceDbContext` |
 | Migration context | `PolDbContext` เท่านั้น |
 | Tenant isolation | app-layer query filter + guarded write; ไม่มี SQL RLS, `SESSION_CONTEXT` หรือ bypass principal |
 
@@ -29,9 +29,10 @@
 | `admin` | platform users, sessions, access, role assignments, governance, audit, operation ledger, webhook/notification delivery | `ControlPlaneDbContext` |
 | `iam` | permission groups, permissions, roles, grants, API clients, one-time secret tickets | `ControlPlaneDbContext` |
 | `cfg` | payment capability catalog (methods, providers, options) | `ControlPlaneDbContext` |
-| `merch` | merchants, merchant users, invitations, originators, registration, vault, admin operation ledger, user outbox | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
-| `shop` | carts, cart items, orders, order items, reveal audit | `MerchantRuntimeDbContext` |
-| `txn` | payment sessions, PSP connections, routing, inbound webhooks, admin operation ledger, idempotency, outbox | `MerchantRuntimeDbContext` |
+| `merch` identity | merchant users, invitations, sessions, registration, user outbox | `ControlPlaneDbContext` |
+| `merch` commerce | merchants, branches, sales, originators, vault, provisioning audit | `CommerceDbContext` |
+| `shop` | carts, cart items, orders, order items, reveal audit | `CommerceDbContext` |
+| `txn` | payment sessions, PSP connections, routing, inbound webhooks, admin operation ledger, idempotency, outbox | `CommerceDbContext` |
 | `dbo` | ASP.NET Data Protection keys, EF migration history | framework / migration owner |
 
 ## `admin` schema
@@ -1065,12 +1066,12 @@ Native SQL Server `json` columns มี exactly 5 จุด:
 
 ## Source of truth
 
-1. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
-2. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
-3. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
-4. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
+1. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
+2. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
+3. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
+4. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
 5. Migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants` ในโฟลเดอร์เดียวกัน
-6. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
-7. EF configurations ใต้ `src/Persistence/` และ module infrastructure
+6. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
+7. EF configurations ใต้ `src/Pol.Infrastructure/Persistence/` และ module infrastructure
 
 เมื่อ schema เปลี่ยน ต้องอัปเดต migration, model snapshot และเอกสารนี้พร้อมกัน.

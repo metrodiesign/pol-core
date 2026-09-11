@@ -1,6 +1,6 @@
 # Iam Module Reference
 
-> As-built 2026-08-13. Source of truth: `src/Modules/Iam/Iam.Domain/Permissions/Keys.cs`.
+> As-built 2026-08-13. Source of truth: `src/Pol.Domain/Modules/Iam.Domain/Permissions/Keys.cs`.
 
 ## Catalog
 
