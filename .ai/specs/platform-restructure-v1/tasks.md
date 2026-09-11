@@ -98,7 +98,8 @@
   - database: fresh `PolOrdersLinksTask5Test` ใช้ migration chain ถึง `20260910060757_Task5OrdersLinks`; ตรวจ legacy backfill, direct composite FK, active-link uniqueness, protected replay, token hash และ no Payment/Transaction table
   - environment: ใช้ local SQL Server และ Data Protection provider; ไม่มี live Entra/PSP/SMS credential จึงไม่ประกาศ live หรือ cutover readiness
   - viewports: n/a — backend order/payment-link logic; pricing/issue/rotation ตรวจผ่าน host และ SQL Server integration tests
-  - evidence: review-fix เพิ่ม HTTP+SQL canonical create false/default true, PATCH→issue→rotate, protected replay, trusted quote rejection และ no-write security checks; Cart compatibility ย้ายไป `/api/v1/orders/from-cart`
+  - evidence: review-fix เพิ่มหลักฐาน HTTP+SQL ของ canonical create false/default true, PATCH→issue→rotate, protected replay, trusted quote rejection และ no-write security checks; ย้าย Cart compatibility ไปที่ `/api/v1/orders/from-cart`
+  - deviations: ใช้เฉพาะหลักฐาน local SQL, Data Protection และ capture adapter; ไม่มี live Entra/PSP/SMS และไม่อ้าง production/cutover; legacy `/orders/from-cart` คงไว้โดยตั้งใจนอก canonical inventory
 
 - [x] 6. Checkout และ Transaction — per-tab confirm, persist-before-PSP, 2C2P/Omise adapters, callback/return/inquiry, same-reference recovery และ late/duplicate-success handling
   Satisfies: REQ-7.6, REQ-7.7, REQ-7.8, REQ-7.9, REQ-7.10, REQ-8
@@ -167,7 +168,8 @@
   - comparator: EndpointDataSource actual278, overlap111, missing0, deferred0; legacy extras167 จัดหมวดใน `task8-legacy-extras.md` สำหรับ Task10
   - guide: `docs/runbooks/platform-api-v1.md` เป็นคู่มือ canonical ภาษาไทย ครอบ auth contexts, headers, SFS, errors, callbacks, health และ external capability deviations
   - viewports: n/a — backend API inventory/contract; route metadata/authorization/SFS ตรวจผ่าน host และ SQL Server integration tests
-  - evidence: API-079 now pins `CreateOrderRequest`; canonical create/patch/issue/rotate runtime path is covered by real HTTP+SQL tests, while `/orders/from-cart` remains an explicit legacy compatibility route outside the canonical inventory
+  - evidence: API-079 ผูกกับ `CreateOrderRequest`; เส้นทาง canonical create/patch/issue/rotate มีหลักฐาน runtime จาก test จริงแบบ HTTP+SQL ส่วน `/orders/from-cart` ยังคงเป็น legacy compatibility route นอก canonical inventory
+  - deviations: ตรวจ canonical111/auth/pricing/outbox ใน local ด้วย capture adapter; ไม่มี live Entra/PSP/Email/SMS หรือ production cutover; legacy extras ที่คงไว้ยังเป็น KEEP/DEFER ตาม Task10 inventory
 
 - [x] 9. เครื่องมือย้ายและซ้อม cutover — deterministic ID mapping, conflict report, backfill ไม่มี external side effect, callback recovery และ forward-safe rollback จาก sanitized backup
   Satisfies: REQ-11.2, REQ-11.3, REQ-11.4, REQ-11.5, REQ-11.6, REQ-11.7, REQ-11.8, REQ-11.9, REQ-11.11, REQ-12.2, REQ-12.3
