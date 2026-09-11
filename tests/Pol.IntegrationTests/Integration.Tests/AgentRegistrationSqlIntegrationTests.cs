@@ -18,6 +18,7 @@ namespace Integration.Tests;
 
 [Collection("IdentityAccessSql")]
 [Trait("Capability", "Registration")]
+[Trait("Category", "Integration")]
 public sealed class AgentRegistrationSqlIntegrationTests
 {
     private static string Database =>

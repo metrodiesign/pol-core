@@ -15,6 +15,7 @@ using Persistence.MerchantRuntime.Notifications;
 namespace Hosts.Tests;
 
 [Collection("ApiOperationsSql")]
+[Trait("Category", "Integration")]
 public sealed class Task8IdentityAccessA2SqlTests
 {
     [Fact]

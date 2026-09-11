@@ -33,6 +33,7 @@ namespace Hosts.Tests;
 
 [Collection("IdentityAccessSql")]
 [Trait("Capability", "Registration")]
+[Trait("Category", "Integration")]
 public sealed class AgentRegistrationHostTests
 {
     [Fact]

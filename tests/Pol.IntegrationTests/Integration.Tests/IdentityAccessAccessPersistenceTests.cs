@@ -5,6 +5,7 @@ namespace Integration.Tests;
 
 [Collection("IdentityAccessSql")]
 [Trait("Capability", "IdentityAccess")]
+[Trait("Category", "Integration")]
 public sealed class IdentityAccessAccessPersistenceTests
 {
     [Fact]

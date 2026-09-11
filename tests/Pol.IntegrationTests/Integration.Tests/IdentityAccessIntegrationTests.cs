@@ -13,6 +13,7 @@ public sealed class IdentityAccessSqlCollection;
 
 [Collection("IdentityAccessSql")]
 [Trait("Capability", "IdentityAccess")]
+[Trait("Category", "Integration")]
 public sealed class IdentityAccessIntegrationTests
 {
     [Fact]

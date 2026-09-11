@@ -54,6 +54,7 @@ file sealed class IdentityAccessOAuthFactory : WebApplicationFactory<ApiHost::Pr
 }
 
 [Trait("Capability", "IdentityAccess")]
+[Trait("Category", "Integration")]
 public sealed class IdentityAccessOAuthTests
 {
     [Fact]

@@ -27,6 +27,7 @@ namespace Hosts.Tests;
 
 [Trait("Capability", "ApiOperations")]
 [Collection("ApiOperationsSql")]
+[Trait("Category", "Integration")]
 public sealed class Task8OperationsC2SqlTests
 {
     private static readonly DateTime Now = new(2026, 9, 10, 22, 0, 0, DateTimeKind.Utc);

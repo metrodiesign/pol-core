@@ -104,6 +104,7 @@ class Task8A1SqlFactory : WebApplicationFactory<ApiHost::Program>
 
 [Trait("Capability", "ApiOperations")]
 [Collection("ApiOperationsSql")]
+[Trait("Category", "Integration")]
 public sealed class Task8IdentityAccessA1SqlTests
 {
     [Fact]

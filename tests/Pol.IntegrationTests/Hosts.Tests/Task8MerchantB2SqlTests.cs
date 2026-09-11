@@ -9,6 +9,7 @@ namespace Hosts.Tests;
 
 [Trait("Capability", "ApiOperations")]
 [Collection("ApiOperationsSql")]
+[Trait("Category", "Integration")]
 public sealed class Task8MerchantB2SqlTests
 {
     [Fact]

@@ -11,6 +11,7 @@ namespace Integration.Tests;
 
 [Collection("IdentityAccessSql")]
 [Trait("Capability", "MigrationReadiness")]
+[Trait("Category", "Integration")]
 public sealed class MerchantRuntimeAuthorizationLeaseIntegrationTests
 {
     [Fact]
