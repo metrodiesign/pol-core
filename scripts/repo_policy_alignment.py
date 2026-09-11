@@ -195,16 +195,20 @@ def _runtime_persistence_layout_is_mixed(root: Path) -> tuple[list[Path], list[P
 
 
 def fs_runtime_dbcontexts(root: Path) -> list[str]:
-    """Runtime DbContext declarations under canonical or legacy persistence paths."""
+    """Runtime DbContext declarations under the current persistence paths.
+
+    The file name is not necessarily the declared type after the Task10 owner move:
+    MerchantRuntimeDbContext.cs declares CommerceDbContext. Parse declarations rather
+    than treating a historical file name as a live context identity.
+    """
     base = root / _runtime_persistence_base(root)
     contexts = []
     if not base.is_dir():
         return contexts
     for path in sorted(base.rglob("*DbContext.cs")):
-        name = path.stem
-        if re.search(rf"\bclass {name}\b", path.read_text(encoding="utf-8",
-                                                          errors="replace")):
-            contexts.append(name)
+        body = path.read_text(encoding="utf-8", errors="replace")
+        contexts.extend(re.findall(
+            r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*DbContext)\b", body))
     return contexts
 
 
@@ -360,12 +364,27 @@ def check_isolation(root: Path) -> list[Diag]:
     if not guard.is_file():
         problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
                              f"sealed write floor หาย: {guard}"))
-    contexts = {
-        "ControlPlane": root / _runtime_persistence_base(root) / "Persistence.ControlPlane/ControlPlaneDbContext.cs",
-        "MerchantUsers": root / _runtime_persistence_base(root) / "Persistence.MerchantUsers/MerchantUserDbContext.cs",
-        "MerchantRuntime": root / _runtime_persistence_base(root) / "Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs",
-    }
-    for cluster, path in contexts.items():
+    runtime_base = root / _runtime_persistence_base(root)
+    if runtime_base == root / _CANONICAL_RUNTIME_PERSISTENCE_BASE:
+        contexts = {
+            "ControlPlane": (runtime_base / "Persistence.ControlPlane/ControlPlaneDbContext.cs",
+                             "ControlPlaneDbContext"),
+            "Commerce": (runtime_base / "Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs",
+                          "CommerceDbContext"),
+        }
+    else:
+        # Historical packaging layout is still checked for preservation. It has three old
+        # context declarations; current canonical layout above is the only one accepted for
+        # the as-built tree.
+        contexts = {
+            "ControlPlane": (runtime_base / "Persistence.ControlPlane/ControlPlaneDbContext.cs",
+                             "ControlPlaneDbContext"),
+            "MerchantUsers": (runtime_base / "Persistence.MerchantUsers/MerchantUserDbContext.cs",
+                              "MerchantUserDbContext"),
+            "MerchantRuntime": (runtime_base / "Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs",
+                                 "MerchantRuntimeDbContext"),
+        }
+    for cluster, (path, class_name) in contexts.items():
         if not path.is_file():
             problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
                                  f"{cluster} context หาย: {path}"))
@@ -375,9 +394,16 @@ def check_isolation(root: Path) -> list[Diag]:
             problems.append(Diag(
                 "ALIGN_ISOLATION_MISMATCH",
                 f"{cluster} ไม่ inherit sealed write floor (GuardedRuntimeDbContext)"))
-        if cluster != "ControlPlane":
+        if not re.search(rf"\bsealed\s+class\s+{re.escape(class_name)}\b", body):
+            problems.append(Diag(
+                "ALIGN_ISOLATION_MISMATCH",
+                f"{cluster} context ต้องเป็น sealed class {class_name}"))
+        if cluster in ("Commerce", "MerchantRuntime"):
+            # The deny-default filter must be declared in a sibling config, not the context file
+            # itself: excluding the context file stops a bare `HasQueryFilter` mention there (a
+            # comment or leftover doc line) from satisfying the guard once the real filters are gone.
             has_filter = any("HasQueryFilter" in cfg.read_text(encoding="utf-8",
-                                                             errors="replace")
+                                                               errors="replace")
                              for cfg in path.parent.rglob("*.cs")
                              if cfg.name != path.name)
             if not has_filter:
