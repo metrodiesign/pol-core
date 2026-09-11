@@ -15,38 +15,65 @@ namespace Integration.Tests;
 [Trait("Requirement", "REQ-5.5")]
 public sealed class MerchantConfigurationGovernanceSqlIntegrationTests
 {
-    private const string Database = "PolMerchantConfigTask3Test";
+    private const string Database = "PolMerchantConfigTask3CiTest";
 
     [Fact]
     public async Task Sql_server_allows_one_checker_and_rejects_the_concurrent_loser()
     {
-        await using var first = NewContext();
-        var approvalId = Guid.NewGuid();
-        var makerId = Guid.NewGuid();
-        var request = new ApprovalRequested(
-            Guid.NewGuid(), approvalId, "merchant", Guid.NewGuid(),
-            "psp.environment.change", "settings.manage", makerId,
-            "merchant-environment", Guid.NewGuid().ToString("D"), "v1", "task3-sql", Clock.UtcNow);
-        var firstStore = NewStore(first);
-        await firstStore.ReceiveAsync(request, default);
+        await ProvisionDatabaseAsync();
+        try
+        {
+            await using var first = NewContext();
+            var approvalId = Guid.NewGuid();
+            var makerId = Guid.NewGuid();
+            var request = new ApprovalRequested(
+                Guid.NewGuid(), approvalId, "merchant", Guid.NewGuid(),
+                "psp.environment.change", "settings.manage", makerId,
+                "merchant-environment", Guid.NewGuid().ToString("D"), "v1", "task3-sql", Clock.UtcNow);
+            var firstStore = NewStore(first);
+            await firstStore.ReceiveAsync(request, default);
 
-        await using var second = NewContext();
-        var secondStore = NewStore(second);
-        var checkerA = Guid.NewGuid();
-        var checkerB = Guid.NewGuid();
-        var results = await Task.WhenAll(
-            DecideAsync(firstStore, approvalId, checkerA, "decision-a"),
-            DecideAsync(secondStore, approvalId, checkerB, "decision-b"));
+            await using var second = NewContext();
+            var secondStore = NewStore(second);
+            var checkerA = Guid.NewGuid();
+            var checkerB = Guid.NewGuid();
+            var results = await Task.WhenAll(
+                DecideAsync(firstStore, approvalId, checkerA, "decision-a"),
+                DecideAsync(secondStore, approvalId, checkerB, "decision-b"));
 
-        Assert.Equal(1, results.Count(x => x is not null));
-        var failure = results.Single(x => x is null);
-        Assert.Null(failure);
+            Assert.Equal(1, results.Count(x => x is not null));
+            var failure = results.Single(x => x is null);
+            Assert.Null(failure);
 
-        await using var verify = NewContext();
-        var approval = await verify.ApprovalRequests.SingleAsync(x => x.Id == approvalId);
-        Assert.Equal(ApprovalStatus.Approved, approval.Status);
-        Assert.True(approval.CheckerId == checkerA || approval.CheckerId == checkerB);
-        Assert.Equal(2, await verify.ApprovalEvents.CountAsync(x => x.ApprovalId == approvalId));
+            await using var verify = NewContext();
+            var approval = await verify.ApprovalRequests.SingleAsync(x => x.Id == approvalId);
+            Assert.Equal(ApprovalStatus.Approved, approval.Status);
+            Assert.True(approval.CheckerId == checkerA || approval.CheckerId == checkerB);
+            Assert.Equal(2, await verify.ApprovalEvents.CountAsync(x => x.ApprovalId == approvalId));
+        }
+        finally
+        {
+            await PaymentCapabilitySchemaIntegrationTests.DropScratchDatabaseAsync(Database);
+        }
+    }
+
+    // The named catalog is created, fully migrated, and dropped by this test alone; a pre-create drop
+    // clears a leftover from an aborted run. The sibling scratch helpers own the create/migrate/drop
+    // SQL so no new provisioning abstraction is added here.
+    private static async Task ProvisionDatabaseAsync()
+    {
+        try
+        {
+            await PaymentCapabilitySchemaIntegrationTests.DropScratchDatabaseAsync(Database);
+        }
+        catch
+        {
+            // First run has no database; a later run cleans a leftover here.
+        }
+
+        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(Database);
+        await using var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(Database);
+        await migration.Database.MigrateAsync();
     }
 
     private static async Task<DecisionResult?> DecideAsync(
