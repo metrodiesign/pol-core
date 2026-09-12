@@ -87,10 +87,10 @@ def _is_source_file(path: Path) -> bool:
 
 _CANONICAL_MODULE_ROOTS = tuple(
     Path("src") / layer / "Modules"
-    for layer in ("Pol.Domain", "Pol.Application", "Pol.Infrastructure")
+    for layer in ("Domain", "Application", "Infrastructure")
 )
 _LEGACY_MODULE_ROOT = Path("src/Modules")
-_CANONICAL_RUNTIME_PERSISTENCE_BASE = Path("src/Pol.Infrastructure/Persistence")
+_CANONICAL_RUNTIME_PERSISTENCE_BASE = Path("src/Infrastructure/Persistence")
 _LEGACY_RUNTIME_PERSISTENCE_BASE = Path("src/Persistence")
 
 
@@ -137,7 +137,7 @@ def _has_module_marker(entry: Path,
 
 
 def _canonical_module_root_has_marker(root: Path) -> bool:
-    suffix = root.parent.name.removeprefix("Pol.")
+    suffix = root.parent.name
     return any(entry.is_dir()
                and entry.name.endswith(f".{suffix}")
                and _has_module_marker(entry)
@@ -151,14 +151,14 @@ def _legacy_module_root_has_marker(root: Path) -> bool:
 
 
 def fs_modules(root: Path) -> list[str]:
-    """Canonical Pol.* modules, with a pre-restructure src/Modules fallback."""
+    """Canonical layer modules, with a pre-restructure src/Modules fallback."""
     modules: set[str] = set()
     if _has_new_module_layout(root):
-        for layer in ("Pol.Domain", "Pol.Application", "Pol.Infrastructure"):
+        for layer in ("Domain", "Application", "Infrastructure"):
             base = root / "src" / layer / "Modules"
             if not base.is_dir():
                 continue
-            suffix = layer.removeprefix("Pol.")
+            suffix = layer
             for entry in base.iterdir():
                 if (entry.is_dir() and entry.name.endswith(f".{suffix}")
                         and _has_module_marker(entry)):
@@ -263,12 +263,12 @@ def check_dbcontexts(root: Path) -> list[Diag]:
     ]
 
 
-_PERSISTENCE_BASE = Path("src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence")
+_PERSISTENCE_BASE = Path("src/Infrastructure/BuildingBlocks.Infrastructure/Persistence")
 _LEGACY_PERSISTENCE_BASE = Path("src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence")
 _CANONICAL_ARCHITECTURE_TEST_PROJECT = Path(
-    "tests/Pol.ArchitectureTests/Pol.ArchitectureTests.csproj")
+    "tests/ArchitectureTests/ArchitectureTests.csproj")
 _CANONICAL_ISOLATION_TEST = Path(
-    "tests/Pol.ArchitectureTests/Architecture.Tests/ModelDisjointnessTests.cs")
+    "tests/ArchitectureTests/Architecture.Tests/ModelDisjointnessTests.cs")
 _LEGACY_ARCHITECTURE_TEST_PROJECT = Path(
     "tests/Architecture.Tests/Architecture.Tests.csproj")
 _LEGACY_ISOLATION_TEST = Path(
