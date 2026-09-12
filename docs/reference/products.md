@@ -1,6 +1,6 @@
 # โมดูล Products
 
-> As-built 2026-08-13. โมดูลนี้อ่านเอกสารประกันจากระบบต้นทางแบบ live; ไม่มี product catalogue ในฐานข้อมูลของเรา.
+> As-built 2026-09-12. โมดูลนี้อ่านเอกสารประกันจากระบบต้นทางแบบ live; ไม่มี product catalogue ในฐานข้อมูลของเรา.
 
 ## บทบาทปัจจุบัน
 
@@ -11,7 +11,7 @@
 - source identifier ในผลลัพธ์คือ `DocumentNo`; downstream ใช้ `ProductCode` เป็นชื่อ field ของเอกสารเดียวกัน.
 - `SaleCode` มาจาก authenticated merchant user ฝั่ง server; client เลือกเองไม่ได้.
 
-ไม่มี `Checkout` ใน current flow. เส้นทางซื้อคือ `Products → Carts → Orders → Payments`.
+ไม่มี persisted legacy `CheckoutSession` ใน current flow. `Checkouts` ปัจจุบันเก็บ PaymentLink/capability และ transaction boundary; เส้นทางซื้อคือ `Products → Carts/Trusted source → Orders → PaymentLink → Transactions`.
 
 ## List contract
 
@@ -62,9 +62,17 @@ opaque `Guid` สำหรับ `DELETE`/`PUT`; ไม่ใช้ `ProductCode
 `GET /api/v1/carts/{cartId}` คืน `itemId`, `productCode`, `variantCode`, `variantName`, `quantity`, `unitPrice`,
 `lineTotal` และ typed `metadata` พร้อม `Version` ของ Cart.
 
-## Direct Cart-to-Order
+## Trusted pricing และ Order source policy
 
-`POST /api/v1/orders` ไม่มี persisted checkout session. `OrderCreationCoordinator` ทำก่อนเปิด transaction:
+Canonical `POST /api/v1/orders` ไม่ใช้ราคาหรือชื่อสินค้าที่ client ส่งมาเป็น source. `TrustedOrderPricingSource` ที่ `src/Infrastructure/Modules/Products.Infrastructure/Orders/TrustedOrderPricingSource.cs` ตรวจ business type `insurance`, active Merchant currency `THB`, active Sale owner และ quantity หนึ่งต่อเอกสาร จากนั้นเรียก `ISpDocumentGateway.LookupAsync` ทุก route ที่จำเป็นและสร้าง `TrustedOrderLineInput` จาก `DocumentView.TotalPremium`.
+
+Adapter ตรวจ `SaleCode` ของ upstream ให้ตรงกับ Sale ที่ resolved, ปฏิเสธ paid/held/ambiguous document และสร้าง typed insurance metadata (`DocumentType`, policy number, coverage dates). `CreateOrderHandler` ตรวจสูตร money ซ้ำใน domain ก่อนเขียน. `PriceAsync(Guid, ...)` default seam fail-closed หาก host ไม่ส่ง owner context; production registration ใช้ `IOrderSourcePolicy` พร้อม `TrustedOrderSourceContext`.
+
+`SpDocumentOptions` รับ `MotorConnectionString` และ `NonMotorConnectionString` แยกกัน. Source options/compose wiring แยก connection ของ upstream สองฝั่งและไม่ validate ตอน boot; local/integration evidence ใช้ configured test source. ไม่มี live source contract/credential evidence ในชุดตรวจนี้ จึงยังไม่ประกาศ real-source/live-ready เพียงเพราะ adapter compile หรือ local tests ผ่าน.
+
+## Direct Cart-to-Order compatibility
+
+`POST /api/v1/orders/from-cart` ไม่มี persisted legacy checkout session. `OrderCreationCoordinator` ทำก่อนเปิด transaction:
 
 - reload Cart และตรวจสถานะ/line
 - lookup document สดทุก line
@@ -119,7 +127,7 @@ metadata. `OrderItems` ไม่เก็บ upstream document ทุก field; 
 
 ## Retired contract
 
-ไม่มี current project/table/route สำหรับ `CheckoutSession`, `CheckoutSessionItems`, `CheckoutConfirmed` หรือ
+ไม่มี current project/table/route สำหรับ legacy `CheckoutSession`, `CheckoutSessionItems`, `CheckoutConfirmed` หรือ
 `/api/v1/checkouts*`. เอกสารหรือ client ที่ยังใช้ `ProductId`, `documentNo` ใน Cart body หรือ `productGroup` เป็น
 ชื่อ request field ต้อง migrate เป็น `productCode` และ `variantCode` ตาม contract ปัจจุบัน.
 

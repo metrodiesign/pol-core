@@ -1,50 +1,80 @@
 # Orders Module Reference
 
-> As-built 2026-08-13. Order เกิดตรงจาก Cart; ไม่มี Checkout หรือ policy surface.
+เอกสารนี้อธิบาย Order flow ปัจจุบัน โดย canonical create คือ `CreateOrderCommand` ที่ `POST /api/v1/orders`; `/api/v1/orders/from-cart` เป็น compatibility route ที่ยังเก็บไว้ตาม inventory.
 
-## Creation
+## Canonical create และ owner authorization
 
-`POST /api/v1/orders` รับ `cartId`, optional customer และ optional claimed `amount`. Server revalidate source,
-ใช้ server-owned Cart price/metadata แล้ว host coordinator commit transaction เดียว:
+Request ใช้ `CreateOrderRequest` และมี `businessType`, `currency`, `items`, adjustment, optional owner, metadata, notification intent และ `issueNow`. Client ส่ง product reference และ client snapshot ได้เพื่อให้ระบบตรวจ mismatch แต่ไม่สามารถกำหนด trusted price, source currency หรือ Agent owner เอง.
 
-1. reload Cart ของ merchant + ตรวจ `Open`/Version/lines
-2. allocate `OrderNo` จาก `shop.OrderNoSeq`
-3. insert Order + immutable items
-4. enqueue customer notification
-5. mark Cart `CheckedOut`
+ลำดับของ `CreateOrderHandler` คือ:
 
-ผลสำเร็จ `201`, `Location`, `DirectOrderResult { orderId, orderNo, status, amount }`. Empty/mismatch `400`,
-missing `404`, no SaleCode `403`, concurrency/state `409`, dependency `503`.
+1. resolve `Account`/`Access` authorization และ merchant context จาก authenticated identity
+2. resolve owner ผ่าน `IOrderOwnerResolver`; Agent ใช้ Sale ที่ผูกกับ Account, Employee/System/merchant path ใช้ policy และ branch access
+3. เรียก `IOrderSourcePolicy`/`ITrustedOrderPricingSource` เพื่อ lookup source และสร้าง trusted line snapshot
+4. ตรวจ currency, quantity, line formula, adjustment และ client snapshot mismatch
+5. acquire Account authorization lease/idempotency แล้วสร้าง Order + items ใน transaction เดียว
+6. ถ้า `issueNow=true` freeze Order เป็น `Open`, ออก PaymentLink แรก และ enqueue notification intent ใน outbox เดียวกัน
 
-## Aggregate
+`issueNow=false` สร้าง `Draft` โดยไม่มี PaymentLink. Success คือ `201` พร้อม `OrderCommandResult`; replay ด้วย idempotency key เดิมคืนผลที่เก็บไว้. Missing owner, wrong merchant, inactive Account/Access หรือ stale authorization เป็น deny/conflict ตาม error contract.
 
-Order owns customer/contact scalars, SaleCode, nullable `OriginatorId`, amount, status, `UpdatedAt`, `Version`,
-summary capability and item snapshots. Item fields:
-`ProductCode`, `VariantCode`, `VariantName`, quantity, unit price, zero discount and typed PII-free metadata.
-Generic summary/listไม่คืน metadataหรือ customer PII. Merchant detail reveal audited and fail-closed.
-Merchant-user reads are scoped twice by the runtime query filter: `MerchantId` and `InitiatingMerchantUserId == user`
-(an agent sees only the Orders it initiated; admin/ambient scopes keep the merchant-wide read). Payment sessions
-inherit the same floor through their Order.
+## Legacy Cart route
 
-Status: `Pending`, `Paid`, `Failed`, `Expired`, `Refunded`, `Cancelled`.
+`POST /api/v1/orders/from-cart` ใช้ `OrderCreationCoordinator` สำหรับ Cart compatibility. Merchant-user branch รับ Cart ของ actor และ SaleCode จาก server; Admin branch ต้องส่ง `merchantId`/`originatorId` และตรวจ scope. Coordinator reload Cart, revalidate upstream document/payment state/sale probe แล้ว commit Order, immutable lines, customer notification outbox และ `Cart.CheckedOut` ใน transaction เดียว.
 
-## Payment lifecycle
+เส้นทางนี้ไม่ใช่ canonical Account order DTO และไม่มีสิทธิ์ให้ client override trusted price.
 
-Versioned events: `PaymentPaid`, `PaymentFailed`, `PaymentExpired`. All lifecycle writers acquire tenant-scoped Order
-row lock. Event correlation prevents stale attempt overwrite. First valid Paid wins; conflicting Paid after terminal state
-creates reconciliation-required evidence. Failed/Expired allow controlled retry. Cancel refuses chargeable/settled/unknown
-PSP state.
+## Aggregate และ lifecycle
 
-## Persistence
+`Order` เก็บ `MerchantId`, `OrderNo`, business/owner snapshot, customer contact, `Money` totals, `PaymentStatus`, `SuccessfulTransactionId`, `PaymentSessionId` compatibility pointer, `Version`, line snapshots และ notification intent.
 
-- `shop.Orders`
-- `shop.OrderItems`
-- `shop.OrderItemRevealAudits`
-- `shop.OrderNoSeq` raw sequence
-- Admin transaction projection reads `shop.Orders` + `txn.PaymentSessions` + lifecycle evidence; ไม่มี transaction ledger แยก
-- owner ports `IOrderRepository`, `IOrderStore`, `IOrderSummaryReader`
-- shared write seams limited by architecture allowlist
+สถานะ lifecycle มี `Draft`, `Open`, `Pending`, `Paid`, `Failed`, `Expired`, `Refunded`, `Cancelled`; flow ใหม่ใช้ `Draft -> Open` ก่อน payment และแยก `PaymentStatus` (`Unpaid`, `Processing`, `Paid`) จาก lifecycle.
 
-Retired: `CheckoutSessionId`, Checkout consumer/event, ItemPolicy/PolicyAudit, policy reports/routes and their grants.
+Order item เก็บ `ProductCode`, `VariantCode`, display name, quantity, `UnitPrice`, `Discount`, `TaxAmount`, `LineAmount`, trusted metadata และ `VersionedMetadata` ของ client request. `Metadata` สองชุดแยกกันเพื่อไม่ให้ client JSON กลายเป็น trusted product fact.
 
-Consumer examples/error map: `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`.
+Order detail ที่เปิด server-owned metadata ต้อง append `OrderItemRevealAudit` ต่อ line ก่อนสร้าง response; ถ้า audit save ไม่สำเร็จ handler fail closed. List/summary ใช้ข้อมูล mask และ customer capability summary ไม่คืน merchant/session internals.
+
+## PaymentLink และ endpoint matrix
+
+| Method | Path | พฤติกรรม |
+|---|---|---|
+| `POST` | `/api/v1/orders` | canonical create; `issueNow` branch; identity-platform authorization |
+| `PATCH` | `/api/v1/orders/{orderId}` | patch Draft พร้อม trusted repricing และ `If-Match` |
+| `POST` | `/api/v1/orders/{orderId}/issue` | freeze Draft และสร้าง PaymentLink แรก |
+| `GET` | `/api/v1/orders/{orderId}/payment-links` | รายการ link โดยไม่คืน raw token |
+| `POST` | `/api/v1/orders/{orderId}/payment-links` | revoke active/rotate link ใน transaction เดียว |
+| `POST` | `/api/v1/payment-links/{linkId}/revoke` | revoke capability โดยไม่ย้อน PSP result |
+| `POST` | `/api/v1/orders/{orderId}/cancel` | cancel หลังปล่อย open payment session ตาม guard |
+| `POST` | `/api/v1/orders/{token}/summary/resend` | compatibility summary resend/rotation |
+| `POST` | `/api/v1/orders/from-cart` | legacy Cart-to-Order compatibility |
+
+`PaymentLink` เก็บ keyed `TokenHash`, status, expiry, rotation pointer และ versionใน `checkout.PaymentLinks`. `PaymentLinkReplay` เก็บ request hash และ Data Protection ciphertext ของผล replay; raw token ไม่อยู่ durable row. Customer แลก token ที่ `/api/v1/checkout/access` แล้วได้ short-lived capability ผูก Order/link/version/cookie.
+
+## Read isolation
+
+Merchant-user Order read ใช้ `MerchantId` และ `InitiatingMerchantUserId` filter. Canonical identity read ตรวจ `AccessEvaluator.CanReadOrder` จาก owner Sale/Branch ก่อน query/detail/items/history. Admin read ใช้ accessible merchant scope และ named admin reader. Child, history, transaction และ export path ต้อง resolve parent Order/merchant ก่อนตอบ เพื่อกัน IDOR.
+
+## Persistence และ events
+
+| Data | Current owner |
+|---|---|
+| `shop.Orders`, `shop.OrderItems`, `shop.OrderItemRevealAudits` | `CommerceDbContext` |
+| `checkout.PaymentLinks`, `checkout.PaymentLinkReplays` | `CommerceDbContext` |
+| `txn.OutboxMessages` | `CommerceDbContext` |
+| `PaymentPaid`, `PaymentFailed`, `PaymentExpired` | `src/Application/Contracts/` compatibility event seam |
+| `Transaction`/`TransactionEvent` | `Payments.Domain` + `Platform.Application.Transactions`; canonical payment attempt evidence |
+
+Payment event consumers continue to verify OrderId and amount/currency. For the new checkout transaction flow, `Order.ApplySuccessfulTransaction` pins the first successful Transaction and keeps duplicate success evidence without silently moving the pointer.
+
+## Source of truth
+
+- `src/Application/Modules/Orders.Application/OrderWorkflow.cs`
+- `src/Application/Modules/Orders.Application/OrderPaidConsumer.cs`
+- `src/Domain/Modules/Orders.Domain/Order.cs`
+- `src/Domain/Modules/Orders.Domain/Items/Item.cs`
+- `src/Domain/Modules/Checkouts.Domain/PaymentLink.cs`
+- `src/Domain/Modules/Checkouts.Domain/PaymentLinkReplay.cs`
+- `src/Api/Api/Program.cs`
+- `src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs`
+- `src/Api/Api/Iam/IdentityRequestAuthorization.cs`
+- `src/Infrastructure/Modules/Products.Infrastructure/Orders/TrustedOrderPricingSource.cs`
+- `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Orders/`

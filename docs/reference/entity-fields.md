@@ -1,6 +1,6 @@
 # Entity and Field Reference
 
-เอกสารนี้คือ persisted schema ปัจจุบันของ `VCentralPay` ตาม migration chain ถึงวันที่ 2026-08-11. ครอบคลุมทุก table, field, key, foreign key และ index ที่ระบบสร้างเอง; ไม่รวมข้อมูลจาก upstream product catalogue.
+เอกสารนี้คือ persisted schema ปัจจุบันของ `VCentralPay` ตาม EF model snapshot ล่าสุดใน source. ครอบคลุม 104 physical table mappings, field inventory, key, foreign key และ index ที่ระบบสร้างเอง; ไม่รวมข้อมูลจาก upstream product catalogue.
 
 ## Database baseline
 
@@ -9,9 +9,9 @@
 | Engine | SQL Server 2025 build `17.0.4045.5` ขึ้นไป |
 | Compatibility level | `170` |
 | Collation | `Thai_100_CI_AS` |
-| Migration chain | `20260807042818_InitialSchema` → `20260807042828_SecurityObjects` → `20260807042833_SeedData` → `20260808161508_OneBasedPersistedEnumStorage` → `20260809183210_MerchantRealApiIdentity` → `20260810041211_AdminConsolePermissionKeys` → `20260810055607_GovernanceFoundation` → `20260810055818_GovernancePlatformHeadUniqueness` → `20260810074055_AdminConsoleResourceVersions` → `20260810112718_AdminTenantPspRoutingControlPlane` → `20260810133139_AdminMerchantIdentityControl` → `20260810150130_AdminCommerceLifecycle` → `20260810153008_AdminCommerceUpdatedAtDefault` → `20260810162000_AdminCommerceOperationUpdateGrant` → `20260810184403_AdminDeliveryControlAndInboundWebhook` → `20260811024015_AdminDeliveryRuntimeGrants` |
+| Migration chain | 47 migrations: `20260807042818_InitialSchema` ถึง `20260911163519_ReviewFixPaymentLinkNotificationIntent`; รายการเต็มอยู่ใน `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/` และ snapshot |
 | Runtime principal | `pol_app` |
-| Runtime contexts | `ControlPlaneDbContext`, `CommerceDbContext` |
+| Runtime contexts | `ControlPlaneDbContext`, `CommerceDbContext` เท่านั้น |
 | Migration context | `PolDbContext` เท่านั้น |
 | Tenant isolation | app-layer query filter + guarded write; ไม่มี SQL RLS, `SESSION_CONTEXT` หรือ bypass principal |
 
@@ -26,13 +26,16 @@
 
 | Schema | Tables | Runtime owner |
 |---|---|---|
-| `admin` | platform users, sessions, access, role assignments, governance, audit, operation ledger, webhook/notification delivery | `ControlPlaneDbContext` |
+| `acct` | business Accounts, LoginAccounts, Employees, Agents, SystemClients, BFF/registration state | `ControlPlaneDbContext` |
+| `access` | Merchant/Platform access, roles, branch/method grants | `ControlPlaneDbContext` |
+| `oauth` | OpenIddict state และ assertion replay | `ControlPlaneDbContext` |
+| `admin` | platform users, sessions, access, role assignments, workforce binding, governance, audit, operation ledger, control delivery | `ControlPlaneDbContext` |
 | `iam` | permission groups, permissions, roles, grants, API clients, one-time secret tickets | `ControlPlaneDbContext` |
-| `cfg` | payment capability catalog (methods, providers, options) | `ControlPlaneDbContext` |
-| `merch` identity | merchant users, invitations, sessions, registration, user outbox | `ControlPlaneDbContext` |
-| `merch` commerce | merchants, branches, sales, originators, vault, provisioning audit | `CommerceDbContext` |
+| `cfg` | payment capability catalog และ migration conflicts | `ControlPlaneDbContext` |
+| `merch` | merchants, branches, sales, originators, merchant users, invitations, sessions, registration, user outbox, vault | `ControlPlaneDbContext` |
 | `shop` | carts, cart items, orders, order items, reveal audit | `CommerceDbContext` |
-| `txn` | payment sessions, PSP connections, routing, inbound webhooks, admin operation ledger, idempotency, outbox | `CommerceDbContext` |
+| `checkout` | PaymentLinks และ PaymentLinkReplays | `CommerceDbContext` |
+| `txn` | split owner: Control Plane owns PSP connections, routing, payment capability mappings and approval execution; Commerce owns payment sessions, inbound webhooks, Transactions/events, notification runtime, admin operation, idempotency and outbox | `ControlPlaneDbContext` + `CommerceDbContext` |
 | `dbo` | ASP.NET Data Protection keys, EF migration history | framework / migration owner |
 
 ## `admin` schema
@@ -119,7 +122,12 @@
 |---|---|---|---|
 | `Id` | `uniqueidentifier` | NN, PK | admin user id |
 | `Subject` | `nvarchar(256)` | NULL | external identity subject; unique เมื่อมีค่า |
-| `Email` | `nvarchar(320)` | NN | email; unique |
+| `Email` | `nvarchar(320)` | NN | email contact; unique |
+| `Provider` | `nvarchar(64)` | NN | provider discriminator; current workforce provider is Microsoft |
+| `TenantId` | `uniqueidentifier` | NULL | workforce tenant binding |
+| `EmployeeId` | `nvarchar(128)` | NULL | normalized HR employee id |
+| `FirstName` | `nvarchar(200)` | NULL | HR profile snapshot |
+| `LastName` | `nvarchar(200)` | NULL | HR profile snapshot |
 | `Tier` | `int` | NN | `Scoped=1`, `Super=2` |
 | `Status` | `int` | NN | `Active=1`, `Suspended=2` |
 | `AuthorizationVersion` | `bigint` | NN | invalidation version |
@@ -720,13 +728,26 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
 | `OrderNo` | `varchar(13)` | NN | human-facing order number; unique |
 | `SaleCode` | `varchar(20)` | NULL | sale code snapshot |
-| `PaymentSessionId` | `uniqueidentifier` | NULL | current payment session reference |
-| `Status` | `int` | NN | `Pending=1`, `Paid=2`, `Failed=3`, `Expired=4`, `Refunded=5`, `Cancelled=6` |
+| `PaymentSessionId` | `uniqueidentifier` | NULL | compatibility PaymentSession reference |
+| `SuccessfulTransactionId` | `uniqueidentifier` | NULL | first verified canonical Transaction success |
+| `PaymentStatus` | `int` | NN | `Unpaid=1`, `Processing=2`, `Paid=3` |
+| `Status` | `int` | NN | `Pending=1`, `Paid=2`, `Failed=3`, `Expired=4`, `Refunded=5`, `Cancelled=6`, `Draft=7`, `Open=8` |
+| `BusinessType` | `nvarchar(64)` | NULL | canonical business source type |
+| `CreatedByAccountId` | `uniqueidentifier` | NULL | verified business Account creator |
+| `OwnerSaleId` | `uniqueidentifier` | NULL | trusted Sale owner snapshot |
+| `OwnerBranchIdAtCreation` | `uniqueidentifier` | NULL | trusted Branch owner snapshot |
+| `InitiatingAudience` | `int` | NULL | `User=1`, `PlatformAdmin=2` compatibility origin |
+| `InitiatingMerchantUserId` | `uniqueidentifier` | NULL | merchant-user actor binding |
+| `IsFrozen` | `bit` | NN | Draft changes until issue; issued Order frozen |
+| `IssuedAt`, `FrozenAt` | `datetime2` | NULL | issue/freeze timestamps |
 | `CreatedAt` | `datetime2` | NN | เวลาสร้าง order |
 | `PaidAt` | `datetime2` | NULL | เวลายืนยันจ่ายสำเร็จ |
 | `SummaryToken` | `nvarchar(64)` | NN | customer summary token; unique |
 | `SummaryTokenExpiresAt` | `datetime2` | NN | token expiry |
-| `NotificationRecipient` | `nvarchar(320)` | NULL | recipient สำหรับ notification |
+| `NotificationRecipient` | `nvarchar(320)` | NULL | compatibility recipient |
+| `NotifyOnIssue` | `bit` | NN | canonical issue notification intent |
+| `NotificationEmail` | `nvarchar(320)` | NULL | canonical email intent |
+| `NotificationPhoneNumber` | `varchar(32)` | NULL | canonical SMS intent |
 | `PaymentChannel` | `varchar(20)` | NULL | payment channel snapshot |
 | `OriginatorId` | `uniqueidentifier` | NULL | originator ที่สร้าง order |
 | `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด; default ใหม่ `SYSUTCDATETIME()`, legacy rows backfill จาก `CreatedAt` |
@@ -734,8 +755,8 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `CustomerName` | `nvarchar(200)` | NN | customer PII |
 | `CustomerPhone` | `varchar(20)` | NN | customer PII |
 | `CustomerEmail` | `nvarchar(320)` | NULL | customer PII |
-| `AmountAmount` | `decimal(19,4)` | NN | order amount |
-| `AmountCurrency` | `char(3)` | NN | order currency |
+| `AmountAmount`, `SubtotalAmount`, `OrderDiscountAmount`, `OrderChargeAmount` | `decimal(19,4)` | NN | Money complex values |
+| `AmountCurrency`, `SubtotalCurrency`, `OrderDiscountCurrency`, `OrderChargeCurrency` | `char(3)` | NN | Money currency codes |
 
 Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key.
 
@@ -751,8 +772,13 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `VariantCode` | `varchar(64)` | NN | variant snapshot |
 | `VariantName` | `nvarchar(128)` | NULL | display snapshot |
 | `Metadata` | `json` | NULL | immutable typed item snapshot |
+| `RequestMetadata` | `nvarchar(max)` | NULL | canonical versioned client metadata envelope |
 | `DiscountAmount` | `decimal(19,4)` | NN | discount amount; ปัจจุบันสร้างเป็นศูนย์ |
 | `DiscountCurrency` | `char(3)` | NN | discount currency |
+| `TaxAmount` | `decimal(19,4)` | NN | trusted tax component |
+| `TaxCurrency` | `char(3)` | NN | tax currency |
+| `LineAmount` | `decimal(19,4)` | NN | trusted frozen line amount |
+| `LineCurrency` | `char(3)` | NN | line currency |
 | `UnitPriceAmount` | `decimal(19,4)` | NN | immutable unit price |
 | `UnitPriceCurrency` | `char(3)` | NN | unit price currency |
 
@@ -780,6 +806,8 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | Cycle | `NO CYCLE` | ไม่วนกลับ |
 
 ## `txn` schema
+
+`txn` เป็น schema ร่วมของสอง runtime contexts ไม่ใช่ ownership boundary เดียว: `PspConnections`, `RoutingRulesets`, `RoutingRules`, payment capability mapping tables และ `ApprovalExecutionRecords` อยู่ `ControlPlaneDbContext`; `PaymentSessions`, `Transactions`, `TransactionEvents`, `InboundWebhookEvents`, `IdempotencyRecords`, `AdminOperationRecords`, `OutboxMessages` และ notification runtime อยู่ `CommerceDbContext`.
 
 ### `txn.IdempotencyRecords`
 
@@ -815,6 +843,10 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `OrderId` | `uniqueidentifier` | NN | order ที่กำลังจ่าย |
 | `Method` | `nvarchar(32)` | NN | canonical payment method |
 | `Psp` | `int` | NN | `TwoCTwoP=1`, `Omise=2` |
+| `PspConnectionId` | `uniqueidentifier` | NULL | provider routing snapshot |
+| `SecretVersionId` | `uniqueidentifier` | NULL | pinned vault credential version |
+| `PspEnvironment` | `int` | NULL | pinned sandbox/live environment |
+| `RoutingSnapshotVersion` | `tinyint` | NN | `1` for new server-routed sessions; `0` legacy rows |
 | `Status` | `int` | NN | `Created=1`, `Redirected=2`, `Paid=3`, `Failed=4`, `Expired=5` |
 | `PspExternalChargeId` | `nvarchar(256)` | NULL | PSP charge id |
 | `RedirectUrl` | `nvarchar(2048)` | NULL | hosted PSP redirect URL |
@@ -933,6 +965,298 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `MigrationId` | `nvarchar(150)` | NN, PK | migration identifier |
 | `ProductVersion` | `nvarchar(32)` | NN | EF Core product version |
 
++## Current snapshot additions
+
+หัวข้อต่อไปนี้เพิ่มจากเอกสารรุ่นก่อนและอ่านจาก `PolDbContextModelSnapshot.cs` ล่าสุด. ชนิดในรายการเป็น CLR mapping ที่ EF snapshot ประกาศ; nullability, length, keys และ indexes ให้ดู snapshot/configuration ที่อ้างใน Source of truth.
+
+### `access.AccessRoles`
+
+**Entity**: `Access.Domain.AccessRole`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `MerchantAccessId` (`Guid`), `MerchantId` (`Guid`), `RoleId` (`Guid`).
+
+### `access.BranchAccess`
+
+**Entity**: `Access.Domain.BranchAccess`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `BranchId` (`Guid`), `MerchantAccessId` (`Guid`), `MerchantId` (`Guid`).
+
+### `access.MerchantAccess`
+
+**Entity**: `Access.Domain.MerchantAccess`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AccountId` (`Guid`), `DataScope` (`int`), `MerchantId` (`Guid`), `Status` (`int`), `Version` (`long`).
+
+### `access.MerchantAccessMethods`
+
+**Entity**: `Access.Domain.MerchantAccessMethod`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `MerchantAccessId` (`Guid`), `MethodCode` (`string`).
+
+### `access.PlatformAccess`
+
+**Entity**: `Access.Domain.PlatformAccess`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `EmployeeAccountId` (`Guid`), `Status` (`int`), `Version` (`long`).
+
+### `access.PlatformAccessRoles`
+
+**Entity**: `Access.Domain.PlatformAccessRole`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `PlatformAccessId` (`Guid`), `RoleId` (`Guid`), `RoleScope` (`int`).
+
+### `access.SystemClientScopes`
+
+**Entity**: `Access.Domain.SystemClientScope`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `ScopeCode` (`string`), `SystemClientId` (`Guid`).
+
+### `acct.Accounts`
+
+**Entity**: `Accounts.Domain.Account`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AccountType` (`int`), `AuthorizationVersion` (`long`), `CreatedAt` (`DateTime`), `DisplayName` (`string`), `Status` (`int`), `UpdatedAt` (`DateTime`).
+
+### `acct.Agents`
+
+**Entity**: `Accounts.Domain.Agent`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `AccountId` (`Guid`), `Id` (`Guid`), `MerchantId` (`Guid`), `Metadata` (`string`), `SaleId` (`Guid`).
+
+### `acct.AgentRegistrations`
+
+**Entity**: `Accounts.Domain.AgentRegistration`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CurrentAttemptId` (`Guid?`), `CurrentAttemptNo` (`int`), `Email` (`string`), `ExternalUserId` (`string`), `MerchantId` (`Guid`), `PhoneNumber` (`string`), `ProfileJson` (`string`), `Provider` (`string`), `SaleCode` (`string`), `Status` (`int`), `TenantId` (`string`), `UpdatedAt` (`DateTime`), `Version` (`long`).
+
+### `acct.AgentRegistrationAttempts`
+
+**Entity**: `Accounts.Domain.AgentRegistrationAttempt`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AttemptNo` (`int`), `BranchId` (`Guid`), `BranchVersion` (`long`), `ContactEvidenceReference` (`string`), `ContactVerifiedAt` (`DateTime?`), `ContactVerifiedByAccountId` (`Guid?`), `DecidedAt` (`DateTime?`), `DecidedByAccountId` (`Guid?`), `DecisionIdempotencyKey` (`string`), `DecisionIntentHash` (`string`), `Email` (`string`), `ExternalUserId` (`string`), `IdempotencyKey` (`string`), `IntentHash` (`string`), `InternalReviewNote` (`string`), `MerchantId` (`Guid`), `PhoneNumber` (`string`), `ProfileJson` (`string`), `Provider` (`string`), `RegistrationId` (`Guid`), `RejectionReason` (`string`), `SaleCode` (`string`), `SaleId` (`Guid`), `SaleVersion` (`long`), `Status` (`int`), `SubmittedAt` (`DateTime`), `TenantId` (`string`), `Version` (`long`).
+
+### `oauth.AssertionReplays`
+
+**Entity**: `Accounts.Domain.AssertionReplay`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `ApplicationId` (`string`), `ConsumedAt` (`DateTime`), `ExpiresAt` (`DateTime`), `Jti` (`string`).
+
+### `acct.BffSessionTickets`
+
+**Entity**: `Accounts.Domain.BffSessionTicket`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AccountId` (`Guid`), `AuthorizationVersion` (`long`), `ClientId` (`string`), `ExpiresAt` (`DateTime`), `IssuedAt` (`DateTime`), `ProtectedAuthenticationTicket` (`string`), `RevokedAt` (`DateTime?`), `TicketKeyHash` (`byte[]`).
+
+### `acct.ClientKeyPolicies`
+
+**Entity**: `Accounts.Domain.ClientKeyPolicy`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `Algorithm` (`string`), `ApplicationId` (`string`), `AuditReference` (`string`), `KeyId` (`string`), `Status` (`int`), `SystemClientId` (`Guid`), `ValidFrom` (`DateTime`), `ValidUntil` (`DateTime?`).
+
+### `acct.Employees`
+
+**Entity**: `Accounts.Domain.Employee`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `AccountId` (`Guid`), `DepartmentCode` (`string`), `EmployeeCode` (`string`), `Id` (`Guid`), `Metadata` (`string`).
+
+### `acct.LoginAccounts`
+
+**Entity**: `Accounts.Domain.LoginAccount`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AccountId` (`Guid`), `DisplayName` (`string`), `Email` (`string`), `ExternalUserId` (`string`), `LastLoginAt` (`DateTime?`), `Provider` (`string`), `TenantId` (`string`).
+
+### `acct.RegistrationSessions`
+
+**Entity**: `Accounts.Domain.RegistrationSession`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `ExpiresAt` (`DateTime`), `ExternalUserId` (`string`), `IssuedAt` (`DateTime`), `MerchantId` (`Guid`), `Provider` (`string`), `SessionReferenceHash` (`byte[]`), `Status` (`int`), `TenantId` (`string`).
+
+### `acct.SystemClients`
+
+**Entity**: `Accounts.Domain.SystemClient`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AccountId` (`Guid`), `AllowedGrantTypes` (`string`), `ClientId` (`string`), `CreatedAt` (`DateTime`), `Environment` (`string`), `MerchantId` (`Guid`), `Status` (`int`), `UpdatedAt` (`DateTime`).
+
+### `admin.WorkforceTenantBindings`
+
+**Entity**: `Admins.Domain.Users.WorkforceTenantBinding`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`byte`), `TenantId` (`Guid`).
+
+### `checkout.PaymentLinks`
+
+**Entity**: `Checkouts.Domain.PaymentLink`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `ExpiresAt` (`DateTime`), `MerchantId` (`Guid`), `OrderId` (`Guid`), `RevokedAt` (`DateTime?`), `RotatedFromLinkId` (`Guid?`), `Status` (`int`), `TokenHash` (`byte[]`), `Version` (`long`).
+
+### `checkout.PaymentLinkReplays`
+
+**Entity**: `Checkouts.Domain.PaymentLinkReplay`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `ExpiresAt` (`DateTime`), `IdempotencyKey` (`string`), `LinkId` (`Guid?`), `MerchantId` (`Guid`), `Operation` (`string`), `OrderId` (`Guid`), `ProtectedRawToken` (`string`), `RequestHash` (`byte[]`).
+
+### `merch.Branches`
+
+**Entity**: `Merchants.Domain.Branch`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `Code` (`string`), `CreatedAt` (`DateTime`), `MerchantId` (`Guid`), `Name` (`string`), `Status` (`int`), `UpdatedAt` (`DateTime`), `Version` (`long`).
+
+### `merch.Sales`
+
+**Entity**: `Merchants.Domain.Sale`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `BranchId` (`Guid`), `Code` (`string`), `CreatedAt` (`DateTime`), `MerchantId` (`Guid`), `Name` (`string`), `Status` (`int`), `UpdatedAt` (`DateTime`), `Version` (`long`).
+
+### `txn.Deliveries`
+
+**Entity**: `Notifications.Domain.Delivery`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `AttemptCount` (`int`), `Channel` (`string`), `CompletedAt` (`DateTime?`), `EndpointUrlSnapshot` (`string`), `FailureCode` (`string`), `LastAttemptAt` (`DateTime?`), `LeaseExpiresAt` (`DateTime?`), `LeaseOwner` (`string`), `MerchantId` (`Guid`), `NextAttemptAt` (`DateTime`), `NotificationId` (`Guid`), `PayloadSnapshot` (`string`), `ProtectedEndpointSecretSnapshot` (`string`), `ProviderMessageId` (`string`), `RecipientFingerprint` (`string`), `RecipientSnapshot` (`string`), `SourceEventId` (`Guid`), `Status` (`int`), `TemplateContentSnapshot` (`string`), `TemplateLocale` (`string`), `TemplateSubjectSnapshot` (`string`), `TemplateVersion` (`string`), `TemplateVersionId` (`Guid`).
+
+### `txn.DeliveryAttempts`
+
+**Entity**: `Notifications.Domain.DeliveryAttempt`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `AttemptNo` (`int`), `CompletedAt` (`DateTime`), `DeliveryId` (`Guid`), `FailureCode` (`string`), `LatencyMs` (`int?`), `MerchantId` (`Guid`), `Outcome` (`string`), `ProviderMessageId` (`string`), `StartedAt` (`DateTime`).
+
+### `txn.Notifications`
+
+**Entity**: `Notifications.Domain.Notification`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `CorrelationId` (`string`), `CreatedAt` (`DateTime`), `EventType` (`string`), `MerchantId` (`Guid`), `OccurredAt` (`DateTime`), `OrderId` (`Guid?`), `OrderNo` (`string`), `PayloadSnapshot` (`string`), `RegistrationAttemptId` (`Guid?`), `RegistrationId` (`Guid?`), `SourceEventId` (`Guid`), `TransactionId` (`Guid?`), `TransactionNo` (`string`).
+
+### `txn.NotificationInboxMessages`
+
+**Entity**: `Notifications.Domain.NotificationInboxMessage`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `EventType` (`string`), `MerchantId` (`Guid`), `PayloadSnapshot` (`string`), `ProcessedAt` (`DateTime?`), `ReceivedAt` (`DateTime`), `SourceEventId` (`Guid`).
+
+### `txn.NotificationReviewNotes`
+
+**Entity**: `Notifications.Domain.NotificationReviewNote`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `ActorId` (`Guid`), `CorrelationId` (`string`), `CreatedAt` (`DateTime`), `DeliveryId` (`Guid?`), `MerchantId` (`Guid`), `Note` (`string`), `NotificationId` (`Guid?`).
+
+### `txn.TemplateVersions`
+
+**Entity**: `Notifications.Domain.TemplateVersion`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `Channel` (`string`), `Content` (`string`), `EventType` (`string`), `Locale` (`string`), `ReleasedAt` (`DateTime`), `Subject` (`string`), `Version` (`string`).
+
+### `oauth.OpenIddictApplications`
+
+**Entity**: `OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`string`), `ApplicationType` (`string`), `ClientId` (`string`), `ClientSecret` (`string`), `ClientType` (`string`), `ConcurrencyToken` (`string`), `ConsentType` (`string`), `DisplayName` (`string`), `DisplayNames` (`string`), `JsonWebKeySet` (`string`), `Permissions` (`string`), `PostLogoutRedirectUris` (`string`), `Properties` (`string`), `RedirectUris` (`string`), `Requirements` (`string`), `Settings` (`string`).
+
+### `oauth.OpenIddictAuthorizations`
+
+**Entity**: `OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`string`), `ApplicationId` (`string`), `ConcurrencyToken` (`string`), `CreationDate` (`DateTime?`), `Properties` (`string`), `Scopes` (`string`), `Status` (`string`), `Subject` (`string`), `Type` (`string`).
+
+### `oauth.OpenIddictScopes`
+
+**Entity**: `OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreScope`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`string`), `ConcurrencyToken` (`string`), `Description` (`string`), `Descriptions` (`string`), `DisplayName` (`string`), `DisplayNames` (`string`), `Name` (`string`), `Properties` (`string`), `Resources` (`string`).
+
+### `oauth.OpenIddictTokens`
+
+**Entity**: `OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`string`), `ApplicationId` (`string`), `AuthorizationId` (`string`), `ConcurrencyToken` (`string`), `CreationDate` (`DateTime?`), `ExpirationDate` (`DateTime?`), `Payload` (`string`), `Properties` (`string`), `RedemptionDate` (`DateTime?`), `ReferenceId` (`string`), `Status` (`string`), `Subject` (`string`), `Type` (`string`).
+
+### `txn.ApprovalExecutionRecords`
+
+**Entity**: `Payments.Domain.ApprovalExecutionRecord`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `EventId` (`Guid`), `ApprovalId` (`Guid`), `CompletedAt` (`DateTime?`), `CreatedAt` (`DateTime`), `Decision` (`string`), `MerchantId` (`Guid`), `Outcome` (`string`), `State` (`int`), `TargetId` (`string`), `TargetType` (`string`).
+
+### `txn.MerchantPaymentMethods`
+
+**Entity**: `Payments.Domain.Capabilities.MerchantPaymentMethod`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CreatedBy` (`Guid`), `IsEnabled` (`bool`), `MerchantId` (`Guid`), `PaymentMethodId` (`Guid`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `txn.MerchantProviderAccountMethods`
+
+**Entity**: `Payments.Domain.Capabilities.MerchantProviderAccountMethod`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CreatedBy` (`Guid`), `IsEnabled` (`bool`), `MerchantId` (`Guid`), `PaymentMethodId` (`Guid`), `PaymentProviderId` (`Guid`), `PaymentProviderMethodId` (`Guid`), `PspConnectionId` (`Guid`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `txn.MerchantProviderAccountMethodOptions`
+
+**Entity**: `Payments.Domain.Capabilities.MerchantProviderAccountMethodOption`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CreatedBy` (`Guid`), `IsEnabled` (`bool`), `MerchantId` (`Guid`), `MerchantProviderAccountMethodId` (`Guid`), `PaymentMethodId` (`Guid`), `PaymentMethodOptionId` (`Guid`), `PaymentProviderId` (`Guid`), `PaymentProviderMethodId` (`Guid`), `PaymentProviderMethodOptionId` (`Guid`), `PspConnectionId` (`Guid`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `txn.MerchantUserPaymentMethods`
+
+**Entity**: `Payments.Domain.Capabilities.MerchantUserPaymentMethod`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CreatedBy` (`Guid`), `IsEnabled` (`bool`), `MerchantId` (`Guid`), `MerchantUserId` (`Guid`), `PaymentMethodId` (`Guid`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `cfg.PaymentAuthorizationStates`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentAuthorizationState`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CutoffAt` (`DateTime?`), `Mode` (`int`), `Version` (`long`).
+
+### `cfg.PaymentCapabilityMigrationConflicts`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentCapabilityMigrationConflict`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `Detail` (`string`), `DetectedAt` (`DateTime`), `EntityId` (`Guid?`), `Kind` (`string`), `MerchantId` (`Guid?`), `ResolvedAt` (`DateTime?`), `ResolvedBy` (`Guid?`).
+
+### `cfg.PaymentMethods`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentMethod`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `Code` (`string`), `IsActive` (`bool`), `Name` (`string`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `cfg.PaymentMethodOptions`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentMethodOption`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `Code` (`string`), `Name` (`string`), `OptionGroupId` (`Guid`), `PaymentMethodId` (`Guid`).
+
+### `cfg.PaymentMethodOptionGroups`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentMethodOptionGroup`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `Code` (`string`), `Name` (`string`), `PaymentMethodId` (`Guid`).
+
+### `cfg.PaymentProviders`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentProvider`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `AdapterCode` (`int`), `Code` (`string`), `IsEnabled` (`bool`), `Name` (`string`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `cfg.PaymentProviderMethods`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentProviderMethod`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CreatedBy` (`Guid`), `IsActive` (`bool`), `PaymentMethodId` (`Guid`), `PaymentProviderId` (`Guid`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `cfg.PaymentProviderMethodOptions`
+
+**Entity**: `Payments.Domain.Capabilities.PaymentProviderMethodOption`
+**Owner**: `ControlPlaneDbContext`
+**Fields**: `Id` (`Guid`), `CreatedAt` (`DateTime`), `CreatedBy` (`Guid`), `IsActive` (`bool`), `PaymentMethodId` (`Guid`), `PaymentMethodOptionId` (`Guid`), `PaymentProviderMethodId` (`Guid`), `UpdatedAt` (`DateTime?`), `UpdatedBy` (`Guid?`), `Version` (`long`).
+
+### `txn.Transactions`
+
+**Entity**: `Payments.Domain.Transaction`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `AttemptNo` (`int`), `ConfigurationVersion` (`long`), `CreatedAt` (`DateTime`), `CredentialVersionId` (`Guid`), `Environment` (`int`), `InquiryAttempts` (`int`), `LastInquiryAt` (`DateTime?`), `MerchantId` (`Guid`), `NeedsReview` (`bool`), `NextInquiryAt` (`DateTime?`), `OrderId` (`Guid`), `OrderSnapshot` (`string`), `PaymentMethod` (`string`), `Provider` (`int`), `ProviderAccountId` (`Guid`), `ProviderReference` (`string`), `ProviderRequestReference` (`string`), `ProviderStatus` (`string`), `RedirectUrl` (`string`), `ReturnBinding` (`string`), `ReviewCode` (`string`), `SafeProviderMetadata` (`string`), `Status` (`int`), `SucceededAt` (`DateTime?`), `TransactionNo` (`string`), `UpdatedAt` (`DateTime`), `Version` (`long`).
+
+### `txn.TransactionEvents`
+
+**Entity**: `Payments.Domain.TransactionEvent`
+**Owner**: `CommerceDbContext`
+**Fields**: `Id` (`Guid`), `EventReference` (`string`), `EvidenceCode` (`string`), `MerchantId` (`Guid`), `OccurredAt` (`DateTime`), `ProviderStatus` (`string`), `ReceivedAt` (`DateTime`), `SafeDetails` (`string`), `Source` (`string`), `Status` (`int?`), `TransactionId` (`Guid`).
+
 ## Keys, foreign keys and indexes
 
 ### Foreign keys
@@ -958,7 +1282,7 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `FK_RoutingRules_RoutingRulesets_MerchantId_RulesetId` | `txn.RoutingRules (MerchantId, RulesetId)` | `txn.RoutingRulesets (MerchantId, Id)` | `CASCADE` |
 | `FK_InboundWebhookEvents_PspConnections_MerchantId_PspConnectionId` | `txn.InboundWebhookEvents (MerchantId, PspConnectionId)` | `txn.PspConnections (MerchantId, Id)` | `RESTRICT` |
 
-`MerchantId`, `UserId`, `OrderId`, `PaymentSessionId`, `PspConnectionId` และ audit references ที่ไม่มีรายการด้านบนเป็น scalar/application relationships ไม่ใช่ physical FK.
+`MerchantId`, `UserId`, `OrderId`, `PaymentSessionId`, `PspConnectionId`, `TransactionId` และ audit references ที่ไม่มีรายการด้านบนเป็น scalar/application relationships ไม่ใช่ physical FK. Transaction ตรวจ parent Order ผ่าน owner repository/merchant scope ก่อนอ่านหรือเปลี่ยน state.
 
 ### Unique constraints and indexes
 
@@ -1007,6 +1331,11 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `txn.PaymentSessions` | `IX_PaymentSessions_OrderId_Open` | `OrderId` unique, filter `Status IN (1, 2)` |
 | `txn.PaymentSessions` | `IX_PaymentSessions_Psp_PspExternalChargeId` | `(Psp, PspExternalChargeId)` unique, filter non-null |
 | `txn.PspConnections` | `IX_PspConnections_MerchantId_Psp` | `(MerchantId, Psp)` unique |
+| `txn.Transactions` | `IX_Transactions_OrderId_AttemptNo` | `(OrderId, AttemptNo)` unique |
+| `txn.Transactions` | `IX_Transactions_ProviderAccountId_Environment_ProviderReference` | provider reference unique, filter non-null |
+| `txn.Transactions` | `IX_Transactions_ProviderAccountId_Environment_ProviderRequestReference` | provider request reference unique |
+| `txn.Transactions` | `IX_Transactions_OrderId_Potential` | `OrderId` unique, filter `Status IN (1, 2)` |
+| `txn.TransactionEvents` | `IX_TransactionEvents_TransactionId_EventReference_Source` | `(TransactionId, EventReference, Source)` unique |
 
 Non-unique lookup indexes:
 
@@ -1015,7 +1344,7 @@ Non-unique lookup indexes:
 | `admin.AuthAudits` | `IX_AuthAudits_AdminUserId` |
 | `admin.RoleAssignments` | `IX_RoleAssignments_RoleId` |
 | `admin.Sessions` | `IX_Sessions_AbsoluteExpiresAt`, `IX_Sessions_AdminUserId`, `IX_Sessions_FamilyId` |
-| `admin.Users` | `IX_Users_DivisionId`, `IX_Users_LevelId`, `IX_Users_OfficeId`, `IX_Users_PositionId` |
+| `admin.Users` | employee identity/profile indexes from current Admin configuration |
 | `iam.Permissions` | `IX_Permissions_GroupKey` |
 | `iam.RolePermissions` | `IX_RolePermissions_PermissionKey` |
 | `merch.AuthAudits` | `IX_AuthAudits_UserId` |
@@ -1029,7 +1358,12 @@ Non-unique lookup indexes:
 | `shop.OrderItems` | `IX_OrderItems_OrderId_MerchantId`, `IX_OrderItems_ProductCode` including `(OrderId, VariantCode)` |
 | `shop.Orders` | `IX_Orders_MerchantId` |
 | `txn.OutboxMessages` | `IX_OutboxMessages_ProcessedAt_LeaseExpiresAt` |
-| `txn.PaymentSessions` | `IX_PaymentSessions_OrderId` |
+| `txn.PaymentSessions` | `IX_PaymentSessions_OrderId`, `IX_PaymentSessions_OrderId_Open` |
+| `txn.Transactions` | provider request/reference, order/merchant and status lookup indexes from `TransactionConfiguration` |
+| `txn.TransactionEvents` | transaction/merchant/occurred-at lookup indexes from `TransactionEventConfiguration` |
+| `txn.Deliveries` | merchant/status/next-at/lease and notification/source-event indexes |
+| `txn.NotificationInboxMessages` | source-event and merchant/received-at indexes |
+| `txn.NotificationReviewNotes` | delivery/notification/merchant/created-at indexes |
 | `admin.ApprovalEvents` | `IX_ApprovalEvents_ApprovalId_OccurredAt` |
 | `admin.ApprovalRequests` | `IX_ApprovalRequests_MerchantId_CreatedAt`, `IX_ApprovalRequests_Status_CreatedAt` |
 | `admin.AuditRecords` | `IX_AuditRecords_Action_OccurredAt`, `IX_AuditRecords_ActorId_OccurredAt` |
@@ -1050,28 +1384,31 @@ Non-unique lookup indexes:
 
 ## Native JSON and retired surfaces
 
-Native SQL Server `json` columns มี exactly 5 จุด:
+Native SQL Server `json` columns มี 11 จุดตาม `PolDbContextModelSnapshot.cs`:
 
 | Column | Contract |
 |---|---|
+| `acct.Agents.Metadata` | bounded Agent metadata |
+| `acct.AgentRegistrations.ProfileJson` | registration draft profile |
+| `acct.AgentRegistrationAttempts.ProfileJson` | immutable submission profile |
+| `acct.Employees.Metadata` | Employee extension metadata |
+| `merch.UserOutbox.Payload` | closed registration/KYC lifecycle event |
 | `admin.ProvisioningOperations.Result` | closed provisioning result |
 | `merch.Merchants.Metadata` | typed merchant extension |
-| `merch.UserOutbox.Payload` | closed registration/KYC lifecycle event |
 | `shop.CartItems.Metadata` | typed cart item snapshot |
 | `shop.OrderItems.Metadata` | immutable order item snapshot |
+| `shop.OrderItems.RequestMetadata` | `VersionedMetadata` client envelope |
+| `shop.Orders.Metadata` | `VersionedMetadata` order envelope |
 
 `txn.OutboxMessages.Payload` และ `txn.PspConnections.Metadata` เป็น `nvarchar(max)`, ไม่ใช่ native `json`.
 
-ไม่มี persisted/API surface ปัจจุบันสำหรับ `CheckoutSession`, `CheckoutSessionItems`, `CheckoutConfirmed`, `shop.Products`, policy entity, policy audit/report, policy route, SQL RLS หรือ legacy product catalogue persistence. Products อ่านจาก upstream ผ่าน `GET /api/v1/products`.
+ไม่มี persisted/API surface ปัจจุบันสำหรับ legacy `CheckoutSession`, `CheckoutSessionItems`, `CheckoutConfirmed`, `shop.Products`, policy entity, policy audit/report, policy route, SQL RLS หรือ legacy product catalogue persistence. Current `checkout` schema เป็น `PaymentLinks`/replay และ current `txn` schema มี `Transactions`/`TransactionEvents` กับ notification runtime. Products อ่านจาก upstream ผ่าน `GET /api/v1/products`.
 
 ## Source of truth
 
-1. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
-2. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
-3. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
-4. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
-5. Migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants` ในโฟลเดอร์เดียวกัน
-6. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
-7. EF configurations ใต้ `src/Infrastructure/Persistence/` และ module infrastructure
+1. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/` — 47 tracked migrations ถึง `20260911163519_ReviewFixPaymentLinkNotificationIntent`
+2. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
+3. EF configurations ใต้ `src/Infrastructure/Persistence/` และ `src/Infrastructure/Modules/`
+4. Runtime context ownership ใน `src/Infrastructure/Persistence/Persistence.ControlPlane/ControlPlaneDbContext.cs` และ `src/Infrastructure/Persistence/Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs`
 
 เมื่อ schema เปลี่ยน ต้องอัปเดต migration, model snapshot และเอกสารนี้พร้อมกัน.

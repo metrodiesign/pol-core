@@ -1,183 +1,78 @@
-# คู่มือ 6 Layers ของ pol-core
+# คู่มือ Layers ของ pol-core
 
-> As-built 2026-08-13. อ้างอิงโค้ดปัจจุบันและ solution ที่ tracked; `docs/reference/src-structure.md` ใช้ดู path
-> รายละเอียดรายไฟล์.
+เอกสารนี้อธิบาย dependency direction และ ownership ของ source ปัจจุบัน. รายการ path ยึด 4 source projects ใน `pol-core.slnx`; ชื่อ folder รุ่นเก่าใน spec หรือ compatibility fixture ไม่ใช่ runtime layer.
 
-## สรุป
-
-| Layer | หน้าที่ |
-|---|---|
-| 1. `SharedKernel` | `Entity`, `AggregateRoot`, `Money`, currency และ JSON converter กลาง |
-| 2. `Contracts` | published event contracts ข้ามโมดูล เช่น payment, notification และ governance |
-| 3. `BuildingBlocks` | actor context, authorization/merchant guard, ports, persistence primitives, web middleware |
-| 4. `Persistence` | EF contexts, mappings, repositories, transaction/outbox adapters และ isolation floor |
-| 5. `Modules` | domain/application/infrastructure ของ business และ control-plane module แต่ละตัว |
-| 6. `Hosts` | composition root และ HTTP/background runtime; ปัจจุบันมี `Api` เป็น host ที่ใช้งาน |
-
-Dependency direction: outer layer reference inner layer. `Domain` ห้าม reference `Infrastructure` หรือ EF Core.
-Module ไม่ reference `.Domain` ของ module อื่น; cross-module communication ใช้ `Contracts`, `BuildingBlocks`
-ports หรือ host composition.
-
-## Current module set
-
-Current tracked modules มี 10 ตัว:
-
-1. `Admins`
-2. `Carts`
-3. `Governance`
-4. `Iam`
-5. `Merchants`
-6. `Notifications`
-7. `Orders`
-8. `Payments`
-9. `Products`
-10. `Reporting`
-
-ไม่มี current `Checkouts`, `MasterData`, `Divisions`, `Levels`, `Offices`, `Positions`, `Producer` หรือ local
-product catalogue contract ใน source ที่ใช้งาน.
-
-## 1. SharedKernel
-
-Path: `src/Domain/SharedKernel`.
-
-- `Entity<TId>` และ `AggregateRoot<TId>` เป็น base identity/aggregate.
-- `Money` เป็นเงินกลาง; amount ใช้ `decimal` และ currency ใช้ ISO code.
-- `Iso4217` ตรวจสกุลเงินและ scale.
-- `MoneyJsonConverter` คุม wire representation ของ Money.
-
-SharedKernel ไม่มี reference ไป layer อื่น.
-
-## 2. Contracts
-
-Path: `src/Application/Contracts`.
-
-Contracts เป็น event/data seam ไม่ใช่บ้านของ HTTP DTO. Current event families ครอบคลุม:
-
-- `PaymentPaid`, `PaymentFailed`, `PaymentExpired`
-- customer order notification
-- merchant-user registration/KYC lifecycle
-- governance approval/audit delivery
-
-Outbox enqueue เกิดใน transaction owner; background dispatcher เป็นผู้ส่ง event ภายหลัง.
-
-ไม่มี current `CheckoutConfirmed` contract.
-
-## 3. BuildingBlocks
-
-Paths:
-
-- `src/Application/BuildingBlocks.Application`
-- `src/Infrastructure/BuildingBlocks.Infrastructure`
-- `src/Api/BuildingBlocks.Web`
-
-หน้าที่หลัก:
-
-- `IActorContext`, merchant/user binding และ authorization primitives
-- `IUnitOfWork`, transaction execution strategy และ outbox abstractions
-- `IDocumentSaleProbe`, `IPhotoStore` และ cross-module ports ที่ไม่ควรอยู่ใน module ใด module หนึ่ง
-- EF tenant descriptors, write guard และ shared middleware/problem handling
-
-BuildingBlocks ไม่เก็บ business aggregate ของ merchant หรือ order.
-
-## 4. Persistence
-
-Current persistence projects:
-
-| Project | ขอบเขต |
-|---|---|
-| `Persistence.ControlPlane` | admin/IAM/master data, governance, API clients และ delivery control-plane stores |
-| `Persistence.MerchantUsers` | merchant-user identity, sessions, registration/KYC user rows |
-| `Persistence.MerchantRuntime` | merchants, carts, orders, payments, outbox, photo/runtime stores |
-| `Persistence.Provisioning` | merchant provisioning และ encrypted vault operations |
-
-`PolDbContext` เป็น migration owner. Runtime contexts ใช้ model ที่เหมาะกับ boundary ของตน; ไม่ให้ runtime
-context เป็น migration owner.
-
-Isolation ปัจจุบันไม่ใช่ SQL RLS:
-
-1. query filter จำกัด `MerchantId == CurrentMerchant`
-2. actor context บังคับ merchant/sale binding
-3. sealed write guard ตรวจ tenant key และ operation authority ก่อน commit
-4. intentional cross-merchant probes ใช้ explicit escape hatch และเหตุผลใน code/test
-
-Migration ล่าสุด: `20260811024015_AdminDeliveryRuntimeGrants`. รายการเต็มอยู่ใน
-[`entity-fields.md`](entity-fields.md); การ migrate ทั้งหมดเป็นเจ้าของโดย `PolDbContext`.
-
-## 5. Modules
-
-Module ปกติแบ่งเป็น:
+## Dependency direction
 
 ```text
-<Module>.Domain          aggregate, value object, enum, invariant
-<Module>.Application     command/query/handler, DTO, port
-<Module>.Infrastructure  module registration, EF mapping, module adapter
+Api -> Infrastructure -> Application -> Domain -> SharedKernel
+Application/Contracts เป็น seam สำหรับ event และ DTO ข้าม module
 ```
 
-### Business flow ปัจจุบัน
+| ชั้น | หน้าที่ | ตัวอย่าง path |
+|---|---|---|
+| Shared kernel | entity base, `Money`, currency, JSON/value primitives | `src/Domain/SharedKernel/` |
+| Domain | aggregate, invariant, enum, domain event | `src/Domain/Modules/` |
+| Application | command/query/handler, DTO, policy และ port | `src/Application/Modules/` |
+| Contracts/building blocks | cross-module event, actor, unit of work, guards | `src/Application/Contracts/`, `src/Application/BuildingBlocks.Application/` |
+| Infrastructure | adapter, persistence mapping, repository, outbox, vault, provider integration | `src/Infrastructure/Modules/`, `src/Infrastructure/Persistence/` |
+| API host | composition root, HTTP endpoint, auth/BFF, middleware, background dispatch | `src/Api/Api/`, `src/Api/BuildingBlocks.Web/` |
+
+`Domain` ไม่ reference EF Core/Infrastructure. ทุก domain module อยู่ใน `Domain` project เดียวกัน จึงใช้ namespace/module boundary และ architecture tests กันการเรียก implementation ข้าม module; event/behavior ข้าม module ใช้ `Application/Contracts`, application ports หรือ host coordinator.
+
+## Module placement
+
+Current module roots คือ `Access`, `Accounts`, `Admins`, `Carts`, `Checkouts`, `Governance`, `Iam`, `Merchants`, `Notifications`, `Orders`, `Payments`, `Products`, `Reporting` และ support modules `Migration`/`Platform`. ไม่ใช่ทุก module จะมี project ครบทุก layer.
+
+| Module | Domain | Application | Infrastructure/host |
+|---|---|---|---|
+| `Accounts` | `src/Domain/Modules/Accounts.Domain/` | `src/Application/Modules/Accounts.Application/` | `src/Infrastructure/Modules/Accounts.Infrastructure/`, `src/Api/Api/Accounts/` |
+| `Access` | `src/Domain/Modules/Access.Domain/` | policy อยู่ `Accounts.Application` | `src/Infrastructure/Modules/Access.Infrastructure/` |
+| `Orders` | `src/Domain/Modules/Orders.Domain/` | `src/Application/Modules/Orders.Application/` | `src/Infrastructure/Modules/Orders.Infrastructure/`, `src/Api/Api/Orders/` |
+| `Payments` | `src/Domain/Modules/Payments.Domain/` | `src/Application/Modules/Payments.Application/` | `src/Infrastructure/Modules/Payments.Infrastructure/`, `src/Api/Api/Payments/` |
+| `Notifications` | `src/Domain/Modules/Notifications.Domain/` | `src/Application/Modules/Notifications.Application/` | `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Notifications/`, `src/Api/Api/Notifications/` |
+
+รายละเอียด module อื่นอยู่ [platform-modules.md](platform-modules.md).
+
+## Persistence ownership
+
+Runtime มี 2 contexts และ migration owner 1 ตัว:
+
+| Owner | Responsibility |
+|---|---|
+| `ControlPlaneDbContext` | `acct`, `access`, `admin`, `iam`, `oauth`, `cfg`, merchant identity/profile/vault และ `txn` provider/routing/capability/approval configuration |
+| `CommerceDbContext` | `shop`, `checkout` และ `txn` เฉพาะ payment attempts, Transactions/events, inbound webhooks, outbox และ notification runtime |
+| `PolDbContext` | design-time full model และ EF migrations เท่านั้น; ไม่ register ที่ API runtime |
+
+Runtime contexts derive `GuardedRuntimeDbContext`. Commerce rows ใช้ query filter ตาม `CurrentMerchant`; identity access checks ใช้ Account authorization snapshot, DataScope, owner Sale/Branch และ authorization lease. Writes ผ่าน sealed `IWriteAuthorizer`; raw SQL/`IgnoreQueryFilters`/bulk DML ต้องอยู่ใน named allowlist.
+
+## Business flow
 
 ```mermaid
 flowchart LR
-    P["Products live upstream"] --> C["Carts"]
-    C --> O["Orders"]
-    O --> T["Payments"]
-    T --> E["Contracts + Outbox"]
-    E --> D["Dispatcher in Api host"]
+    A["Account + Access"] --> O["CreateOrderCommand"]
+    P["SP document adapter"] --> O
+    O --> L["PaymentLink"]
+    L --> T["Transaction"]
+    T --> E["TransactionEvent + outbox"]
+    E --> N["Notification materializer and delivery"]
 ```
 
-Products ไม่ persist catalogue. Cart add-item และ order creation lookup upstream สด; Order creation revalidate
-ทุก line ก่อน transaction. Order transaction เขียน Order, OrderItems, notification outbox และ `CheckedOut` Cart
-พร้อมกัน. Payment events update order state แบบ versioned/idempotent. `Governance` ทำ maker-checker และ
-append-only audit hash chain. `Notifications` ทำ webhook/notification delivery และ replay. `Reporting` ทำ
-dashboard กับ transaction projection จาก Order/PaymentSession/lifecycle เดิม โดยไม่มี ledger เพิ่ม.
+Canonical `/orders` เป็น Account/Access path ที่ตรวจ trusted owner/pricing และใช้ `issueNow` branch. `/orders/from-cart` เป็น legacy commerce route ที่ยังใช้ `OrderCreationCoordinator`; มันไม่เปลี่ยน canonical DTO.
 
-### Master data
+## Tests และ boundaries
 
-ไม่มี org reference module แล้ว (2026-09-05): `cfg.Positions`/`cfg.Offices`/`cfg.Levels`/`cfg.Divisions`,
-โมดูลทั้งสี่ และ area `/api/v1/{divisions|levels|offices|positions}` ถูกลบ — ข้อมูลองค์กรของพนักงานอ่านตรงจาก
-HR mirror (`dbo.VibEmp`, `dbo.branch`).
+- `tests/UnitTests` ตรวจ invariants, policy, handler และ reducer
+- `tests/ArchitectureTests` ตรวจ layer references, mapping owner, filters, write guard, bypass และ retired surface
+- `tests/IntegrationTests` ตรวจ SQL Server migration chain, host route, transaction ordering, outbox, notification leases และ provider capture
 
-### Merchants and KYC
-
-Merchant user ใช้ OIDC BFF/session cookie. KYC photo ผ่าน private staged object:
-
-- max 2 MiB, media type + magic validation
-- deterministic operation key และ `(Key, CreatedNew)` idempotency result
-- failed attempt discard เฉพาะ object ที่ call นั้นสร้างใหม่
-- staging TTL 24 ชั่วโมง
-- `PhotoStagingPruneService`: initial 5 นาที, interval 1 ชั่วโมง
-- production single-host named volume `merchant-user-photos:/app/merchant-user-photos`
-
-## 6. Hosts
-
-Path: `src/Api/Api`.
-
-`Program.cs` เป็น composition root ของ current API:
-
-- root route `/api/v1`
-- public products, merchant-user, admin, Admin control-plane และ merchant-provisioning areas อยู่ใน host เดียว
-- background outbox dispatch, governance outbox, delivery และ photo staging prune ทำงานใน process ของ `Api`
-- ไม่มี current tracked `Worker` host ที่เป็น runtime dependency
-
-Route audience ใช้ authorization policy เช่น `merchant-user` หรือ `admin`; ไม่ใช้ audience-first prefix อย่าง
-`/api/admin/v1` หรือ `/api/producer/v1`.
-
-## Testing map
-
-Test projects ปัจจุบันแยกตาม module และ boundary:
-
-- `Architecture.Tests` — dependency direction และ forbidden reference
-- `BuildingBlocks.Tests`, `SharedKernel.Tests` — primitives/guards
-- `Admins.Tests`, `Carts.Tests`, `Governance.Tests`, `Iam.Tests`, `Merchants.Tests`, `Orders.Tests`,
-  `Payments.Tests`, `Products.Tests`
-- `Hosts.Tests` ครอบ Admin control-plane, OpenAPI documents, ETag/idempotency และ delivery/reporting contracts
-- `Hosts.Tests` — route composition, policy/CSRF gates, host behavior
-- `Integration.Tests` — persistence/migration/integration paths
+Local implementation evidence ผ่านตาม handoff แต่ live external credentials/authorization ไม่มี. เอกสารนี้จึงไม่อ้าง production-ready.
 
 ## Source of truth
 
-- `.ai/shared/ARCHITECTURE.md`
-- `.ai/shared/CODING_STANDARDS.md`
 - `src/Api/Api/Program.cs`
-- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/`
-- `docs/reference/src-structure.md`
-- `docs/reference/entity-fields.md`
+- `src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs`
+- `src/Application/Modules/Orders.Application/OrderWorkflow.cs`
+- `src/Application/Modules/Platform.Application/Transactions/`
+- `src/Infrastructure/Persistence/Persistence.ControlPlane/`
+- `src/Infrastructure/Persistence/Persistence.MerchantRuntime/`

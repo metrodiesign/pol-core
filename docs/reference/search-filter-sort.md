@@ -1,6 +1,6 @@
 # Search / Filter / Sort (SFS) Reference
 
-> As-built 2026-08-13. SFS เป็น shared query contract สำหรับ endpoint ที่ประกาศใช้เท่านั้น; Products และ
+> As-built 2026-09-12. SFS เป็น shared query contract สำหรับ endpoint ที่ประกาศใช้เท่านั้น; Products และ
 > master-data CRUD ใช้ typed surface ของตนเอง.
 
 ## Generic contract
@@ -64,6 +64,10 @@ dynamic. ค่า filter ถูก parse เป็น type ของ field แ�
 - search: `email`
 - authorization: policy `admin` + permission `user.view`
 
+### Canonical Account directory
+
+`GET /api/v1/accounts` ใช้ SFS สำหรับ business `Account` directory ภายใต้ Admin scope. Field allowlist ของ account/identity ถูกประกาศใน `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/` และ endpoint ไม่คืน token/secret. Account detail ใช้ `ETag` จาก `AuthorizationVersion`; update/revoke session ใช้ `If-Match` หรือ idempotency ตาม operation.
+
 ### Admin roles
 
 `GET /api/v1/admins/roles` ใช้ generic SFS. Role implementation รองรับ whitelist:
@@ -106,6 +110,10 @@ GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD69000
 - default period: `createdAt` ย้อนหลัง 7 วัน; export ต้องส่ง `from` และ `to` ไม่เกิน 31 วัน
 
 Dashboard และ operations report ใช้ `from`, `to`, `merchantId` แบบ typed query; ไม่ใช่ generic `filters`/`sort`.
+
+### Canonical transaction support
+
+`GET /api/v1/transactions` ใช้ `page`, `limit`, `status`, `merchantId` และบังคับเลือก merchant ให้สอดคล้องกับ Admin accessible scope. Detail/events/verify/review-note resolve parent Order และใช้ transaction version/idempotency. `GET /api/v1/notifications` และ delivery attempts ใช้ search แบบ typed (`orderNo`, `transactionNo`, `correlationId`) ตาม `Notifications.Application` contract ไม่ใช่ generic SFS ทุก field.
 
 ## Security and query cost
 

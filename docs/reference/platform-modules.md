@@ -1,230 +1,137 @@
 # pol-core Platform Modules
 
-> As-built 2026-08-13. หน้านี้สรุป current tracked implementation; target design และ migration history อยู่ใน
-> `.ai/specs/` แยกต่างหาก.
+เอกสารนี้สรุป implementation ที่ tracked ปัจจุบันของ `pol-core` หลัง `platform-restructure-v1`. ส่วนที่เป็น target หรือประวัติ migration ระบุแยกจาก as-built และไม่ถือว่าเป็นหลักฐาน production readiness.
 
-## ภาพรวม
+## ภาพรวมระบบ
 
-pol-core เป็น modular monolith ที่รันผ่าน `Api` host และใช้ `/api/v1` เป็น route root. Current business flow:
+`Api` เป็น modular monolith host เดียวที่ expose `/api/v1`. เส้นทางธุรกิจปัจจุบันมี canonical Order flow และยังเก็บ Cart compatibility route ไว้ตาม inventory:
 
 ```mermaid
 flowchart LR
-    P["Products: live upstream"] --> C["Carts"]
-    C --> O["Orders"]
-    O --> T["Payments"]
-    T --> X["Outbox events"]
-    A["Admin control plane"] --> G["Governance / Reporting / Notifications"]
+    P["Products: upstream SP"] --> C["Carts"]
+    I["Account + Access"] --> O["Orders"]
+    C --> O
+    O --> L["PaymentLink / Checkout capability"]
+    L --> T["Transactions + PSP adapters"]
+    T --> N["Commerce notifications"]
+    A["Admin control plane"] --> G["Governance, IAM, reporting, delivery"]
 ```
 
-ไม่มี persisted Checkout, local product catalogue หรือ audience-first route. Admin control plane อ่านและแก้
-resource ผ่าน owner module เดิม ไม่สร้าง Transaction ledger หรือ aggregate ซ้ำ.
+Products ไม่เก็บ catalogue ในฐานข้อมูล. `POST /api/v1/orders` ใช้ `CreateOrderCommand` และ trusted pricing; `POST /api/v1/orders/from-cart` เป็น legacy compatibility route ที่ตรวจ Cart และ source อีกครั้ง. Payment amount มาจาก trusted Order snapshot; provider call เกิดหลัง Transaction ถูก persist.
 
-## Current module set
+## Module inventory
 
-| Module | หน้าที่ปัจจุบัน | Boundary หลัก |
+| Module | ขอบเขต current | Source anchors |
 |---|---|---|
-| `Admins` | platform admin identity, sessions, profile และ admin operations | control plane |
-| `Governance` | maker-checker approvals, append-only audit hash chain และ governance outbox | control plane `admin` |
-| `Iam` | permissions, groups, roles และ role grants | control plane |
-| `Merchants` | merchant profile, merchant-user OIDC BFF, registration/KYC, provisioning | merchant identity/runtime |
-| `Notifications` | outbound webhook endpoints/deliveries และ notification rules/deliveries | control plane `admin` |
-| `Products` | live upstream insurance-document search/lookup | external source |
-| `Carts` | open cart, server-resolved lines, optimistic concurrency | merchant runtime `shop` |
-| `Orders` | direct Cart-to-Order, order lifecycle, summary/reveal | merchant runtime `shop` |
-| `Payments` | payment session, PSP redirect/webhook/status orchestration | merchant runtime `txn` |
-| `Reporting` | Admin dashboard, transaction projection และ CSV exports | read projection |
+| `Accounts` | business identity ของ Employee, Agent, System, login linkage และ registration case | `src/Domain/Modules/Accounts.Domain/`, `src/Application/Modules/Accounts.Application/` |
+| `Access` | MerchantAccess, PlatformAccess, roles/branches/method grants และ DataScope | `src/Domain/Modules/Access.Domain/`, `src/Infrastructure/Modules/Access.Infrastructure/` |
+| `Admins` | workforce admin account, OIDC BFF session, tier และ admin operations | `src/Domain/Modules/Admins.Domain/`, `src/Api/Api/Admins/` |
+| `Iam` | permission/group/role catalog กลางและ API client catalog | `src/Domain/Modules/Iam.Domain/`, `src/Application/Modules/Iam.Application/` |
+| `Merchants` | merchant, branch, sale, originator, merchant-user, provisioning และ vault seam | `src/Domain/Modules/Merchants.Domain/`, `src/Application/Modules/Merchants.Application/` |
+| `Products` | live insurance-document search/lookup และ trusted source pricing adapter | `src/Application/Modules/Products.Application/`, `src/Infrastructure/Modules/Products.Infrastructure/` |
+| `Carts` | open cart, server-resolved lines และ optimistic concurrency | `src/Domain/Modules/Carts.Domain/` |
+| `Orders` | canonical draft/issue, owner binding, trusted snapshot, lifecycle, summary read และ payment-link orchestration | `src/Domain/Modules/Orders.Domain/`, `src/Application/Modules/Orders.Application/` |
+| `Checkouts` | keyed PaymentLink, replay protection, anonymous capability และ confirm/status command | `src/Domain/Modules/Checkouts.Domain/`, `src/Application/Modules/Checkouts.Application/` |
+| `Payments` | provider selection, redirect/webhook compatibility, Transaction reducer และ provider evidence | `src/Domain/Modules/Payments.Domain/`, `src/Application/Modules/Payments.Application/` |
+| `Notifications` | outbox-to-inbox materialization, template/recipient snapshots, email/SMS/business webhook delivery | `src/Domain/Modules/Notifications.Domain/`, `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Notifications/` |
+| `Governance` | maker-checker, append-only audit chain และ governance outbox | `src/Domain/Modules/Governance.Domain/`, `src/Api/Api/Governance/` |
+| `Reporting` | admin dashboard/operations projection และ exports จาก owner data | `src/Application/Modules/Reporting.Application/`, `src/Api/Api/Reporting/` |
+| `Migration` | readiness/readiness report, deterministic mapping, writer lease และ recovery tooling | `src/Application/Modules/Migration.Application/` |
+| `Platform` | checkout transaction service, transaction repository และ platform-level transaction ports | `src/Application/Modules/Platform.Application/` |
 
-รวม 14 โมดูล. ไม่มี current `Checkouts`, `MasterData`, `Producer` หรือ `Tenant` module ใน tracked implementation.
+`Access`/`Accounts`/`Checkouts`/`Migration`/`Platform` เป็น current modules แม้บางตัวไม่มี project ครบทั้งสาม layer. ไม่มี current `Producer`, `Tenant` หรือ separate `MasterData` module.
 
-## Module details
+## Identity และ authorization
 
-### Admins + IAM
+Business authorization ใช้ `Account` + `Access` เป็น canonical model:
 
-`Admins` จัดการ platform admin account, session, profile และ accessible merchant binding.
-`Iam` เป็น catalog ของ permission/group/role, role-permission grants และ API client credentials.
+| Account type | บทบาท | Scope ที่ใช้ |
+|---|---|---|
+| `Employee` | platform workforce; อาจมี `PlatformAccess` และ platform/shared roles | Platform |
+| `Agent` | ตัวแทนของ Merchant ที่ผูก `SaleId` เดียว | `Self` หรือ scope ที่ policy อนุญาต |
+| `System` | client credentials ที่ผูก Merchant และ scope code | Merchant/system scope |
 
-Admin control-plane routes ครอบคลุม merchant/originator, PSP/routing, merchant-user management, API clients,
-governance, webhook/notification delivery และ reporting. รายละเอียด route/permission อยู่ใน
-[`admin-control-plane.md`](admin-control-plane.md).
+`MerchantAccess.DataScope` มี `Merchant`, `Self`, `Branch`, `AssignedBranches`; `AccessEvaluator` ตรวจ account active, merchant context, owner Sale/Branch, role/permission และ authorization version. `E/A/S` ที่ใช้ใน canonical identity path หมายถึง Employee/Agent/System; legacy `Admin`/`MerchantUser` sessions ยังเป็น console authentication adapters และไม่ใช่ business account replacement.
 
-Current admin routes อยู่ใต้ `/api/v1/admins...`. Authorization ใช้ policy `admin`, permission key และ CSRF
-สำหรับ mutations.
+## Commerce contracts
 
-`Scope` มี 3 ค่า: Platform (Tier 0), Merchant (Tier 1) และ Shared (`payment.*` — role ใช้ร่วมกันสองระดับ, seed `merchant_staff`).
-Role resolution ใช้เฉพาะ role/group/permission ที่ `Active`. Seed role ใช้ `MerchantId = NULL`; custom merchant
-role ต้องมี owner.
+### Products และ Carts
 
-### Reference master data
-
-สี่โมดูลมี shape เดียวกัน:
-
-- aggregate มี `Code`, `Name`, `Status`
-- `Status` เป็น enum `Active=1`, `Inactive=2`
-- `Code` immutable, unique, regex `^[a-z0-9_]+$`
-- PUT เปลี่ยนชื่อและ status; DELETE เป็น soft-deactivate
-- store อยู่ `Persistence.ControlPlane`; migration owner คือ `PolDbContext`
-
-### Merchants
-
-Merchant user ใช้ OIDC BFF provider Microsoft Entra (CIAM), opaque `__Host-mch_session` cookie และ CSRF
-double-submit. Commerce actor ได้ `MerchantId`, `SaleCode` และ Active-only IAM permission จาก server. Order read paths
-(list/detail/resend/cancel/reconciliation) และ payment session (list/get) กรองเพิ่มด้วย `InitiatingMerchantUserId == user` — ตัวแทน
-(Tier 1) เห็นเฉพาะคำสั่งซื้อของลูกค้าตัวเอง; admin (Tier 0) เห็นทั้ง merchant ที่ accessible.
-
-KYC photo:
-
-- multipart `kycPhoto`, maximum 2 MiB
-- allowlisted media type + magic bytes
-- deterministic staging key ตาม operation id
-- store คืน `(Key, CreatedNew)` เพื่อ idempotent retry และ race-safe cleanup
-- DB เก็บ object key เท่านั้น; lifecycle ผ่าน outbox
-- orphan staging TTL 24 ชั่วโมง; `PhotoStagingPruneService` เริ่มหลัง 5 นาที แล้ว sweep ทุก 1 ชั่วโมง
-- single-host production ใช้ `merchant-user-photos:/app/merchant-user-photos`
-- multi-host ต้องใช้ shared object store adapter
-
-Provisioning เป็น idempotent saga ระหว่าง merchant DB, encrypted vault และ outbox. PSP credential write-only,
-encrypted และไม่คืน/log.
-
-### Products
-
-Products เรียก upstream stored procedure ผ่าน `ISpDocumentGateway`:
-
-- `GET /api/v1/products` เป็น endpoint เดียว
-- รับ `page`, `limit`, typed `productFilters`
-- `SaleCode` มาจาก actor server-side
-- response ไม่มี local `Guid`; upstream document identifier คือ `DocumentNo`
-- ไม่มี `shop.Products`, upsert หรือ local product repository
-
-Cart add และ order creation ใช้ `LookupDocumentQuery` แบบ internal เพื่ออ่าน price/metadata สด.
-`IDocumentSaleProbe` ตรวจเอกสารที่ platform ขายแล้วหรือกำลังจ่าย.
-
-### Carts
-
-Cart อยู่ `shop.Carts`/`shop.CartItems` และมี `Open`/`CheckedOut` state. `Version` เป็น application-managed
-optimistic concurrency token ที่ bump ทุก mutation.
-
-Request add-item รับเฉพาะ:
-
-```json
-{
-  "productCode": "...",
-  "variantCode": "CMI",
-  "quantity": 1
-}
-```
-
-server resolve product, price, sale code, variant name และ typed metadata. Duplicate `ProductCode` ใน Cart
-ถูก reject. รายละเอียดอยู่ [`carts.md`](carts.md).
+`GET /api/v1/products` เรียก `ISpDocumentGateway` ด้วย `SaleCode` และ branch config ที่ server bind. Cart add ทำ live lookup, ใช้ `TotalPremium` เป็น price และเก็บ typed metadata. `Cart` อยู่ `shop.Carts`/`shop.CartItems`; `Cart.Version` ป้องกัน write race.
 
 ### Orders
 
-`POST /api/v1/orders` สร้าง order โดยตรงจาก Cart. `OrderCreationCoordinator` revalidate upstream document,
-payment state, sale probe และ Cart version ก่อน transaction.
+`POST /api/v1/orders` รับ `CreateOrderRequest` ที่ระบุ business type, currency, item references, client snapshot และ optional `issueNow`. Client ไม่ได้กำหนดราคา, total หรือ owner ของ Agent. Handler resolve owner, ตรวจ Account authorization snapshot และเรียก `IOrderSourcePolicy`/`ITrustedOrderPricingSource` ก่อนสร้าง aggregate.
 
-Transaction เดียวเขียน `shop.Orders`, immutable `shop.OrderItems`, notification ใน `txn.OutboxMessages` และ
-เปลี่ยน Cart เป็น `CheckedOut`. Order states: `Pending`, `Paid`, `Failed`, `Expired`, `Refunded`, `Cancelled`.
+`issueNow=false` สร้าง `Draft` โดยไม่มี PaymentLink. ค่า default `true` freeze เป็น `Open` และสร้าง PaymentLink แรกใน transaction เดียว. PATCH/issue/rotate/revoke มี `If-Match`, idempotency และ authorization lease ตาม operation. `/orders/from-cart` ยังคงเป็น route แยกเพื่อ compatibility และไม่ใช่ canonical create contract.
 
-Customer summary ใช้ opaque token มี TTL; merchant detail metadata reveal มี audit และ fail-closed.
+### Payments และ Transactions
 
-### Payments
+`Payments.Domain.Transaction` เป็น aggregate ที่เก็บ amount/currency, method, provider/account, environment, credential/config version, request/provider references และ safe order snapshot. สถานะคือ `Created`, `PendingConfirmation`, `Succeeded`, `Failed`, `Cancelled`, `Expired`.
 
-`txn.PaymentSessions` ผูกกับ `OrderId + MerchantId` และ PSP connection. Current routes:
+`TransactionEvent` เป็น append-only provider evidence ที่เก็บ source/reference/status/safe details/timestamps; ไม่เก็บ raw payload หรือ secret. Transaction ถูก persist ก่อนเรียก PSP และ provider create call มี short claim lease กันสอง tab สร้าง charge ซ้ำ. `Order.SuccessfulTransactionId` เป็น canonical successful pointer; `Order.PaymentStatus` แยกจาก legacy `Order.Status` สำหรับ flow ใหม่.
 
-- `POST /api/v1/payments/sessions`
-- `POST /api/v1/payments/sessions/{paymentSessionId}/redirect`
-- `GET /api/v1/payments/sessions/{paymentSessionId}`
-- `POST /api/v1/webhooks/{pspConnectionId:guid}`
+### Notifications
 
-Webhook verify, idempotency และ fetch-to-confirm. Payment events ใช้ `PaymentPaid`, `PaymentFailed`,
-`PaymentExpired`; stale correlation ถูก ignore และ state transition ของ Order serialize ด้วย row lock.
+Commerce outbox ส่ง `NotificationEvent` ไป `NotificationInboxMessage`; materializer dedupe ด้วย `SourceEventId` แล้วสร้าง `Notification`, `Delivery` และ immutable template/recipient/endpoint snapshots ใน transaction เดียว. Delivery dispatcher claim ด้วย `LeaseOwner`/`LeaseExpiresAt`; worker ที่ lease หมดอายุ reclaim ได้ตาม owner/attempt predicate เดียว และ owner เก่าหลัง re-lease เขียนผลไม่ได้. Attempt history append-only.
 
-Admin branch เพิ่ม PSP connection health/test, encrypted credential versioning, routing-ruleset draft/activation
-และ inbound webhook inspection โดยไม่เปลี่ยน redirect-only payment flow. Transaction report อ่าน projection จาก
-`Order` + `PaymentSession` + lifecycle events.
+Email ใช้ sender port; SMS ไม่มี provider จริงใน environment นี้จึงคืน `BLOCKED_NOT_CONFIGURED`. Business webhook ใช้ HTTPS/443, SSRF-safe DNS resolution, resolved-IP pinning, HMAC และไม่ตาม redirect. Retry/manual queue และ review note ไม่เปลี่ยน `Order.PaymentStatus`.
 
-### Governance, Notifications และ Reporting
+## HTTP route map
 
-- `Governance` เก็บ approval request/decision/execution, append-only audit hash chain และ durable outbox
-- `Notifications` เก็บ outbound webhook endpoint, delivery/replay, notification rule และ delivery history
-- `Reporting` รวม dashboard, transaction list/detail และ export จากข้อมูล commerce เดิม; ไม่มี ledger ใหม่
+| Area | Current routes |
+|---|---|
+| Products | `/api/v1/products`, admin document projection `/api/v1/products/documents` |
+| Carts | `/api/v1/carts`, `/api/v1/carts/{cartId}/items...` |
+| Canonical Orders | `POST /api/v1/orders`, `PATCH /api/v1/orders/{orderId}`, `POST /api/v1/orders/{orderId}/issue`, `/rotate`, `/revoke` |
+| Legacy Orders | `POST /api/v1/orders/from-cart` |
+| Orders reads | `/api/v1/orders`, `/api/v1/orders/{orderId}`, `/api/v1/orders/{orderId}/items`, `/history`, `/cancel`, `/summary/resend` |
+| Customer capability | `/api/v1/checkout/access`, `/api/v1/checkout/summary`, `/api/v1/checkout/confirm`, `/api/v1/checkout/status` |
+| Payment compatibility | `/api/v1/payments/sessions...`, `/api/v1/orders/{token}/pay`, `/api/v1/orders/{token}/payment-status` |
+| Transactions | `/api/v1/transactions`, `/api/v1/transactions/{transactionId}`, `/events`, `/verify`, `/review-notes` |
+| PSP webhook | `POST /api/v1/webhooks/{pspConnectionId:guid}` |
+| Identity/access | `/api/v1/accounts...`, `/api/v1/agent-registration...`, `/api/v1/agent-registrations...` |
+| Admin/control | `/api/v1/admins...`, `/api/v1/merchants...`, `/originators...`, `/approvals...`, `/audits...`, `/api-clients...`, `/reports...`, delivery routes |
+
+Audience policy, CSRF, `If-Match` และ `Idempotency-Key` เป็น endpoint metadata; route path ไม่ใช้ legacy audience-first `/api/admin/v1` หรือ `/api/producer/v1`.
 
 ## Persistence topology
 
-| Project | Current responsibility |
+| Schema | Current tables by owner |
 |---|---|
-| `Persistence.ControlPlane` | admin, IAM, cfg reference data, governance, API-client และ delivery control-plane stores |
-| `Persistence.MerchantUsers` | merchant-user identity/session/registration rows |
-| `Persistence.MerchantRuntime` | merchant profile, carts, orders, payments, outbox, photo store และ runtime readers |
-| `Persistence.Provisioning` | provisioning/vault workflow |
+| `acct` | Accounts, LoginAccounts, Employees, Agents, SystemClients, keys, BFF/registration sessions และ registration cases |
+| `access` | MerchantAccess, AccessRoles, BranchAccess, PlatformAccess, PlatformAccessRoles, SystemClientScopes, MerchantAccessMethods |
+| `admin` | admin identity/session, governance/audit, provisioning, control webhook/notification delivery และ API operation records |
+| `iam` | permission catalog, roles, grants, API clients และ one-time secret tickets |
+| `merch` | merchant/branch/sale/originator, merchant-user identity/session, vault และ user outbox |
+| `shop` | carts, cart items, orders, order items, reveal audits |
+| `checkout` | PaymentLinks และ PaymentLinkReplays |
+| `txn` | payment sessions, provider/routing, transactions/events, notification runtime, inbound webhooks, idempotency และ outbox |
+| `cfg` | payment capability catalog and migration conflicts |
+| `oauth` | OpenIddict applications, authorizations, scopes, tokens และ assertion replay |
+| `dbo` | Data Protection keys และ EF history |
 
-Schemas:
+`txn` เป็น schema ร่วม ไม่ใช่ context เดียว: PSP connections/routing/payment capability/approval configuration อยู่ `ControlPlaneDbContext`; payment attempts, Transactions/events, inbound webhooks, idempotency, outbox และ notification runtime อยู่ `CommerceDbContext`. `PolDbContextModelSnapshot.cs` เป็น physical mapping source. Field-level tablesอยู่ใน [`entity-fields.md`](entity-fields.md).
 
-- `admin`: platform users/session/role/access/audit/provisioning, governance, delivery และ notification tables
-- `iam`: permission catalog, grants, API clients และ one-time secret tickets
-- `cfg`: four master-data tables
-- `merch`: merchants, originators, users, invitations, sessions, registration, vault, user outbox และ Admin operation records
-- `shop`: carts, cart items, orders, order items, reveal audits
-- `txn`: payment sessions, PSP connections, routing, inbound webhook events, idempotency และ outbox
+## Migration และ readiness
 
-`PolDbContext` เป็น migration owner. Latest migration คือ `20260811024015_AdminDeliveryRuntimeGrants`.
-Migration chain เต็มและ field-level schema อยู่ใน [`entity-fields.md`](entity-fields.md).
+Migration chain ปัจจุบันมี 47 migrations และจบที่ `20260911163519_ReviewFixPaymentLinkNotificationIntent`. `20260910021908_Task2IdentityAccess` ถึง `20260910140000_Task9MigrationReadiness` เพิ่ม Account/Access, owner registration, Transactions, Notifications, API operations และ migration rehearsal; review-fix migrations เพิ่ม versioned metadata และ notification intent.
 
-ไม่มี SQL RLS. Isolation floor อยู่ app layer: query filters, actor binding, tenant-key validation และ guarded
-write. Intentional cross-merchant probe ใช้ explicit `IgnoreQueryFilters()` ที่มี test/allowlist รองรับ.
+Local build/test, pending-model, schema drift, migration parity และ route comparator ผ่านตาม handoff. ยังขาด sanitized backup, master identity mapping, live Entra/PSP/Email/SMS evidence และ production authorization; จึงเป็น local implementation/cutover machinery เท่านั้น ไม่ใช่ production-ready.
 
-## Layer/dependency rules
+## Retired หรือ historical surfaces
 
-```text
-Hosts -> Persistence/Infrastructure -> Application -> Domain -> SharedKernel
-                    \-> Contracts/BuildingBlocks ports
-```
-
-Domain ไม่ reference EF Core หรือ Infrastructure. Application ประกาศ port; Persistence/Infrastructure เป็น
-implementation. Host composition เป็นจุดเดียวที่ผูก concrete adapter กับ module contract.
-
-## Current route map
-
-| Area | Routes |
-|---|---|
-| Products | `/api/v1/products` |
-| Carts | `/api/v1/carts...` |
-| Orders | `/api/v1/orders...` |
-| Payments | `/api/v1/payments/sessions...`, `/api/v1/webhooks/{pspConnectionId}` |
-| Admins | `/api/v1/admins...` |
-| Merchant users | `/api/v1/merchants/auth...`, `/api/v1/merchants/users...` |
-| Merchant provisioning | `/api/v1/merchants...` |
-| Admin control | `/api/v1/merchants`, `/originators`, `/payments/psp-connections`, `/payments/routing-rulesets` |
-| Admin identity | `/api/v1/merchants/{merchantId}/users`, `/roles`, `/permissions` |
-| Governance | `/api/v1/approvals`, `/api/v1/audits` |
-| Notifications | `/api/v1/webhooks/endpoints`, `/api/v1/webhooks/deliveries`, `/api/v1/notifications/*` |
-| API clients | `/api/v1/api-clients` |
-| Reporting | `/api/v1/reports/dashboard`, `/api/v1/reports/operations`, `/api/v1/payments/transactions` |
-| Inbound webhook audit | `/api/v1/webhooks/inbound-events` |
-| Reconciliation | `GET /api/v1/reports/reconciliation` (merchant flow เดิม) |
-
-Authorization policy แยก audience; path ไม่ใช้ `/api/admin/v1` หรือ `/api/producer/v1`.
-
-## Retired surfaces
-
-ไม่มี current project/table/contract/route/grant สำหรับ:
-
-- Checkout session/item/event และ `/api/v1/checkouts*`
-- local product catalogue `shop.Products`
-- policy entity/audit/report routes
-- SQL RLS/security policy/bypass principal
-- standalone `Worker` runtime host
-- separate `Transaction` ledger หรือ payment capability ที่ไม่มี owner จริง
-
-ถ้าเอกสารเก่าหรือ client ยังใช้ surface เหล่านี้ ให้ยึด code และ
-`.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md` เป็น migration map.
+ไม่มี current production implementation สำหรับ SQL RLS/security policy, bypass principal, local product catalogue, policy issuance, `Producer`/`Tenant` module หรือ standalone Worker runtime. `PaymentSessions` และ `/orders/from-cart` ยังคงเป็น compatibility/payment adapter surfaces ตาม inventory; canonical transaction path อยู่ `Transaction`/`TransactionEvent`.
 
 ## Source of truth
 
 - `src/Api/Api/Program.cs`
-- `src/Modules/*`
-- `src/Infrastructure/Persistence/*`
-- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/`
-- [`entity-fields.md`](entity-fields.md)
-- [`admin-control-plane.md`](admin-control-plane.md)
-- [`layers-guide.md`](layers-guide.md)
-- [`db-connection-and-rls.md`](db-connection-and-rls.md)
+- `src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs`
+- `src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs`
+- `src/Application/Modules/Orders.Application/OrderWorkflow.cs`
+- `src/Application/Modules/Platform.Application/Transactions/`
+- `src/Domain/Modules/Payments.Domain/Transaction.cs`
+- `src/Domain/Modules/Payments.Domain/TransactionEvent.cs`
+- `src/Infrastructure/Persistence/Persistence.ControlPlane/`
+- `src/Infrastructure/Persistence/Persistence.MerchantRuntime/`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
