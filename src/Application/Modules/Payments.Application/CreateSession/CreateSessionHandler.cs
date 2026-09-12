@@ -90,6 +90,11 @@ public sealed class CreateSessionHandler
 
         if (open is not null && open.IsExpiredAt(_clock.UtcNow))
         {
+            // PSP I/O must finish before the short Order -> Session transaction starts. Apply re-locks and
+            // reloads the session, so a stale result cannot retire a changed charge or snapshot.
+            var prepared = await _confirmation
+                .PrepareAsync(open, access: null, pspEventId: null, cancellationToken)
+                .ConfigureAwait(false);
             // REQ-3.2: releasing the stale session and minting its replacement land together or not at all —
             // a release that commits alone leaves the order with no way to pay until someone asks again.
             // TWO saves inside the one transaction, not one batch: the filtered unique index
@@ -97,7 +102,7 @@ public sealed class CreateSessionHandler
             // ModificationCommandComparer gives no guarantee that the UPDATE is sent before the INSERT.
             // Betting the money path on that ordering is how this deadlocks into a 409 nobody can clear.
             var staleResult = await _unitOfWork.ExecuteInTransactionAsync(
-                ct => MintUnderOrderLockAsync(command, method, open, ct),
+                ct => MintUnderOrderLockAsync(command, method, prepared, ct),
                 cancellationToken).ConfigureAwait(false);
             return RequireMinted(staleResult, command.OrderId);
         }
@@ -122,8 +127,22 @@ public sealed class CreateSessionHandler
                 $"Order {command.OrderId} already has an open payment session on a different channel.");
         }
 
+        PaymentConfirmationService.PreparedConfirmation? preparedToApply = null;
+        if (order.PaymentSessionId is { } attachedSessionId)
+        {
+            // A terminal attached session is the retry path. Prepare its provider result before opening the
+            // transaction; the apply phase below is the only code allowed to mutate it.
+            var attached = await _sessions.GetByIdAsync(attachedSessionId, cancellationToken).ConfigureAwait(false);
+            if (attached is not null && attached.Status is not (SessionStatus.Created or SessionStatus.Redirected))
+            {
+                preparedToApply = await _confirmation
+                    .PrepareAsync(attached, access: null, pspEventId: null, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
         var result = await _unitOfWork.ExecuteInTransactionAsync(
-            ct => MintUnderOrderLockAsync(command, method, sessionToConfirm: null, ct),
+            ct => MintUnderOrderLockAsync(command, method, preparedToApply, ct),
             cancellationToken).ConfigureAwait(false);
         return RequireMinted(result, command.OrderId);
     }
@@ -164,7 +183,7 @@ public sealed class CreateSessionHandler
     private async Task<MintResult> MintUnderOrderLockAsync(
         CreateSessionCommand command,
         string method,
-        Session? sessionToConfirm,
+        PaymentConfirmationService.PreparedConfirmation? preparedToApply,
         CancellationToken cancellationToken)
     {
         await _authorizationLocks.AcquireMerchantSharedAsync(command.MerchantId, cancellationToken)
@@ -180,30 +199,41 @@ public sealed class CreateSessionHandler
 
         // Lock Order before touching its attached Session. Failed/Expired retries re-confirm that prior
         // attempt so a late PSP settlement becomes PaymentPaid before another chargeable attempt can exist.
-        if (sessionToConfirm is null && locked.PaymentSessionId is { } attachedSessionId)
+        if (preparedToApply is null && locked.PaymentSessionId is { } attachedSessionId)
         {
-            sessionToConfirm = await _sessions.GetByIdAsync(attachedSessionId, cancellationToken).ConfigureAwait(false);
-            if (sessionToConfirm is null)
+            var attached = await _sessions.GetByIdAsync(attachedSessionId, cancellationToken).ConfigureAwait(false);
+            if (attached is null)
                 throw new ConflictException(
                     $"Order {command.OrderId} references a payment session that cannot be confirmed.");
 
-            if (sessionToConfirm.Status is SessionStatus.Created or SessionStatus.Redirected)
+            if (attached.Status is SessionStatus.Created or SessionStatus.Redirected)
             {
                 // Method-only: the attached session's route is pinned and must not be re-selected on resume.
-                if (string.Equals(sessionToConfirm.Method, orderMethod, StringComparison.Ordinal))
+                if (string.Equals(attached.Method, orderMethod, StringComparison.Ordinal))
                 {
-                    if (sessionToConfirm.Status == SessionStatus.Created)
-                        await EnsureAuthorizedAsync(locked, sessionToConfirm.Psp, cancellationToken);
-                    return new MintResult(sessionToConfirm.Id, null);
+                    if (attached.Status == SessionStatus.Created)
+                        await EnsureAuthorizedAsync(locked, attached.Psp, cancellationToken);
+                    return new MintResult(attached.Id, null);
                 }
 
                 return new MintResult(null, ConfirmationOutcome.Pending);
             }
+
+            // The session changed to terminal after the unlocked preparation read. Do not fetch from the PSP
+            // inside this transaction; let the caller retry and prepare against the current row.
+            throw new ConflictException(
+                $"Order {command.OrderId} payment session changed before confirmation; retry the request.");
         }
 
-        if (sessionToConfirm is not null)
+        if (preparedToApply is not null)
         {
-            var outcome = await _confirmation.ConfirmAsync(sessionToConfirm, cancellationToken).ConfigureAwait(false);
+            if (locked.PaymentSessionId is { } attachedPaymentSessionId
+                && attachedPaymentSessionId != preparedToApply.SessionId)
+                throw new ConflictException(
+                    $"Order {command.OrderId} payment session changed before confirmation; retry the request.");
+
+            var outcome = await _confirmation.ApplyPreparedAsync(preparedToApply, cancellationToken)
+                .ConfigureAwait(false);
             if (outcome is not (ConfirmationOutcome.Expired or ConfirmationOutcome.Failed))
                 return new MintResult(null, outcome);
         }

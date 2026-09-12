@@ -52,7 +52,7 @@ public sealed class OneBasedReferenceParityTests
         ("merch.Sessions", "Status", "Active=1`, `Superseded=2`, `Revoked=3"),
         ("merch.Users", "Status", "PendingApproval=1`, `Active=2`, `Rejected=3`, `Suspended=4"),
         ("merch.Users", "IdentityType", "Individual=1`, `Juristic=2"),
-        ("shop.Orders", "Status", "Pending=1`, `Paid=2`, `Failed=3`, `Expired=4`, `Refunded=5`, `Cancelled=6"),
+        ("shop.Orders", "Status", "Pending=1`, `Paid=2`, `Failed=3`, `Expired=4`, `Refunded=5`, `Cancelled=6`, `Draft=7`, `Open=8"),
         ("txn.PaymentSessions", "Psp", "TwoCTwoP=1`, `Omise=2"),
         ("txn.PaymentSessions", "Status", "Created=1`, `Redirected=2`, `Paid=3`, `Failed=4`, `Expired=5"),
         ("txn.PspConnections", "Psp", "TwoCTwoP=1`, `Omise=2"),

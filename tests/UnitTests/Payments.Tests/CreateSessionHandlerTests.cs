@@ -25,6 +25,8 @@ public sealed class CreateSessionHandlerTests
     private static readonly Guid MerchantUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Money OrderAmount = Money.Of(15000m, "THB");
     private static readonly DateTime Now = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
+    private static readonly Connection DefaultConnection =
+        Connection.Create(MerchantId, Code.TwoCTwoP, "card,promptpay", "psp/secret-ref/merchant-1", Now);
 
     private static PayableOrder TestOrder(
         PayableOrderStatus status = PayableOrderStatus.Pending,
@@ -38,7 +40,9 @@ public sealed class CreateSessionHandlerTests
     private static PayableOrder AwaitingOrder() => TestOrder();
 
     private static Connection NewConnection(string enabledMethods = "card,promptpay", Code psp = Code.TwoCTwoP) =>
-        Connection.Create(MerchantId, psp, enabledMethods, "psp/secret-ref/merchant-1", Now);
+        psp == Code.TwoCTwoP && enabledMethods == "card,promptpay"
+            ? DefaultConnection
+            : Connection.Create(MerchantId, psp, enabledMethods, "psp/secret-ref/merchant-1", Now);
 
     private sealed record Harness(
         CreateSessionHandler Handler,
@@ -96,6 +100,7 @@ public sealed class CreateSessionHandlerTests
                 new FakeIdempotencyStore(),
                 outbox,
                 unitOfWork,
+                sessions,
                 clock,
                 new RecordingLogger<PaymentConfirmationService>()),
             documentSales ?? new FakeDocumentSaleProbe(),
@@ -265,7 +270,7 @@ public sealed class CreateSessionHandlerTests
     [Fact]
     public async Task An_open_session_on_the_same_channel_is_returned_instead_of_a_second_one()
     {
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         var harness = NewHarness(existingSessions: [open]);
 
         var result = await harness.Handler.Handle(Command(), default);
@@ -279,7 +284,7 @@ public sealed class CreateSessionHandlerTests
     {
         // The customer who abandoned the PSP page must be able to resume on the SAME hosted charge, which is
         // what keeps the one-open-session rule from bricking the order.
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         open.BeginRedirect(Now);
         var harness = NewHarness(existingSessions: [open]);
 
@@ -292,7 +297,7 @@ public sealed class CreateSessionHandlerTests
     [Fact]
     public async Task An_open_session_on_a_different_method_blocks_a_new_one()
     {
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.PromptPay, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.PromptPay, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         var harness = NewHarness(
             connections: [NewConnection(enabledMethods: "card,promptpay")],
             adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay],
@@ -310,7 +315,7 @@ public sealed class CreateSessionHandlerTests
         // AC-4.3: a settings change (here the routing now points at a different PSP) must not move an
         // existing attempt. The open session on the order's channel is handed back on its pinned route and
         // the selector is never consulted — a re-route would otherwise turn a resumable session into a 409.
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         var harness = NewHarness(existingSessions: [open], routePsp: Code.Omise);
 
         var result = await harness.Handler.Handle(Command(), default);
@@ -323,7 +328,7 @@ public sealed class CreateSessionHandlerTests
     [Fact]
     public async Task A_terminal_session_does_not_block_a_fresh_attempt()
     {
-        var failed = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now);
+        var failed = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now);
         failed.MarkFailed("declined", Now);
         var harness = NewHarness(existingSessions: [failed]);
 
@@ -338,7 +343,7 @@ public sealed class CreateSessionHandlerTests
     public async Task Attached_Paid_session_blocks_second_attempt_while_Order_event_is_still_pending()
     {
         var paid = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddMinutes(-10));
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddMinutes(-10));
         paid.BeginRedirect(Now.AddMinutes(-9));
         paid.SetPspCharge("paid-charge", "https://psp.test/paid", Now.AddMinutes(-9));
         paid.MarkPaid("paid-charge", Now.AddMinutes(-1));
@@ -363,7 +368,7 @@ public sealed class CreateSessionHandlerTests
         PayableOrderStatus orderStatus)
     {
         var prior = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddHours(-1));
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddHours(-1));
         if (orderStatus == PayableOrderStatus.Failed)
             prior.MarkFailed("psp_failed", Now);
         else
@@ -388,7 +393,7 @@ public sealed class CreateSessionHandlerTests
         PayableOrderStatus orderStatus)
     {
         var prior = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddHours(-1));
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now.AddHours(-1));
         prior.BeginRedirect(Now.AddMinutes(-10));
         prior.SetPspCharge("late-charge", "https://psp.test/late", Now.AddMinutes(-10));
         if (orderStatus == PayableOrderStatus.Failed)
@@ -417,7 +422,7 @@ public sealed class CreateSessionHandlerTests
     private static Session StaleSession(bool withCharge)
     {
         var createdAt = Now - Session.OpenTtl;
-        var session = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, createdAt);
+        var session = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, createdAt);
         if (!withCharge)
             return session;
 
@@ -513,7 +518,7 @@ public sealed class CreateSessionHandlerTests
     {
         // REQ-3.3: the one-open-session rule is unchanged for everything inside the TTL — the boundary is the
         // only thing this task moved, so it is pinned from both sides.
-        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Now - Session.OpenTtl + TimeSpan.FromMinutes(1));
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Now - Session.OpenTtl + TimeSpan.FromMinutes(1));
         var harness = NewHarness(existingSessions: [open]);
 
         var result = await harness.Handler.Handle(Command(), default);

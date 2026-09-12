@@ -49,9 +49,10 @@ public sealed record PspAccess(Connection Connection, string Secret);
 ///
 /// The rules it enforces, in the order they bite:
 /// <list type="number">
-///   <item>A session may only be expired when NO charge can exist: no <c>PspExternalChargeId</c> is
-///   decidable offline; anything else must be fetched from the PSP first. A fetch failure is AMBIGUOUS and
-///   is deliberately NOT caught here — see <see cref="ConfirmAsync(Session, PspAccess?, string?, CancellationToken)"/>.</item>
+///   <item>A session may only be expired when NO charge can exist: a <c>Created</c> session without a
+///   <c>PspExternalChargeId</c> is decidable offline, while a <c>Redirected</c> session without one may
+///   still be in an ambiguous PSP claim. Anything else must be fetched from the PSP first. A fetch failure
+///   is AMBIGUOUS and is deliberately NOT caught here — see <see cref="ConfirmAsync(Session, PspAccess?, string?, CancellationToken)"/>.</item>
 ///   <item>The confirmation claim <c>{psp}:{connection}:charge:{id}:confirmed</c> is shared by all callers
 ///   and spent LAST, in the caller's transaction, together with the transition it protects.</item>
 ///   <item><see cref="PaymentPaid"/> is enqueued only on a REAL transition, so two callers that each win a
@@ -60,11 +61,74 @@ public sealed record PspAccess(Connection Connection, string Secret);
 ///   whether that event is a retryable transition or a terminal reconciliation conflict.</item>
 ///   <item>The collected amount+currency is compared before any mark.</item>
 /// </list>
-/// It owns no transaction: it saves the transition it makes (so the caller can treat that save as a phase)
-/// and leaves the transaction boundary to the caller.
+/// It separates provider I/O from the apply phase. Apply locks and reloads the current Session, then commits
+/// the claim, transition, inbound completion, and outbox changes in the caller's short unit-of-work
+/// transaction.
 /// </summary>
 public sealed class PaymentConfirmationService
 {
+    private static readonly object PreparedConstructionToken = new();
+
+    /// <summary>Internal provider evidence. Construction requires a private service-owned token, so API or
+    /// request code cannot manufacture a prepared result.</summary>
+    internal sealed class PreparedConfirmation
+    {
+        internal PreparedConfirmation(
+            object constructionToken,
+            Guid sessionId,
+            SessionStatus preparedSessionStatus,
+            Guid merchantId,
+            Guid orderId,
+            Code psp,
+            Guid? pspConnectionId,
+            Guid? providerAccountId,
+            Guid? secretVersionId,
+            PspEnvironment? environment,
+            string? externalChargeId,
+            Money amount,
+            PspChargeStatus? providerStatus,
+            Money? collectedAmount,
+            string? pspEventId,
+            DateTime occurredAt)
+        {
+            if (!ReferenceEquals(constructionToken, PreparedConstructionToken))
+                throw new InvalidOperationException("Prepared confirmation evidence must be created by the service.");
+
+            SessionId = sessionId;
+            PreparedSessionStatus = preparedSessionStatus;
+            MerchantId = merchantId;
+            OrderId = orderId;
+            Psp = psp;
+            PspConnectionId = pspConnectionId;
+            ProviderAccountId = providerAccountId;
+            SecretVersionId = secretVersionId;
+            Environment = environment;
+            ExternalChargeId = externalChargeId;
+            Amount = amount;
+            ProviderStatus = providerStatus;
+            CollectedAmount = collectedAmount;
+            PspEventId = pspEventId;
+            OccurredAt = occurredAt;
+        }
+
+        internal Guid SessionId { get; }
+        internal SessionStatus PreparedSessionStatus { get; }
+        internal Guid MerchantId { get; }
+        internal Guid OrderId { get; }
+        internal Code Psp { get; }
+        internal Guid? PspConnectionId { get; }
+        internal Guid? ProviderAccountId { get; }
+        internal Guid? SecretVersionId { get; }
+        internal PspEnvironment? Environment { get; }
+        internal string? ExternalChargeId { get; }
+        internal Money Amount { get; }
+        internal PspChargeStatus? ProviderStatus { get; }
+        internal Money? CollectedAmount { get; }
+        internal string? PspEventId { get; }
+        internal DateTime OccurredAt { get; }
+
+    }
+
     private const string IdempotencyContext = "payment-confirmation";
 
     private readonly IConnectionRepository _connections;
@@ -73,6 +137,7 @@ public sealed class PaymentConfirmationService
     private readonly IIdempotencyStore _idempotency;
     private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ISessionRepository _sessions;
     private readonly IClock _clock;
     private readonly ILogger<PaymentConfirmationService> _logger;
 
@@ -83,6 +148,7 @@ public sealed class PaymentConfirmationService
         IIdempotencyStore idempotency,
         IOutbox outbox,
         IUnitOfWork unitOfWork,
+        ISessionRepository sessions,
         IClock clock,
         ILogger<PaymentConfirmationService> logger)
     {
@@ -92,6 +158,7 @@ public sealed class PaymentConfirmationService
         _idempotency = idempotency;
         _outbox = outbox;
         _unitOfWork = unitOfWork;
+        _sessions = sessions;
         _clock = clock;
         _logger = logger;
     }
@@ -123,33 +190,187 @@ public sealed class PaymentConfirmationService
     {
         ArgumentNullException.ThrowIfNull(session);
 
+        var prepared = await PrepareAsync(session, access, pspEventId, cancellationToken).ConfigureAwait(false);
+        return await ApplyPreparedAsync(prepared, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Resolves credentials and asks the PSP without opening or mutating a database transaction.</summary>
+    internal async Task<PreparedConfirmation> PrepareAsync(
+        Session session,
+        PspAccess? access,
+        string? pspEventId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
         var now = _clock.UtcNow;
 
-        // No charge id = no charge was ever created at the PSP, so no money can exist for this session. The
-        // only case that is decidable without asking (REQ-8.13).
+        // A Created session without a charge has not reached the PSP. Redirected without a charge is an
+        // in-flight claim because BeginRedirect is committed before PSP I/O, so it is not offline proof.
         if (session.PspExternalChargeId is not { } chargeId)
-            return await ExpireIfStaleAsync(session, now, cancellationToken).ConfigureAwait(false);
+            return CreateOfflineEvidence(session, now);
 
         access ??= await ResolveAccessAsync(session, cancellationToken).ConfigureAwait(false);
+        ValidateAccess(session, access.Connection);
 
-        // Fetch-to-confirm on the PINNED snapshot, not the connection's current active environment: a
-        // credential rotation or environment switch after this attempt was created must not move it
-        // (merchant-psp-settings AC-4.3/8.2/8.3). The pinned secret and the pinned environment come from one
-        // source — the session snapshot — so a v1 attempt whose connection has since flipped still fetches
-        // against the endpoint family it was charged on. Falls back to the connection's active environment
-        // only for a legacy version-0 session that never pinned one.
+        // Provider I/O is deliberately before ApplyPreparedAsync opens the short write transaction.
         var environment = session.PspEnvironment ?? access.Connection.ActiveSecretEnvironment;
         var confirmed = await _adapters.For(session.Psp)
             .FetchChargeAsync(chargeId, access.Secret, environment, cancellationToken)
             .ConfigureAwait(false);
 
-        return confirmed.Status switch
+        return CreateProviderEvidence(
+            session, access.Connection, chargeId, confirmed, pspEventId, environment, now);
+    }
+
+    private static PreparedConfirmation CreateOfflineEvidence(Session session, DateTime occurredAt) =>
+        new(
+            PreparedConstructionToken,
+            session.Id,
+            session.Status,
+            session.MerchantId,
+            session.OrderId,
+            session.Psp,
+            session.PspConnectionId,
+            providerAccountId: null,
+            session.SecretVersionId,
+            session.PspEnvironment,
+            externalChargeId: null,
+            session.Amount,
+            providerStatus: null,
+            collectedAmount: null,
+            pspEventId: null,
+            occurredAt);
+
+    private static PreparedConfirmation CreateProviderEvidence(
+        Session session,
+        Connection connection,
+        string chargeId,
+        PspChargeConfirmation result,
+        string? pspEventId,
+        PspEnvironment environment,
+        DateTime occurredAt) =>
+        new(
+            PreparedConstructionToken,
+            session.Id,
+            session.Status,
+            session.MerchantId,
+            session.OrderId,
+            session.Psp,
+            connection.Id,
+            connection.PaymentProviderId,
+            session.SecretVersionId,
+            environment,
+            chargeId,
+            session.Amount,
+            result.Status,
+            result.Amount,
+            pspEventId,
+            occurredAt);
+
+    /// <summary>Locks/reloads the current session, revalidates provider evidence, and applies it atomically.</summary>
+    internal Task<ConfirmationOutcome> ApplyPreparedAsync(
+        PreparedConfirmation prepared,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+
+        return _unitOfWork.ExecuteInTransactionAsync(
+            ct => ApplyPreparedInTransactionAsync(prepared, ct), cancellationToken);
+    }
+
+    private async Task<ConfirmationOutcome> ApplyPreparedInTransactionAsync(
+        PreparedConfirmation prepared,
+        CancellationToken cancellationToken)
+    {
+        var session = await _sessions
+            .GetByIdForUpdateAsync(prepared.SessionId, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Payment session disappeared before confirmation apply.");
+
+        ValidatePreparedSession(session, prepared);
+
+        if (prepared.ProviderStatus is not null)
+        {
+            var connection = prepared.PspConnectionId is { } connectionId
+                ? await _connections.GetByIdAsync(connectionId, cancellationToken).ConfigureAwait(false)
+                : null;
+            ValidatePreparedConnection(connection, session, prepared);
+        }
+
+        return prepared.ProviderStatus switch
         {
             PspChargeStatus.Paid => await ConfirmPaidAsync(
-                session, access.Connection.Id, chargeId, confirmed.Amount, pspEventId, now, cancellationToken).ConfigureAwait(false),
-            PspChargeStatus.Failed => await FailAsync(session, now, cancellationToken).ConfigureAwait(false),
-            _ => await ExpireIfStaleAsync(session, now, cancellationToken).ConfigureAwait(false),
+                session,
+                prepared.PspConnectionId!.Value,
+                prepared.ExternalChargeId!,
+                prepared.CollectedAmount,
+                prepared.PspEventId,
+                prepared.OccurredAt,
+                cancellationToken).ConfigureAwait(false),
+            PspChargeStatus.Failed => await FailAsync(session, prepared.OccurredAt, cancellationToken).ConfigureAwait(false),
+            PspChargeStatus.Pending => await ExpireIfStaleAsync(session, _clock.UtcNow, cancellationToken).ConfigureAwait(false),
+            null => await ApplyOfflineEvidenceAsync(session, _clock.UtcNow, cancellationToken).ConfigureAwait(false),
+            _ => throw new InvalidOperationException("Unknown PSP confirmation status."),
         };
+    }
+
+    private static void ValidateAccess(Session session, Connection connection)
+    {
+        if (connection.MerchantId != session.MerchantId
+            || connection.Psp != session.Psp
+            || (session.PspConnectionId is { } pinned && pinned != connection.Id))
+            throw new InvalidOperationException("PSP access does not match the payment session.");
+    }
+
+    private static void ValidatePreparedSession(Session session, PreparedConfirmation prepared)
+    {
+        if (session.Id != prepared.SessionId
+            || session.MerchantId != prepared.MerchantId
+            || session.OrderId != prepared.OrderId
+            || session.Psp != prepared.Psp
+            || session.Amount != prepared.Amount
+            || session.PspConnectionId is { } pinnedConnectionId
+                && pinnedConnectionId != prepared.PspConnectionId
+            || session.SecretVersionId is { } pinnedSecretVersionId
+                && pinnedSecretVersionId != prepared.SecretVersionId
+            || session.PspEnvironment is { } pinnedEnvironment
+                && pinnedEnvironment != prepared.Environment
+            || !string.Equals(session.PspExternalChargeId, prepared.ExternalChargeId, StringComparison.Ordinal)
+            || prepared.ProviderStatus is null
+                && Terminal(session.Status) is null
+                && session.Status != prepared.PreparedSessionStatus)
+            throw new InvalidOperationException("Prepared payment confirmation no longer matches the payment session.");
+    }
+
+    private static void ValidatePreparedConnection(
+        Connection? connection,
+        Session session,
+        PreparedConfirmation prepared)
+    {
+        if (connection is null
+            || prepared.PspConnectionId is not { } connectionId
+            || connection.Id != connectionId
+            || connection.MerchantId != prepared.MerchantId
+            || connection.Psp != prepared.Psp
+            || connection.PaymentProviderId != prepared.ProviderAccountId
+            || session.PspEnvironment is null
+                && connection.ActiveSecretEnvironment != prepared.Environment)
+            throw new InvalidOperationException("Prepared payment confirmation no longer matches the PSP connection.");
+    }
+
+    private Task<ConfirmationOutcome> ApplyOfflineEvidenceAsync(
+        Session session,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (Terminal(session.Status) is { } terminal)
+            return Task.FromResult(terminal);
+
+        // A Redirected session without a charge is an in-flight PSP claim, not proof that no charge exists.
+        // Only an unchanged Created session is decidably chargeless and eligible for age-based expiry.
+        return session.Status == SessionStatus.Created
+            ? ExpireIfStaleAsync(session, now, cancellationToken)
+            : Task.FromResult(ConfirmationOutcome.Pending);
     }
 
     /// <summary>Nothing has been collected: expire the session once it is past its TTL, otherwise leave it
@@ -281,8 +502,11 @@ public sealed class PaymentConfirmationService
 
     private async Task<PspAccess> ResolveAccessAsync(Session session, CancellationToken cancellationToken)
     {
-        var connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
+        var connection = session.PspConnectionId is { } pinnedConnectionId
+            ? await _connections.GetByIdAsync(pinnedConnectionId, cancellationToken).ConfigureAwait(false)
+            : await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken).ConfigureAwait(false);
+        if (connection is null)
+            throw new InvalidOperationException(
                 $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
 
         // Reveal the version the SESSION pinned, not the connection's current active version: a rotation

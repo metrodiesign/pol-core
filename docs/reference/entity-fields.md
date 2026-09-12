@@ -17,7 +17,7 @@
 
 สัญลักษณ์ในตาราง field: `PK` = primary key, `FK` = foreign key, `NN` = `NOT NULL`, `NULL` = nullable, `IDENTITY` = database-generated identity, `ROWVERSION` = SQL Server rowversion.
 
-`OneBasedPersistedEnumStorage` แปลงค่า legacy แบบ 0-based เป็น mapping one-based ตามตารางด้านล่างด้วย `CASE` แบบ explicit
+Migration `20260808161508_OneBasedPersistedEnumStorage` (`OneBasedPersistedEnumStorage`) แปลงค่า legacy แบบ 0-based เป็น mapping one-based ตามตารางด้านล่างด้วย `CASE` แบบ explicit
 ครบทุก target field. Migration ตรวจ `NULL` และค่า legacy ที่อยู่นอกช่วงก่อนทำ data/schema change; ถ้า
 `merch.Users.IdentityType` หรือ `merch.RegistrationAttempts.IdentityType` เป็น `NULL` จะหยุดทันทีโดยไม่ backfill และไม่
 เปลี่ยน schema. `Down` ตรวจค่าปัจจุบันก่อนแปลงกลับเช่นเดียวกัน.
@@ -858,6 +858,10 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `Version` | `bigint` | NN | application-managed optimistic concurrency |
 
 Filtered unique index `(OrderId)` จำกัด open session ที่ `Status IN (1, 2)` เหลือไม่เกินหนึ่งรายการต่อ order.
+
+การยืนยัน compatibility ต้อง fetch PSP นอก database transaction เมื่อมี `PspExternalChargeId` แล้วจึง lock/reload `Session` และตรวจ reference/state ก่อนบันทึก claim, transition และ outbox ใน transaction เดียว.
+
+การหมดอายุแบบ offline ตาม TTL ทำได้เฉพาะ `Created` ที่ไม่มี charge reference และ state ไม่เปลี่ยนระหว่าง prepare/apply; session ที่มี charge reference ต้อง fetch-confirm ก่อนตัดสิน. `Redirected` ที่ไม่มี charge reference ถือเป็น `Pending` สำหรับ reconciliation และห้าม mint replacement จาก TTL.
 
 ### `txn.PspConnections`
 

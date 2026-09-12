@@ -87,6 +87,7 @@ public sealed class StartRedirectHandlerTests
             OrderId, OrderAmount, PayableOrderStatus.Pending, target.Id, target.Method,
             MerchantId, PaymentAudience.User, MerchantUserId));
         var capabilities = new FakeEffectivePaymentCapabilities(capabilityDenial);
+        var sessions = new FakeSessionRepository(target);
         var confirmation = new PaymentConfirmationService(
             connectionsRepository,
             adapterFactory,
@@ -94,11 +95,12 @@ public sealed class StartRedirectHandlerTests
             new FakeIdempotencyStore(),
             new FakeOutbox(),
             unitOfWork,
+            sessions,
             clock,
             new RecordingLogger<PaymentConfirmationService>());
 
         var handler = new StartRedirectHandler(
-            new FakeSessionRepository(target),
+            sessions,
             connectionsRepository,
             adapterFactory,
             vault,
@@ -363,6 +365,7 @@ public sealed class StartRedirectHandlerTests
                 new FakeIdempotencyStore(),
                 new FakeOutbox(),
                 unitOfWork,
+                sessions,
                 clock,
                 new RecordingLogger<PaymentConfirmationService>()),
             new FakeDocumentSaleProbe(),
@@ -378,8 +381,9 @@ public sealed class StartRedirectHandlerTests
             redirectVault,
             new FakeIdempotencyStore(),
             new FakeOutbox(),
-            unitOfWork,
-            clock,
+                unitOfWork,
+                sessions,
+                clock,
             new RecordingLogger<PaymentConfirmationService>());
         var redirect = new StartRedirectHandler(
             sessions, connections, adapters, redirectVault, unitOfWork, clock, redirectConfirmation,

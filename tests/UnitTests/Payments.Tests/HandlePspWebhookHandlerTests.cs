@@ -148,15 +148,16 @@ public sealed class HandlePspWebhookHandlerTests
         var vault = new FakeVaultSecretStore();
         var clock = new FixedClock { UtcNow = Now };
         var inboundEvents = new FakeInboundWebhookRecorder();
+        var sessions = new FakeSessionRepository(session);
 
         var handler = new HandlePspWebhookHandler(
             connections,
-            new FakeSessionRepository(session),
+            sessions,
             adapters,
             vault,
             unitOfWork,
             new PaymentConfirmationService(
-                connections, adapters, vault, idempotency, outbox, unitOfWork, clock,
+                connections, adapters, vault, idempotency, outbox, unitOfWork, sessions, clock,
                 new RecordingLogger<PaymentConfirmationService>()),
             inboundEvents,
             clock);

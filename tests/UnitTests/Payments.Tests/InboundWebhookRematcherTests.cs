@@ -72,12 +72,14 @@ public sealed class InboundWebhookRematcherTests
         });
         var vault = new FakeVaultSecretStore();
         var recorder = new FakeRecorder(pendingCount);
+        var sessions = new FakeSessionRepository(session);
         var confirmation = new PaymentConfirmationService(
             connections, adapters, vault, new FakeIdempotencyStore(), outbox, unitOfWork,
+            sessions,
             new FixedClock { UtcNow = Now }, new RecordingLogger<PaymentConfirmationService>());
 
         var rematcher = new InboundWebhookRematcher(
-            connections, new FakeSessionRepository(session), confirmation, recorder, unitOfWork,
+            connections, sessions, confirmation, recorder, unitOfWork,
             new FixedClock { UtcNow = Now });
 
         return new World(rematcher, connection.Id, recorder, outbox, session);

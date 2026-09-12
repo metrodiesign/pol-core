@@ -32,6 +32,9 @@ public sealed class TransactionInventoryTests
         // merchant-psp-settings task 8: the fetch-confirm-only (Omise) rematcher confirms a parked webhook and
         // resolves its pending rows in one transaction — single-context (txn data plane only), no admin actor.
         ["src/Application/Modules/Payments.Application/HandlePspWebhook/InboundWebhookRematcher.cs"] = 1,
+        // transaction-integrity: public ConfirmAsync composes prepare outside the transaction with one
+        // transaction-owned Session lock/apply; callers with an ambient transaction join it.
+        ["src/Application/Modules/Payments.Application/Confirmation/PaymentConfirmationService.cs"] = 1,
         // purchase-flow-completion design.md ("Expire + mint ใหม่" -> 2-phase SaveChanges in one transaction):
         // single-context (txn data plane only). Retiring an aged-out session and minting its replacement must
         // commit together, and the UPDATE must be sent before the INSERT or the filtered unique index rejects

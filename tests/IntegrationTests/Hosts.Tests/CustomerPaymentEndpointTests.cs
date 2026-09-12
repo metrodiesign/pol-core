@@ -248,6 +248,7 @@ file sealed class CustomerFactory(
         {
             ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         }));
+        var connections = new FakeConnections(summary?.MerchantId ?? Guid.Empty, enabledMethods);
         builder.ConfigureServices(services =>
         {
             // Last-registered wins. Deliberately NO IActorContext override: the point of these endpoints is
@@ -256,8 +257,7 @@ file sealed class CustomerFactory(
             services.AddScoped<IOrderSummaryReader>(_ => new FakeCustomerSummaryReader(summary));
             services.AddScoped<IPayableOrderReader>(_ => new FakePayableOrders(order));
             services.AddScoped<ISessionRepository>(_ => new FakePaymentSessions(sessions));
-            services.AddScoped<IConnectionRepository>(_ => new FakeConnections(
-                summary?.MerchantId ?? Guid.Empty, enabledMethods));
+            services.AddSingleton<IConnectionRepository>(connections);
             services.AddScoped<IPaymentRouteSelector>(sp =>
                 new FakeCustomerRouteSelector(sp.GetRequiredService<IConnectionRepository>()));
             services.AddScoped<IPspAdapterFactory>(_ => new FakeAdapterFactory(adapter));

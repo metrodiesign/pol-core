@@ -66,6 +66,11 @@ public sealed class InboundWebhookRematcher
         if (session is null)
             return;
 
+        // Resolve the pinned secret and fetch the PSP result before opening the short write transaction.
+        var prepared = await _confirmation
+            .PrepareAsync(session, access: null, pending[0].ExternalEventId, cancellationToken)
+            .ConfigureAwait(false);
+
         await _unitOfWork.ExecuteInTransactionAsync(
             async ct =>
             {
@@ -75,10 +80,10 @@ public sealed class InboundWebhookRematcher
                 if (rows.Count == 0)
                     return 0;
 
-                // access: null lets the confirmation service resolve the PINNED secret + environment from the
-                // session snapshot itself; an ambiguous fetch throws out and the dispatcher retries the event.
+                // Apply only the evidence prepared outside this transaction. The service locks/reloads the
+                // current Session before claiming or mutating it.
                 var confirmation = await _confirmation
-                    .ConfirmAsync(session, access: null, rows[0].ExternalEventId, ct).ConfigureAwait(false);
+                    .ApplyPreparedAsync(prepared, ct).ConfigureAwait(false);
                 var outcome = OutcomeCode(confirmation);
                 foreach (var row in rows)
                     row.Complete(session.Id, session.OrderId, outcome, _clock.UtcNow);

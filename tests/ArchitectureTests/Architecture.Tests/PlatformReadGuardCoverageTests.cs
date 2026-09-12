@@ -60,6 +60,9 @@ public sealed class PlatformReadGuardCoverageTests
         // merchant-psp-settings task 9 offline remediation: operator-only, no HTTP route, never at boot. The
         // reads (legacy version-0 session scan, connection/vault-version lookups, the tracked read-before-write
         // reload in the upgrade transaction) run inside the cutover job, not on any request path.
+        // Session confirmation apply: the scalar lock probe and tracked reload are one transaction-owned
+        // operation; the repository is the narrow lock port rather than a request-path retryable read.
+        ["src/Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/SessionRepository.cs"] = ["GetByIdForUpdateAsync"],
     };
 
     private static readonly Regex MethodDeclaration = new(

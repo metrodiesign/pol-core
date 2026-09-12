@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -28,6 +29,38 @@ internal sealed class SessionRepository : ISessionRepository
     public Task<Session?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
         PlatformReadGuard.ReadAsync(ct => _db.Set<Session>()
             .FirstOrDefaultAsync(x => x.Id == paymentSessionId, ct), cancellationToken);
+
+    public async Task<Session?> GetByIdForUpdateAsync(
+        Guid paymentSessionId,
+        CancellationToken cancellationToken)
+    {
+        if (!_db.Database.IsSqlServer())
+            return await GetByIdAsync(paymentSessionId, cancellationToken).ConfigureAwait(false);
+
+        // Take the row lock with a scalar query first, then reload through the mapped tracked query. The lock
+        // remains held by the ambient UoW transaction while the tracked entity is reloaded and mutated.
+        var locked = await PlatformReadGuard.ReadAsync(ct => _db.Database
+            .SqlQueryRaw<Guid>(
+                "SELECT Id AS Value FROM txn.PaymentSessions WITH (UPDLOCK,HOLDLOCK) WHERE Id = @p0 AND MerchantId = @p1",
+                new SqlParameter("@p0", paymentSessionId),
+                new SqlParameter("@p1", _db.CurrentMerchant))
+            .ToListAsync(ct), cancellationToken).ConfigureAwait(false);
+        if (locked.Count == 0)
+            return null;
+
+        // The unlocked read that produced the prepared evidence may already be tracked on this scoped
+        // context. Reload that same instance so callers never retain a stale tracked Session after apply.
+        var tracked = _db.Set<Session>().Local.FirstOrDefault(x => x.Id == paymentSessionId);
+        if (tracked is not null)
+        {
+            await _db.Entry(tracked).ReloadAsync(cancellationToken).ConfigureAwait(false);
+            return tracked;
+        }
+
+        return await PlatformReadGuard.ReadAsync(ct => _db.Set<Session>()
+            .FirstOrDefaultAsync(x => x.Id == paymentSessionId, ct), cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     public async Task<PagedResult<Session>> ListAsync(PagedQuery query, CancellationToken cancellationToken)
     {

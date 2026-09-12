@@ -139,7 +139,11 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
 
         try
         {
-            return await ConfirmInTransactionAsync(connection, session, secret, webhookEvent, fingerprint, mode, pspCode, cancellationToken)
+            // Provider fetch happens before the short transaction that claims/completes the inbound event.
+            var prepared = await _confirmation
+                .PrepareAsync(session, new PspAccess(connection, secret), webhookEvent.EventId, cancellationToken)
+                .ConfigureAwait(false);
+            return await ConfirmInTransactionAsync(connection, session, prepared, webhookEvent, fingerprint, mode, pspCode, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (PspAmbiguousException)
@@ -152,7 +156,7 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
     }
 
     private async ValueTask<WebhookHandled> ConfirmInTransactionAsync(
-        Connection connection, Session session, string secret, WebhookEvent webhookEvent,
+        Connection connection, Session session, PaymentConfirmationService.PreparedConfirmation prepared, WebhookEvent webhookEvent,
         string fingerprint, WebhookVerificationMode mode, string pspCode, CancellationToken cancellationToken) =>
         await _unitOfWork.ExecuteInTransactionAsync(
             async ct =>
@@ -169,11 +173,10 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
                 if (claim.Status is not (InboundWebhookStatus.Received or InboundWebhookStatus.Ignored))
                     return new WebhookHandled(WebhookOutcome.Duplicate);
 
-                // Confirm on the PINNED snapshot: the fetch is the authority (Omise body status is never
-                // trusted, adversarial #5), an ambiguous fetch throws out to a 503 (adversarial #8), and the
-                // amount is compared before any mark. The session is the one the reference resolved.
+                // Apply only the provider evidence prepared before the transaction. The service locks and
+                // reloads the current Session before claiming/mutating it.
                 var confirmation = await _confirmation
-                    .ConfirmAsync(session, new PspAccess(connection, secret), webhookEvent.EventId, ct)
+                    .ApplyPreparedAsync(prepared, ct)
                     .ConfigureAwait(false);
                 var outcome = Map(confirmation);
                 var inboundEvent = await _inboundEvents.LoadAsync(claim.EventId, ct).ConfigureAwait(false);

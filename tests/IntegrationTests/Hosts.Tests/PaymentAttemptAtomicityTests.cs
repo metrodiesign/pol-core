@@ -66,6 +66,7 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
                 new NeverClaimedIdempotency(),
                 new EfOutbox(db, clock, new Actor()),
                 unitOfWork,
+                sessions,
                 clock,
                 NullLogger<PaymentConfirmationService>.Instance);
             var handler = new CreateSessionHandler(

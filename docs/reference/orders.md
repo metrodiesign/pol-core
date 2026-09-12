@@ -63,12 +63,14 @@ Merchant-user Order read ใช้ `MerchantId` และ `InitiatingMerchantUse
 | `PaymentPaid`, `PaymentFailed`, `PaymentExpired` | `src/Application/Contracts/` compatibility event seam |
 | `Transaction`/`TransactionEvent` | `Payments.Domain` + `Platform.Application.Transactions`; canonical payment attempt evidence |
 
-Payment event consumers continue to verify OrderId and amount/currency. For the new checkout transaction flow, `Order.ApplySuccessfulTransaction` pins the first successful Transaction and keeps duplicate success evidence without silently moving the pointer.
+Payment event consumers ยังคงตรวจ `OrderId` และ amount/currency. ใน compatibility `PaymentSession`, consumer จะอัปเดต `Order` ภายหลังเมื่อ outbox event ถูกส่ง จึงไม่ใช่ transaction เดียวกับ Session ข้าม message boundary. ใน checkout flow ใหม่ `Order.ApplySuccessfulTransaction` จะผูก Transaction ที่สำเร็จรายการแรก และเก็บหลักฐาน success ซ้ำโดยไม่ย้าย pointer เงียบ ๆ.
 
 ## Source of truth
 
 - `src/Application/Modules/Orders.Application/OrderWorkflow.cs`
 - `src/Application/Modules/Orders.Application/OrderPaidConsumer.cs`
+- `src/Application/Modules/Orders.Application/OrderPaymentFailedConsumer.cs`
+- `src/Application/Modules/Orders.Application/OrderPaymentExpiredConsumer.cs`
 - `src/Domain/Modules/Orders.Domain/Order.cs`
 - `src/Domain/Modules/Orders.Domain/Items/Item.cs`
 - `src/Domain/Modules/Checkouts.Domain/PaymentLink.cs`

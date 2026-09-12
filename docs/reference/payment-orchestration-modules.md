@@ -45,6 +45,8 @@ sequenceDiagram
 
 `TransactionEvent` เป็น append-only evidence: `Source`, `EventReference`, optional status/provider status/evidence code/safe details และ `OccurredAt`/`ReceivedAt`. Raw webhook payload, signature และ credential ไม่ถูกเก็บใน event.
 
+`Payments.Domain.Transaction` คือ business payment attempt แยกจาก database transaction. ใน canonical flow external PSP I/O เสร็จและผ่านการ verify ก่อน แล้ว `TransactionResultReducer` จึง co-commit `Transaction`, `Order.PaymentStatus`, `Order.SuccessfulTransactionId`, `TransactionEvent` และ outbox ใน database transaction เดียว.
+
 ## Checkout capability endpoints
 
 | Method | Path | พฤติกรรม |
@@ -70,7 +72,7 @@ Provider callback ต้อง:
 3. reveal credential version ที่ pinned และ verify signature
 4. inquiry/fetch-to-confirm กับ adapter เมื่อ protocol ต้องการ
 5. ตรวจ amount/currency/reference และลดผลลัพธ์ผ่าน `TransactionResultReducer`
-6. append `TransactionEvent`, update Transaction/Order และ outbox ใน transaction เดียว
+6. หลัง external I/O ถูก verify แล้ว append `TransactionEvent`, update Transaction/Order และ `Order.SuccessfulTransactionId` พร้อม outbox ใน transaction เดียว
 
 Duplicate/out-of-order callback เป็น idempotent. Late success หลัง cancel/expiry ใช้ explicit reconciliation/review semantics; ห้ามสร้าง Transaction ใหม่จาก callback. `Order.SuccessfulTransactionId` ชี้ first verified success.
 
@@ -101,11 +103,17 @@ Session amount มาจาก Order server-side, open-session uniqueness แล
 
 `Payments.Domain.Session` เก็บ `MerchantId`, `OrderId`, `Amount`, `Method`, `Psp`, pinned `PspConnectionId`, `SecretVersionId`, `PspEnvironment`, `RoutingSnapshotVersion`, status, external charge/redirect, timestamps, `Version` และ SQL `RowVersion`. New session pin routing snapshot ตอนสร้าง; version `0` มีได้เฉพาะ legacy rows.
 
-สถานะ compatibility คือ `Created`, `Redirected`, `Paid`, `Failed`, `Expired`. `OpenTtl` คือ 24 ชั่วโมง; expired session ที่มี external charge ต้อง confirm/release กับ PSP ก่อนเริ่ม replacement. Filtered unique index `IX_PaymentSessions_OrderId_Open` กัน open session ซ้ำ และ `(Psp, PspExternalChargeId)` กัน external charge ผูกหลาย session.
+สถานะ compatibility คือ `Created`, `Redirected`, `Paid`, `Failed`, `Expired`. `OpenTtl` คือ 24 ชั่วโมง; Session ที่เลย TTL และมี external charge ต้อง fetch-confirm กับ PSP ก่อนปลด open-session slot และเริ่ม replacement. Filtered unique index `IX_PaymentSessions_OrderId_Open` กัน open session ซ้ำ และ `(Psp, PspExternalChargeId)` กัน external charge ผูกหลาย session.
+
+การหมดอายุแบบ offline ตาม `OpenTtl` ทำได้เฉพาะ `Created` ที่ไม่มี external charge reference และ state ไม่เปลี่ยนระหว่าง prepare/apply; session ที่มี charge ต้อง fetch-confirm ก่อนตัดสิน. `Redirected` ที่ไม่มี external charge reference ถือเป็น ambiguous `Pending` และต้องเข้า reconciliation โดยห้ามเปิด replacement session จาก TTL เพียงอย่างเดียว.
 
 `CreateSessionHandler` normalize method, อ่าน Order scoped, ตรวจ payment state/document sale, connection eligibility, adapter capability และ existing open session. channel/PSP เดิมคืน session เดิม; channel ใหม่ชน open session ได้ `409`; amount ไม่อยู่ใน request. `StartRedirectHandler` คืน redirect เดิมถ้ามี, claim `Created -> Redirected` และ save `RowVersion` ก่อน PSP call; only winner เรียก PSP. Transport timeout ที่อาจสร้าง charge แล้วคง claim/reference เดิมและไม่ mark failed โดยเดา.
 
-Legacy webhook `/api/v1/webhooks/{pspConnectionId:guid}` resolve connection จาก route, reveal pinned secret, verify signature, resolve external charge, fetch-to-confirm, compare amount/currency และ enqueue `PaymentPaid`/`PaymentFailed`/`PaymentExpired` ใน transaction เดียว. Browser return และ customer status ไม่รับสถานะจาก query string. `InboundWebhookEvent` เก็บ linkage/fingerprint/verification outcome เพื่อ audit โดยไม่เก็บ raw body/signature.
+Legacy customer status, order release, webhook, pending webhook rematch และ stale-session replacement ใช้ `PaymentConfirmationService`.
+
+เมื่อมี external charge จะ resolve credential จาก vault และทำ PSP prepare/fetch นอก database transaction; session ที่ไม่มี charge สร้าง offline evidence โดยไม่แตะ vault. จากนั้น apply เปิดหรือเข้าร่วม short database transaction, lock/reload `Session` และ revalidate reference/state. ทุก path co-commit claim, Session transition และ outbox ตามที่เกี่ยวข้อง; webhook/rematch ยัง co-commit inbound webhook completion ใน transaction เดียวกัน.
+
+Legacy webhook `/api/v1/webhooks/{pspConnectionId:guid}` resolve connection จาก route, reveal pinned secret, verify signature, resolve external charge และ fetch-to-confirm ก่อนเข้า apply. Apply จะ lock/reload `Session`, revalidate reference/state และตรวจ amount/currency ก่อน claim หรือ transition. การเปลี่ยน `Order` status เกิดภายหลังผ่าน outbox consumer แบบ eventual จึงไม่ atomic ข้าม message boundary เดียวกับ Session. Browser return และ customer status ไม่รับสถานะจาก query string. `InboundWebhookEvent` เก็บ linkage/fingerprint/verification outcome เพื่อ audit โดยไม่เก็บ raw body/signature.
 
 ## Persistence และ security
 
@@ -135,7 +143,15 @@ No SQL RLS. `CommerceDbContext` query filters and guarded writes enforce merchan
 - `src/Application/Modules/Platform.Application/Transactions/CheckoutTransactionService.cs`
 - `src/Application/Modules/Platform.Application/Transactions/TransactionResultReducer.cs`
 - `src/Application/Modules/Payments.Application/Transactions/TransactionWebhook.cs`
+- `src/Application/Modules/Payments.Application/Confirmation/PaymentConfirmationService.cs`
+- `src/Application/Modules/Payments.Application/CreateSession/CreateSessionHandler.cs`
+- `src/Application/Modules/Payments.Application/ConfirmPaymentStatus/ConfirmPaymentStatusHandler.cs`
+- `src/Application/Modules/Payments.Application/ReleaseOpenSession/ReleaseOpenSessionHandler.cs`
+- `src/Application/Modules/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs`
+- `src/Application/Modules/Payments.Application/HandlePspWebhook/InboundWebhookRematcher.cs`
 - `src/Application/Modules/Payments.Application/Ports/IPspAdapter.cs`
 - `src/Infrastructure/Modules/Payments.Infrastructure/Psp/`
+- `src/Infrastructure/Persistence/Persistence.MerchantRuntime/MerchantRuntimeUnitOfWork.cs`
+- `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/SessionRepository.cs`
 - `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/`
 - `src/Api/Api/Program.cs`

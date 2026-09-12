@@ -25,6 +25,8 @@ public sealed class ConfirmPaymentStatusHandlerTests
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Money OrderAmount = Money.Of(15000m, "THB");
     private static readonly DateTime Created = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
+    private static readonly Connection DefaultConnection =
+        Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
 
     private const string ChargeId = "INV-STATUS-1";
 
@@ -35,10 +37,11 @@ public sealed class ConfirmPaymentStatusHandlerTests
         FakeUnitOfWork UnitOfWork,
         RecordingLogger<PaymentConfirmationService> Logger);
 
-    private static Session NewSession(bool withCharge = true, DateTime? createdAt = null)
+    private static Session NewSession(bool withCharge = true, DateTime? createdAt = null, Guid? connectionId = null)
     {
         var session = Session.Create(
-            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, createdAt ?? Created);
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP,
+            connectionId ?? DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, createdAt ?? Created);
         session.BeginRedirect(createdAt ?? Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", createdAt ?? Created);
@@ -53,16 +56,19 @@ public sealed class ConfirmPaymentStatusHandlerTests
         PspChargeStatus fetchedStatus = PspChargeStatus.Paid,
         Money? confirmedAmount = null,
         Func<string, PspChargeConfirmation>? onFetchCharge = null,
-        bool orderExists = true)
+        bool orderExists = true,
+        Connection? connection = null)
     {
         var outbox = new FakeOutbox();
         var unitOfWork = new FakeUnitOfWork();
         var vault = new FakeVaultSecretStore();
         var logger = new RecordingLogger<PaymentConfirmationService>();
+        connection ??= DefaultConnection;
+        var sessions = session is null ? new FakeSessionRepository() : new FakeSessionRepository(session);
 
         var confirmation = new PaymentConfirmationService(
             new FakeConnectionRepository(
-                Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created)),
+                connection),
             new FakePspAdapterFactory(new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card)
             {
                 OnFetchCharge = onFetchCharge
@@ -72,12 +78,13 @@ public sealed class ConfirmPaymentStatusHandlerTests
             new FakeIdempotencyStore(),
             outbox,
             unitOfWork,
+            sessions,
             new FixedClock { UtcNow = now ?? Created },
             logger);
 
         var handler = new ConfirmPaymentStatusHandler(
             new FakePayableOrderReader(orderExists ? new PayableOrder(OrderId, OrderAmount, orderStatus) : null),
-            session is null ? new FakeSessionRepository() : new FakeSessionRepository(session),
+            sessions,
             confirmation);
 
         return new Harness(handler, outbox, vault, unitOfWork, logger);
@@ -134,12 +141,13 @@ public sealed class ConfirmPaymentStatusHandlerTests
         // attempt was created cannot move it. Reading the pinned version is what records a VersionRead here;
         // reading the connection's (null) active version would fall to RevealAsync and record none.
         var pinned = Guid.NewGuid();
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
         var session = Session.Create(
             MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP,
-            Guid.NewGuid(), pinned, PspEnvironment.Sandbox, Created);
+            connection.Id, pinned, PspEnvironment.Sandbox, Created);
         session.BeginRedirect(Created);
         session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Created);
-        var harness = NewHarness(PayableOrderStatus.Pending, session);
+        var harness = NewHarness(PayableOrderStatus.Pending, session, connection: connection);
 
         Assert.Equal(PaymentStatusResult.Paid, await Ask(harness));
 
@@ -200,7 +208,9 @@ public sealed class ConfirmPaymentStatusHandlerTests
     [Fact]
     public async Task A_session_past_its_TTL_with_no_charge_expires_without_asking_the_PSP()
     {
-        var session = NewSession(withCharge: false);
+        var session = Session.Create(
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP,
+            DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         var harness = NewHarness(session: session, now: Created + Session.OpenTtl + TimeSpan.FromMinutes(1));
 
         Assert.Equal(PaymentStatusResult.Failed, await Ask(harness));

@@ -13,8 +13,9 @@ namespace Payments.Tests;
 /// whether the PSP was called at all — never the outcome alone: a service that returned the right enum after
 /// marking the wrong thing would pass an outcome-only assertion.
 ///
-/// The rule that shapes most of these: a session may only be expired when it is PROVABLY chargeless. No
-/// charge id is decidable offline; with one, the PSP is asked first and its answer wins over the clock.
+/// The rule that shapes most of these: a session may only be expired when it is PROVABLY chargeless. A
+/// Created session without a charge is decidable offline; a Redirected session without one may still be an
+/// in-flight PSP claim, and a session with one is asked first so its answer wins over the clock.
 /// </summary>
 [Trait("Capability", "MerchantConfiguration")]
 [Trait("Requirement", "REQ-5.7")]
@@ -25,6 +26,8 @@ public sealed class PaymentConfirmationServiceTests
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Money SessionAmount = Money.Of(250.09m, "THB");
     private static readonly DateTime Created = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
+    private static readonly Connection DefaultConnection =
+        Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
 
     private const string ChargeId = "INV-ABC";
 
@@ -39,9 +42,10 @@ public sealed class PaymentConfirmationServiceTests
 
     /// <summary>A session that has redirected and carries the PSP's charge id, unless
     /// <paramref name="withCharge"/> says the redirect never produced one.</summary>
-    private static Session NewSession(bool withCharge = true)
+    private static Session NewSession(bool withCharge = true, Guid? connectionId = null)
     {
-        var session = Session.Create(MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
+        var session = Session.Create(MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP,
+            connectionId ?? DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         session.BeginRedirect(Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Created);
@@ -59,14 +63,16 @@ public sealed class PaymentConfirmationServiceTests
         Money? confirmedAmount = null,
         Func<string, PspChargeConfirmation>? onFetchCharge = null,
         Connection? connection = null,
-        Func<string, string, PspEnvironment, PspChargeConfirmation>? onFetchChargeWithContext = null)
+        Func<string, string, PspEnvironment, PspChargeConfirmation>? onFetchChargeWithContext = null,
+        Action<bool>? onFetchTransaction = null)
     {
-        session ??= NewSession();
-        connection ??= Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        connection ??= DefaultConnection;
+        session ??= NewSession(connectionId: connection.Id);
 
         var outbox = new FakeOutbox();
         var unitOfWork = new FakeUnitOfWork();
         var idempotency = new FakeIdempotencyStore();
+        var sessions = new FakeSessionRepository(session);
         var vault = new FakeVaultSecretStore();
         var logger = new RecordingLogger<PaymentConfirmationService>();
 
@@ -76,12 +82,19 @@ public sealed class PaymentConfirmationServiceTests
             {
                 OnFetchCharge = onFetchCharge
                     ?? (_ => new PspChargeConfirmation(fetchedStatus, confirmedAmount ?? SessionAmount)),
-                OnFetchChargeWithContext = onFetchChargeWithContext,
+                OnFetchChargeWithContext = onFetchChargeWithContext is null
+                    ? null
+                    : (charge, secret, environment) =>
+                    {
+                        onFetchTransaction?.Invoke(unitOfWork.IsInTransaction);
+                        return onFetchChargeWithContext(charge, secret, environment);
+                    },
             }),
             vault,
             idempotency,
             outbox,
             unitOfWork,
+            sessions,
             new FixedClock { UtcNow = now ?? Created },
             logger);
 
@@ -131,6 +144,70 @@ public sealed class PaymentConfirmationServiceTests
     }
 
     // --- the paid path ---
+
+    [Fact]
+    public async Task Prepared_evidence_that_no_longer_matches_the_session_fails_closed_before_claiming()
+    {
+        var session = NewSession(withCharge: false);
+        var harness = NewHarness(session);
+        var prepared = await harness.Service.PrepareAsync(session, access: null, pspEventId: null, default);
+
+        session.SetPspCharge("charge-bound-after-prepare", "https://2c2p.test/hosted/pay", Created);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Service.ApplyPreparedAsync(prepared, default));
+
+        Assert.Equal(SessionStatus.Redirected, session.Status);
+        Assert.Empty(harness.Idempotency.Claims);
+        Assert.Empty(harness.Outbox.Enqueued);
+    }
+
+    [Fact]
+    public async Task Offline_evidence_prepared_in_Created_fails_closed_if_redirect_begins_before_apply()
+    {
+        var session = Session.Create(
+            MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP,
+            DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Created);
+        var harness = NewHarness(session: session, now: Created + Session.OpenTtl);
+        var prepared = await harness.Service.PrepareAsync(session, access: null, pspEventId: null, default);
+
+        session.BeginRedirect(Created);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Service.ApplyPreparedAsync(prepared, default));
+
+        AssertUntouched(harness, SessionStatus.Redirected);
+        Assert.Empty(harness.Idempotency.Claims);
+    }
+
+    [Fact]
+    public async Task Offline_evidence_for_an_unchanged_Redirected_session_stays_pending_after_TTL()
+    {
+        var harness = NewHarness(
+            session: NewSession(withCharge: false),
+            now: Created + Session.OpenTtl);
+        var prepared = await harness.Service.PrepareAsync(harness.Session, access: null, pspEventId: null, default);
+
+        var outcome = await harness.Service.ApplyPreparedAsync(prepared, default);
+
+        Assert.Equal(ConfirmationOutcome.Pending, outcome);
+        AssertUntouched(harness, SessionStatus.Redirected);
+        Assert.Empty(harness.Idempotency.Claims);
+    }
+
+    [Fact]
+    public async Task Provider_fetch_runs_before_the_apply_transaction_opens()
+    {
+        var fetchInsideTransaction = true;
+        var harness = NewHarness(
+            onFetchChargeWithContext: (_, _, _) => new PspChargeConfirmation(PspChargeStatus.Paid, SessionAmount),
+            onFetchTransaction: inside => fetchInsideTransaction = inside);
+
+        Assert.Equal(ConfirmationOutcome.Paid, await harness.Service.ConfirmAsync(harness.Session, default));
+
+        Assert.False(fetchInsideTransaction);
+        Assert.Equal(1, harness.UnitOfWork.TransactionCount);
+    }
 
     [Fact]
     public async Task A_confirmed_charge_for_the_session_amount_is_paid_and_publishes_PaymentPaid()
@@ -258,7 +335,9 @@ public sealed class PaymentConfirmationServiceTests
     public async Task A_session_that_never_got_a_charge_expires_past_its_TTL_without_touching_the_PSP()
     {
         var harness = NewHarness(
-            session: NewSession(withCharge: false),
+            session: Session.Create(
+                MerchantId, OrderId, SessionAmount, PaymentMethods.Card, Code.TwoCTwoP,
+                DefaultConnection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Created),
             now: Created + Session.OpenTtl,
             // Reaching the PSP at all here is the failure: there is nothing to ask about.
             onFetchCharge: _ => throw new InvalidOperationException("must not fetch"));

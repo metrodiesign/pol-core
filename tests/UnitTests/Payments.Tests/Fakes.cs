@@ -379,6 +379,8 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
 {
     public int SaveCount { get; private set; }
     public int TransactionCount { get; private set; }
+    public bool IsInTransaction => _transactionDepth > 0;
+    private int _transactionDepth;
 
     /// <summary>Returns the exception the Nth save (1-based) must throw, or null to let it succeed — how the
     /// concurrency-loser and the "recording the failure itself fails" paths are driven.</summary>
@@ -395,8 +397,17 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
     {
-        TransactionCount++;
-        return await operation(cancellationToken);
+        if (_transactionDepth == 0)
+            TransactionCount++;
+        _transactionDepth++;
+        try
+        {
+            return await operation(cancellationToken);
+        }
+        finally
+        {
+            _transactionDepth--;
+        }
     }
 }
 

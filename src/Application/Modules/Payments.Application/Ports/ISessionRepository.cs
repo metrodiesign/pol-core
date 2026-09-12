@@ -15,6 +15,10 @@ public interface ISessionRepository
 
     Task<Session?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken);
 
+    /// <summary>Reloads a session while holding its row update lock for the ambient unit-of-work transaction.</summary>
+    Task<Session?> GetByIdForUpdateAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
+        GetByIdAsync(paymentSessionId, cancellationToken);
+
     Task<PagedResult<Session>> ListAsync(PagedQuery query, CancellationToken cancellationToken);
 
     /// <summary>Looks a session up by the (PSP, external charge id) pair the webhook path resolves on.</summary>

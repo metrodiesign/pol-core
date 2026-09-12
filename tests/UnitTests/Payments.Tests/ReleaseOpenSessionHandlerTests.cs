@@ -27,9 +27,10 @@ public sealed class ReleaseOpenSessionHandlerTests
     private sealed record Harness(
         ReleaseOpenSessionHandler Handler, FakeOutbox Outbox, FakeUnitOfWork UnitOfWork, FakeVaultSecretStore Vault);
 
-    private static Session NewSession(bool withCharge)
+    private static Session NewSession(bool withCharge, Guid connectionId)
     {
-        var session = Session.Create(MerchantId, OrderId, Amount, PaymentMethods.Card, Code.TwoCTwoP, Guid.NewGuid(), Guid.NewGuid(), PspEnvironment.Sandbox, Created);
+        var session = Session.Create(MerchantId, OrderId, Amount, PaymentMethods.Card, Code.TwoCTwoP,
+            connectionId, Guid.NewGuid(), PspEnvironment.Sandbox, Created);
         session.BeginRedirect(Created);
         if (withCharge)
             session.SetPspCharge(ChargeId, "https://2c2p.test/hosted/pay", Created);
@@ -44,15 +45,17 @@ public sealed class ReleaseOpenSessionHandlerTests
         Session? session,
         DateTime? now = null,
         PspChargeStatus fetchedStatus = PspChargeStatus.Pending,
-        Func<string, PspChargeConfirmation>? onFetchCharge = null)
+        Func<string, PspChargeConfirmation>? onFetchCharge = null,
+        Connection? connection = null)
     {
         var outbox = new FakeOutbox();
         var unitOfWork = new FakeUnitOfWork();
         var vault = new FakeVaultSecretStore();
+        connection ??= Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var sessions = session is null ? new FakeSessionRepository() : new FakeSessionRepository(session);
 
         var confirmation = new PaymentConfirmationService(
-            new FakeConnectionRepository(
-                Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created)),
+            new FakeConnectionRepository(connection),
             new FakePspAdapterFactory(new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card)
             {
                 OnFetchCharge = onFetchCharge ?? (_ => new PspChargeConfirmation(fetchedStatus, Amount)),
@@ -61,10 +64,9 @@ public sealed class ReleaseOpenSessionHandlerTests
             new FakeIdempotencyStore(),
             outbox,
             unitOfWork,
+            sessions,
             new FixedClock { UtcNow = now ?? Created },
             new RecordingLogger<PaymentConfirmationService>());
-
-        var sessions = session is null ? new FakeSessionRepository() : new FakeSessionRepository(session);
 
         return new Harness(new ReleaseOpenSessionHandler(sessions, confirmation), outbox, unitOfWork, vault);
     }
@@ -87,8 +89,11 @@ public sealed class ReleaseOpenSessionHandlerTests
     [Fact]
     public async Task A_stale_session_that_never_got_a_charge_is_expired_without_asking_the_PSP()
     {
-        var session = NewSession(withCharge: false);
-        var harness = NewHarness(session, now: Created + Session.OpenTtl);
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var session = Session.Create(
+            MerchantId, OrderId, Amount, PaymentMethods.Card, Code.TwoCTwoP,
+            connection.Id, Guid.NewGuid(), PspEnvironment.Sandbox, Created);
+        var harness = NewHarness(session, now: Created + Session.OpenTtl, connection: connection);
 
         await harness.Handler.Handle(new ReleaseOpenSessionCommand(OrderId), default);
 
@@ -102,8 +107,9 @@ public sealed class ReleaseOpenSessionHandlerTests
     [Fact]
     public async Task A_live_session_refuses_the_release()
     {
-        var session = NewSession(withCharge: true);
-        var harness = NewHarness(session, now: Created.AddHours(1));
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var session = NewSession(withCharge: true, connection.Id);
+        var harness = NewHarness(session, now: Created.AddHours(1), connection: connection);
 
         await Assert.ThrowsAsync<ConflictException>(
             () => harness.Handler.Handle(new ReleaseOpenSessionCommand(OrderId), default).AsTask());
@@ -117,8 +123,9 @@ public sealed class ReleaseOpenSessionHandlerTests
     [Fact]
     public async Task A_stale_session_the_PSP_has_not_settled_is_expired_after_the_inquiry()
     {
-        var session = NewSession(withCharge: true);
-        var harness = NewHarness(session, now: Created + Session.OpenTtl, fetchedStatus: PspChargeStatus.Pending);
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var session = NewSession(withCharge: true, connection.Id);
+        var harness = NewHarness(session, now: Created + Session.OpenTtl, fetchedStatus: PspChargeStatus.Pending, connection: connection);
 
         await harness.Handler.Handle(new ReleaseOpenSessionCommand(OrderId), default);
 
@@ -130,8 +137,9 @@ public sealed class ReleaseOpenSessionHandlerTests
     [Fact]
     public async Task A_session_the_PSP_refused_is_released()
     {
-        var session = NewSession(withCharge: true);
-        var harness = NewHarness(session, fetchedStatus: PspChargeStatus.Failed);
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var session = NewSession(withCharge: true, connection.Id);
+        var harness = NewHarness(session, fetchedStatus: PspChargeStatus.Failed, connection: connection);
 
         await harness.Handler.Handle(new ReleaseOpenSessionCommand(OrderId), default);
 
@@ -144,8 +152,9 @@ public sealed class ReleaseOpenSessionHandlerTests
     [Fact]
     public async Task A_session_the_PSP_has_settled_refuses_the_release_and_is_marked_paid()
     {
-        var session = NewSession(withCharge: true);
-        var harness = NewHarness(session, now: Created + Session.OpenTtl, fetchedStatus: PspChargeStatus.Paid);
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var session = NewSession(withCharge: true, connection.Id);
+        var harness = NewHarness(session, now: Created + Session.OpenTtl, fetchedStatus: PspChargeStatus.Paid, connection: connection);
 
         await Assert.ThrowsAsync<ConflictException>(
             () => harness.Handler.Handle(new ReleaseOpenSessionCommand(OrderId), default).AsTask());
@@ -163,14 +172,15 @@ public sealed class ReleaseOpenSessionHandlerTests
     [InlineData("ambiguous")] // the adapter's own classification: unverifiable/unreadable inquiry, persistent 5xx
     public async Task An_inquiry_that_fails_refuses_the_release(string failure)
     {
-        var session = NewSession(withCharge: true);
+        var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Created);
+        var session = NewSession(withCharge: true, connection.Id);
         var harness = NewHarness(session, now: Created + Session.OpenTtl, onFetchCharge: _ => throw (failure switch
         {
             "http" => new HttpRequestException("2c2p unreachable"),
             "timeout" => new TaskCanceledException("inquiry timed out"),
             "ambiguous" => new PspAmbiguousException("2c2p paymentInquiry response failed signature verification."),
             _ => (Exception)new System.Text.Json.JsonException("unreadable inquiry response"),
-        }));
+        }), connection: connection);
 
         var conflict = await Assert.ThrowsAsync<ConflictException>(
             () => harness.Handler.Handle(new ReleaseOpenSessionCommand(OrderId), default).AsTask());
