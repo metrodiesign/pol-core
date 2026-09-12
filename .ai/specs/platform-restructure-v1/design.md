@@ -12,10 +12,10 @@
 
 ```mermaid
 flowchart TD
-    HTTP["HTTP และ OAuth endpoints"] --> API["Pol.Api<br/>composition root และ BackgroundService"]
-    API --> APP["Pol.Application<br/>use cases และ ports"]
-    API --> INF["Pol.Infrastructure<br/>EF Core และ external adapters"]
-    APP --> DOM["Pol.Domain<br/>entities และ policy"]
+    HTTP["HTTP และ OAuth endpoints"] --> API["Api<br/>composition root และ BackgroundService"]
+    API --> APP["Application<br/>use cases และ ports"]
+    API --> INF["Infrastructure<br/>EF Core และ external adapters"]
+    APP --> DOM["Domain<br/>entities และ policy"]
     INF --> APP
     INF --> CP["ControlPlaneDbContext<br/>Account Access Merchant OAuth"]
     INF --> COM["CommerceDbContext<br/>Order Checkout Transaction Notification"]
@@ -34,12 +34,12 @@ flowchart TD
 
 | Project | หน้าที่ | Dependency ที่อนุญาต |
 |---|---|---|
-| `Pol.Domain` | 7 module folders, entity, value object, state transition และ policy บริสุทธิ์ | .NET BCL เท่านั้น |
-| `Pol.Application` | command/query handler, authorization policy, transaction boundary และ external port | `Pol.Domain` |
-| `Pol.Infrastructure` | EF Core mappings, OAuth store, secret protection, PSP/notification adapters และ workers | `Pol.Application`, `Pol.Domain` |
-| `Pol.Api` | route จาก `api-scope.json`, middleware, OAuth/OIDC host, DI และ hosted services | `Pol.Application`, `Pol.Infrastructure` |
+| `Domain` | 7 module folders, entity, value object, state transition และ policy บริสุทธิ์ | .NET BCL เท่านั้น |
+| `Application` | command/query handler, authorization policy, transaction boundary และ external port | `Domain` |
+| `Infrastructure` | EF Core mappings, OAuth store, secret protection, PSP/notification adapters และ workers | `Application`, `Domain` |
+| `Api` | route จาก `api-scope.json`, middleware, OAuth/OIDC host, DI และ hosted services | `Application`, `Infrastructure` |
 
-`Pol.UnitTests`, `Pol.ArchitectureTests` และ `Pol.IntegrationTests` เป็น test projects ทั้งหมดของ target ไม่สร้าง test project ต่อ module โครงสร้างปัจจุบันที่มีหลาย module projects เป็น migration source ตาม `latest-blueprint.md:136-145` ไม่ใช่ target ที่ต้องรักษา
+`UnitTests`, `ArchitectureTests` และ `IntegrationTests` เป็น test projects ทั้งหมดของ target ไม่สร้าง test project ต่อ module โครงสร้างปัจจุบันที่มีหลาย module projects เป็น migration source ตาม `latest-blueprint.md:136-145` ไม่ใช่ target ที่ต้องรักษา
 
 ### Module ownership
 
@@ -59,7 +59,7 @@ Platform Core owns audit, idempotency, inbox, outbox, clock, correlation แล�
 
 `ControlPlaneDbContext` owns Account, Access, Merchant, OpenIddict และ control-plane outbox. `CommerceDbContext` owns Order, Checkout, Transaction, Notification และ commerce outbox/inbox. ทั้งคู่ใช้ connection string และ database เดียว แต่ handler หนึ่งตัวเขียนผ่าน context เจ้าของ transaction เดียวเท่านั้น
 
-`MigrationCompositionDbContext` รวม mapping ของทั้งสอง runtime contexts และ OpenIddict เพื่อสร้าง migration เดียว แต่ไม่ลงทะเบียนใน runtime DI. แต่ละ entity มี `IEntityTypeConfiguration<T>` ชุดเดียวใน `Pol.Infrastructure`; runtime context และ migration composition เรียก mapping ชุดเดียวกัน จึงไม่มีการคัดลอก column, index หรือ constraint แบบที่พบใน `ControlPlaneDbContext` และ `MerchantRuntimeDbContext` ปัจจุบัน
+`MigrationCompositionDbContext` รวม mapping ของทั้งสอง runtime contexts และ OpenIddict เพื่อสร้าง migration เดียว แต่ไม่ลงทะเบียนใน runtime DI. แต่ละ entity มี `IEntityTypeConfiguration<T>` ชุดเดียวใน `Infrastructure`; runtime context และ migration composition เรียก mapping ชุดเดียวกัน จึงไม่มีการคัดลอก column, index หรือ constraint แบบที่พบใน `ControlPlaneDbContext` และ `MerchantRuntimeDbContext` ปัจจุบัน
 
 Mutation ที่มี Account ใช้ `AuthorizationLease.VerifyAsync` ตรวจ Account/Client/Access status และ `AuthorizationVersion` ซ้ำภายใน transaction เดียวกับ business write Control-plane handler ใช้ entity/concurrency token ใน `ControlPlaneDbContext`; Commerce handler ใช้ narrow port ที่อ่านและ lock metadata ตารางเดิมผ่าน connection/transaction ของ `CommerceDbContext` โดยไม่สร้าง store สำเนา ถ้า revoke commit ก่อนจะพบ version mismatch ถ้า revoke มาทีหลังต้องรอ business transaction จบตามลำดับเดียวกัน
 
@@ -95,7 +95,7 @@ Outbox consumer ใช้ `SourceEventId` เป็น inbox key เมื่อ
 sequenceDiagram
     autonumber
     actor A as Agent applicant
-    participant API as Pol.Api
+    participant API as Api
     participant ACC as Account module
     participant CP as ControlPlaneDbContext
     participant COM as CommerceDbContext
@@ -139,7 +139,7 @@ sequenceDiagram
     autonumber
     actor U as Employee Agent หรือ System
     actor CUST as Customer
-    participant API as Pol.Api
+    participant API as Api
     participant O as Order module
     participant C as Checkout module
     participant T as Transaction module
@@ -612,7 +612,7 @@ Internal event contract ใช้ `AgentRegistrationDecidedV1`, `OrderPaidV1` �
 
 OpenIddict เปิด token entry validation และ API ตรวจ Account/Client status กับ `AuthorizationVersion` จาก database ทุก request JWT access token อายุสั้น 5 นาที Human ใช้ authorization code + PKCE; BFF `ITicketStore` เก็บ Data Protection encrypted authentication ticket ที่มี raw access/opaque refresh token ฝั่ง server ส่วน browser cookie มีเพียง ticket key
 
-BFF อยู่ใน `Pol.Api` host เดียวและใช้ API-006–013 ที่มีใน inventory เท่านั้น ไม่มี BFF service หรือ route ชุดที่สอง Login route เริ่ม OpenIddict authorization, OIDC handlers เดิมพาไป Entra ตาม realm, callback แลก code ด้วย PKCE ฝั่ง server แล้วเก็บ token ใน `ITicketStore`
+BFF อยู่ใน `Api` host เดียวและใช้ API-006–013 ที่มีใน inventory เท่านั้น ไม่มี BFF service หรือ route ชุดที่สอง Login route เริ่ม OpenIddict authorization, OIDC handlers เดิมพาไป Entra ตาม realm, callback แลก code ด้วย PKCE ฝั่ง server แล้วเก็บ token ใน `ITicketStore`
 
 เมื่อ browser เรียก business route, `BffSessionAuthenticationHandler` โหลด Platform JWT จาก ticket และส่งเข้า OpenIddict Validation service ใน process เดียวเพื่อสร้าง principal; ไม่ทำ HTTP loopback และไม่ส่ง JWT ให้ JavaScript SYSTEM ส่ง Platform JWT ใน `Authorization: Bearer` ตามปกติ Route ถูก map ครั้งเดียวและ authorization ใช้ `CurrentAccount/CurrentMerchant` ชุดเดียว หาก request มีทั้ง BFF cookie และ Bearer header ให้ปฏิเสธ `400 ambiguous_authentication_context`
 
@@ -682,9 +682,9 @@ Worker ใช้ lease/rowversion และ idempotent state reducer Crash ก�
 
 | Test project | Scope | หลักฐานที่ต้องได้ |
 |---|---|---|
-| `Pol.UnitTests` | Money, state matrices, scope predicates, snapshot builder, idempotency hash, proof purpose และ provider result reducer | deterministic tests และ bounded generated cases โดยไม่เพิ่ม property-test dependency |
-| `Pol.ArchitectureTests` | Domain/Application dependency direction, 7 ownership namespaces, internal visibility, 2 runtime contexts และ migration composition ที่ไม่ถูก register | dependency violations fail ตาม REQ-1.7 |
-| `Pol.IntegrationTests` | SQL Server constraints/transactions/races, HTTP auth/cookies/CSRF, OpenIddict, outbox/inbox, provider/notification fakes และ migration rehearsal | real database semantics ไม่ใช้ SQLite พิสูจน์ filtered index/race |
+| `UnitTests` | Money, state matrices, scope predicates, snapshot builder, idempotency hash, proof purpose และ provider result reducer | deterministic tests และ bounded generated cases โดยไม่เพิ่ม property-test dependency |
+| `ArchitectureTests` | Domain/Application dependency direction, 7 ownership namespaces, internal visibility, 2 runtime contexts และ migration composition ที่ไม่ถูก register | dependency violations fail ตาม REQ-1.7 |
+| `IntegrationTests` | SQL Server constraints/transactions/races, HTTP auth/cookies/CSRF, OpenIddict, outbox/inbox, provider/notification fakes และ migration rehearsal | real database semantics ไม่ใช้ SQLite พิสูจน์ filtered index/race |
 
 Integration suite ต้องครอบ JIT race, registration approve/reject race, cross-Merchant read/write/child/history/export, permission revocation ระหว่าง request, two-tab checkout, issue/cancel race, two different Idempotency-Keys, PSP timeout, duplicate/out-of-order callback, late success หลัง cancel และเงินจริงสำเร็จซ้ำสองรายการ
 
@@ -694,7 +694,7 @@ Migration rehearsal สำหรับ external acceptance ต้องเริ
 
 External contract tests แยก capability ต่อ Entra/PSP/Email/SMS การใช้ fake ผ่านพิสูจน์ orchestration เท่านั้น Live-readiness test ต้องมี environment evidence จริง มิฉะนั้นคาดหวัง disabled/`BLOCKED_NOT_CONFIGURED` ไม่ประกาศ cutover-ready
 
-คำสั่ง target ที่ tasks.md ต้องทำให้รันซ้ำได้คือ `dotnet build pol-core.slnx`, `dotnet test tests/Pol.UnitTests`, `dotnet test tests/Pol.ArchitectureTests` และ `dotnet test tests/Pol.IntegrationTests` โดย task ที่ยังอยู่ระหว่าง packaging ใช้ project path ปัจจุบันชั่วคราวพร้อม baseline evidence ก่อนย้าย
+คำสั่ง target ที่ tasks.md ต้องทำให้รันซ้ำได้คือ `dotnet build pol-core.slnx`, `dotnet test tests/UnitTests`, `dotnet test tests/ArchitectureTests` และ `dotnet test tests/IntegrationTests` โดย task ที่ยังอยู่ระหว่าง packaging ใช้ project path ปัจจุบันชั่วคราวพร้อม baseline evidence ก่อนย้าย
 
 ## Requirement Traceability
 

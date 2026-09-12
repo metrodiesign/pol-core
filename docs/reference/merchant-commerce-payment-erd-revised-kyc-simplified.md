@@ -196,11 +196,11 @@ Production rollback ใช้ verified backup/restore ตาม runbook; ไม�
 
 ## Source of truth
 
-- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
-- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
-- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
-- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
 - migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants`
-- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
 - `docs/reference/entity-fields.md`
-- `src/Pol.Api/Api/Program.cs`
+- `src/Api/Api/Program.cs`

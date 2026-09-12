@@ -2,7 +2,7 @@
 # mammoth-db = mammothdb — external-sim-separate-containers) + one-shot bootstrap for all three.
 # Passwords come from .env (copy .env.example). EF migrations run separately:
 #   POL_DESIGN_SQL=... dotnet ef database update --context PolDbContext \
-#     --project src/Pol.Infrastructure --startup-project src/Pol.Api
+#     --project src/Infrastructure --startup-project src/Api
 services:
   pol-db:
     image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72

@@ -50,8 +50,8 @@
 
   - test: `dotnet build pol-core.slnx --no-restore` -> exit 0, warnings 0, errors 0
   - test: `dotnet test pol-core.slnx --no-restore --filter "Capability=MerchantConfiguration"` -> exit 0; Unit 144, Architecture 12, Integration 40; รวม 196 passed, failed 0, skipped 0
-  - test: `dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj --no-restore --filter "FullyQualifiedName~MerchantConfigurationGovernanceSqlIntegrationTests"` -> exit 0; 1 passed, failed 0, skipped 0; SQL checker race บน `PolMerchantConfigTask3Test`
-  - test: `dotnet ef database update --context PolDbContext --project src/Pol.Infrastructure/Pol.Infrastructure.csproj --startup-project src/Pol.Api/Pol.Api.csproj` ด้วย `POL_DESIGN_SQL` ชี้ `PolMerchantConfigTask3Test` -> exit 0; migration `20260910035334_Task3MerchantMaster` applied
+  - test: `dotnet test tests/IntegrationTests/IntegrationTests.csproj --no-restore --filter "FullyQualifiedName~MerchantConfigurationGovernanceSqlIntegrationTests"` -> exit 0; 1 passed, failed 0, skipped 0; SQL checker race บน `PolMerchantConfigTask3Test`
+  - test: `dotnet ef database update --context PolDbContext --project src/Infrastructure/Infrastructure.csproj --startup-project src/Api/Api.csproj` ด้วย `POL_DESIGN_SQL` ชี้ `PolMerchantConfigTask3Test` -> exit 0; migration `20260910035334_Task3MerchantMaster` applied
   - test: `git diff --check` -> exit 0
   - test: `python3 scripts/spec_contract.py check --feature platform-restructure-v1 --strict` -> exit 0; 126 criteria อ้างครบและ EARS lint ผ่าน
   - test: `bash scripts/spec-trace.sh platform-restructure-v1` -> exit 0; 126 criteria อ้างครบ
@@ -112,7 +112,7 @@
   - test: `set -a; source .env.integration; set +a; export POL_DB=PolCheckoutTransactionsTask6Test; dotnet test pol-core.slnx --no-build --filter "Capability=CheckoutTransactions" --blame-hang-timeout 2m` -> exit 0; Unit 10, Architecture 2, Integration/Host 13; รวม 25 passed, failed 0, skipped 0
   - test: `set -a; source .env.integration; set +a; export POL_DB=PolCheckoutTransactionsTask6Test; dotnet test pol-core.slnx --no-build --filter "Capability=OrdersLinks" --blame-hang-timeout 2m` -> exit 0; Unit 19, Architecture 3, Integration/Host 7; รวม 29 passed, failed 0, skipped 0
   - test: `bash scripts/check-migration-script.sh` -> exit 0; `docker/migrations/schema.sql` ตรงกับ migration head
-  - test: `dotnet ef migrations has-pending-model-changes --project src/Pol.Infrastructure/Pol.Infrastructure.csproj --startup-project src/Pol.Api/Pol.Api.csproj --context PolDbContext --no-build` -> exit 0; ไม่มี model changes ค้าง
+  - test: `dotnet ef migrations has-pending-model-changes --project src/Infrastructure/Infrastructure.csproj --startup-project src/Api/Api.csproj --context PolDbContext --no-build` -> exit 0; ไม่มี model changes ค้าง
   - test: `git diff --check` -> exit 0
   - test: `python3 scripts/spec_contract.py check --feature platform-restructure-v1 --strict` -> exit 0; 126 criteria ผ่าน
   - test: `bash scripts/spec-trace.sh platform-restructure-v1` -> exit 0; 126 criteria ผ่าน
@@ -133,8 +133,8 @@
   - test: `set -a; source .env.integration; set +a; unset POL_DB; dotnet test pol-core.slnx --no-build --filter "Capability=Notifications" --blame-hang-timeout 2m --logger "console;verbosity=minimal"` -> exit 0; Architecture 25, Unit 8, Integration/Host 8; รวม 41 passed, failed 0, skipped 0
   - test: `set -a; source .env.integration; set +a; unset POL_DB; dotnet test pol-core.slnx --no-build --filter "Capability=Registration" --blame-hang-timeout 2m --logger "console;verbosity=minimal"` -> exit 0; 5 passed, failed 0, skipped 0
   - test: `set -a; source .env.integration; set +a; unset POL_DB; dotnet test pol-core.slnx --no-build --filter "Capability=CheckoutTransactions" --blame-hang-timeout 2m --logger "console;verbosity=minimal"` -> exit 0; Unit 10, Architecture 2, Integration/Host 13; รวม 25 passed, failed 0, skipped 0
-  - test: `dotnet ef migrations list --project src/Pol.Infrastructure/Pol.Infrastructure.csproj --startup-project src/Pol.Api/Pol.Api.csproj --context PolDbContext --no-build` -> exit 0; migration chain มี Task2–Task7 ครบ รวม `20260910094927_Task7NotificationRuntime` และ `20260910101508_Task7WebhookEndpointUniquenessLive`
-  - test: `dotnet ef migrations has-pending-model-changes --project src/Pol.Infrastructure/Pol.Infrastructure.csproj --startup-project src/Pol.Api/Pol.Api.csproj --context PolDbContext --no-build` -> exit 0; `No changes have been made to the model since the last migration.`
+  - test: `dotnet ef migrations list --project src/Infrastructure/Infrastructure.csproj --startup-project src/Api/Api.csproj --context PolDbContext --no-build` -> exit 0; migration chain มี Task2–Task7 ครบ รวม `20260910094927_Task7NotificationRuntime` และ `20260910101508_Task7WebhookEndpointUniquenessLive`
+  - test: `dotnet ef migrations has-pending-model-changes --project src/Infrastructure/Infrastructure.csproj --startup-project src/Api/Api.csproj --context PolDbContext --no-build` -> exit 0; `No changes have been made to the model since the last migration.`
   - test: `bash scripts/check-migration-script.sh` -> exit 0; `docker/migrations/schema.sql` ตรงกับ EF migrations
   - test: `git diff --check` -> exit 0
   - test: `python3 scripts/spec_contract.py check --feature platform-restructure-v1 --strict` -> exit 0; 126 criteria ผ่าน
@@ -179,12 +179,12 @@
   Evidence:
 
   - test: `dotnet build pol-core.slnx --no-restore -m:1 -v:minimal` -> exit 0; warnings 0, errors 0
-  - test: `dotnet test tests/Pol.UnitTests/Pol.UnitTests.csproj --no-build --filter "Capability=MigrationReadiness" --logger "console;verbosity=minimal"` -> exit 0; 7 passed, 0 failed, 0 skipped; raw `.pipeline/platform-restructure-v1/task9-unit.log`
-  - test: `set -a; source .env.integration; set +a; export POL_DB=master; dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj --no-build --filter "Capability=MigrationReadiness" --logger "console;verbosity=minimal"` -> exit 0; 4 passed, 0 failed, 0 skipped; includes `BACKUP DATABASE`/`RESTORE DATABASE`, SQL target backfill and two-connection lease; raw `.pipeline/platform-restructure-v1/task9-backup.log`
+  - test: `dotnet test tests/UnitTests/UnitTests.csproj --no-build --filter "Capability=MigrationReadiness" --logger "console;verbosity=minimal"` -> exit 0; 7 passed, 0 failed, 0 skipped; raw `.pipeline/platform-restructure-v1/task9-unit.log`
+  - test: `set -a; source .env.integration; set +a; export POL_DB=master; dotnet test tests/IntegrationTests/IntegrationTests.csproj --no-build --filter "Capability=MigrationReadiness" --logger "console;verbosity=minimal"` -> exit 0; 4 passed, 0 failed, 0 skipped; includes `BACKUP DATABASE`/`RESTORE DATABASE`, SQL target backfill and two-connection lease; raw `.pipeline/platform-restructure-v1/task9-backup.log`
   - test: `set -a; source .env.integration; set +a; export POL_DB=master; dotnet test pol-core.slnx --no-build --filter "Capability=MigrationReadiness" --logger "console;verbosity=minimal"` -> exit 0; Unit 7 + Integration 4 passed, Architecture no matching tests, failed 0, skipped 0
   - test: `bash scripts/check-migration-script.sh` -> exit 0; `docker/migrations/schema.sql` ตรงกับ EF migrations รวม `20260910140000_Task9MigrationReadiness`
-  - test: `dotnet ef migrations list --project src/Pol.Infrastructure/Pol.Infrastructure.csproj --startup-project src/Pol.Api/Pol.Api.csproj --context PolDbContext --no-build` -> exit 0; Task 9 migration อยู่ใน list ต่อจาก Task 8
-  - test: `dotnet ef migrations has-pending-model-changes --project src/Pol.Infrastructure/Pol.Infrastructure.csproj --startup-project src/Pol.Api/Pol.Api.csproj --context PolDbContext --no-build` -> exit 0; `No changes have been made to the model since the last migration.`
+  - test: `dotnet ef migrations list --project src/Infrastructure/Infrastructure.csproj --startup-project src/Api/Api.csproj --context PolDbContext --no-build` -> exit 0; Task 9 migration อยู่ใน list ต่อจาก Task 8
+  - test: `dotnet ef migrations has-pending-model-changes --project src/Infrastructure/Infrastructure.csproj --startup-project src/Api/Api.csproj --context PolDbContext --no-build` -> exit 0; `No changes have been made to the model since the last migration.`
   - test: `git diff --check` -> exit 0; `python3 scripts/spec_contract.py check --feature platform-restructure-v1 --strict` -> exit 0; `bash scripts/spec-trace.sh platform-restructure-v1` -> exit 0; 126 criteria ครบ
   - test: mutation ของ duplicate-session conflict reason -> exit 1 ตาม assertion `Expected: PaymentSessionCollision`, `Actual: InvalidPaymentReference`; restore source แล้ว Unit 7/7 ผ่าน
   - viewports: n/a — backend migration/rehearsal logic
@@ -250,9 +250,9 @@ Task 7 ส่งมอบ orchestration และสถานะ `BLOCKED_NOT_CO
 
 ```sh
 dotnet build pol-core.slnx
-dotnet test tests/Pol.UnitTests/Pol.UnitTests.csproj
-dotnet test tests/Pol.ArchitectureTests/Pol.ArchitectureTests.csproj
-dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj
+dotnet test tests/UnitTests/UnitTests.csproj
+dotnet test tests/ArchitectureTests/ArchitectureTests.csproj
+dotnet test tests/IntegrationTests/IntegrationTests.csproj
 python3 scripts/spec_contract.py check --feature platform-restructure-v1 --strict
 bash scripts/spec-trace.sh platform-restructure-v1
 ```

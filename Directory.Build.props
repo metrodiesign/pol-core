@@ -85,9 +85,9 @@
   <Target Name="PlatformRestructure_EnforceLayerDependencies" BeforeTargets="Build">
     <ItemGroup>
       <_ForbiddenLayerReference Include="@(ProjectReference)"
-        Condition="'$(PlatformLayer)' == 'Domain' AND ('%(Filename)' == 'Pol.Application' OR '%(Filename)' == 'Pol.Infrastructure' OR '%(Filename)' == 'Pol.Api')" />
+        Condition="'$(PlatformLayer)' == 'Domain' AND ('%(Filename)' == 'Application' OR '%(Filename)' == 'Infrastructure' OR '%(Filename)' == 'Api')" />
       <_ForbiddenLayerReference Include="@(ProjectReference)"
-        Condition="'$(PlatformLayer)' == 'Application' AND ('%(Filename)' == 'Pol.Infrastructure' OR '%(Filename)' == 'Pol.Api')" />
+        Condition="'$(PlatformLayer)' == 'Application' AND ('%(Filename)' == 'Infrastructure' OR '%(Filename)' == 'Api')" />
     </ItemGroup>
     <Error
       Condition="'@(_ForbiddenLayerReference)' != ''"

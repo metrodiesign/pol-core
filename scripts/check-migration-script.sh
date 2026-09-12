@@ -11,7 +11,7 @@ RAW="$(mktemp)"
 trap 'rm -f "$TMP" "$RAW"' EXIT
 
 dotnet ef migrations script --idempotent --context PolDbContext \
-  --project src/Pol.Infrastructure --startup-project src/Pol.Api \
+  --project src/Infrastructure --startup-project src/Api \
   -o "$RAW" >/dev/null
 
 # EF's script generator emits ONE batch per migration, while `ef database update` executes one

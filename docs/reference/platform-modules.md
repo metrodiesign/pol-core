@@ -220,10 +220,10 @@ Authorization policy แยก audience; path ไม่ใช้ `/api/admin/v1`
 
 ## Source of truth
 
-- `src/Pol.Api/Api/Program.cs`
+- `src/Api/Api/Program.cs`
 - `src/Modules/*`
-- `src/Pol.Infrastructure/Persistence/*`
-- `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/`
+- `src/Infrastructure/Persistence/*`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/`
 - [`entity-fields.md`](entity-fields.md)
 - [`admin-control-plane.md`](admin-control-plane.md)
 - [`layers-guide.md`](layers-guide.md)

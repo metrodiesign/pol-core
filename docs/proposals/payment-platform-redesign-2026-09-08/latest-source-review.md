@@ -58,14 +58,14 @@
 
 | จุดที่ตรวจ | งานที่ต้องเปลี่ยนเมื่อเข้าสู่ implementation | สิ่งที่ต้องรักษา |
 |---|---|---|
-| [User ฝั่ง Admin](../../../src/Pol.Domain/Modules/Admins.Domain/Users/User.cs) และ [User ฝั่ง Merchant](../../../src/Pol.Domain/Modules/Merchants.Domain/Users/User.cs) | ย้าย identity/account lifecycle มา Account กลางตาม realm ที่ตรวจแล้ว | ไม่รวมคนด้วย email และไม่เพิ่มสิทธิ์ระหว่างย้าย |
-| [SubmitRegistrationHandler](../../../src/Pol.Application/Modules/Merchants.Application/Users/SubmitRegistration.cs) | แยก Pending/Rejected ผู้สมัครออกจาก Account ที่ใช้งานธุรกิจ | การยื่นแต่ละรอบ ผลตัดสิน ผู้ตรวจ และความสัมพันธ์กับ identity |
-| [ApiClient ปัจจุบัน](../../../src/Pol.Domain/Modules/Iam.Domain/ApiClients/ApiClient.cs) | ย้ายสู่ SystemClients/SystemClientKeys และสัญญา assertion ที่ระบุชัด | การผูก Merchant/environment, scopes และประวัติการเพิกถอน |
-| [Host authentication](../../../src/Pol.Api/Api/Program.cs#L292) | เปลี่ยนจาก Business API ที่ผูก session scheme ไปสู่ Platform JWT contract | แยก realm, audience, token purpose และ CSRF ฝั่ง cookie ให้ครบ |
-| [Order](../../../src/Pol.Domain/Modules/Orders.Domain/Order.cs) | แยก OrderStatus กับ PaymentStatus และย้ายข้อมูลลิงก์ไป Checkout | ยอด สกุลเงิน OrderId และ provenance ของ owner/branch เดิม |
-| [Session ของ Payments](../../../src/Pol.Domain/Modules/Payments.Domain/Session.cs) | ย้ายเป็น Transaction โดยไม่เพิ่ม Payment ชั้นกลาง | PSP reference, idempotency, environment, credential version และประวัติจริง |
-| [Order query filter](../../../src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/Orders/OrderConfiguration.cs) | เปลี่ยน SELF จากผู้สร้างฝั่ง Merchant เป็น OwnerSaleId และกฎของ actor ตาม HTML | Merchant isolation และสิทธิ์ทุก read/write/export path |
-| [OmiseAdapter](../../../src/Pol.Infrastructure/Modules/Payments.Infrastructure/Psp/OmiseAdapter.cs) | ตรวจ capability ของผลิตภัณฑ์ hosted/redirect ที่เลือกก่อนเปิดช่องทาง | source ยังระบุการรอ sandbox evidence ไม่ใช้ชื่อ provider เป็นหลักฐานว่าพร้อมทุกวิธี |
+| [User ฝั่ง Admin](../../../src/Domain/Modules/Admins.Domain/Users/User.cs) และ [User ฝั่ง Merchant](../../../src/Domain/Modules/Merchants.Domain/Users/User.cs) | ย้าย identity/account lifecycle มา Account กลางตาม realm ที่ตรวจแล้ว | ไม่รวมคนด้วย email และไม่เพิ่มสิทธิ์ระหว่างย้าย |
+| [SubmitRegistrationHandler](../../../src/Application/Modules/Merchants.Application/Users/SubmitRegistration.cs) | แยก Pending/Rejected ผู้สมัครออกจาก Account ที่ใช้งานธุรกิจ | การยื่นแต่ละรอบ ผลตัดสิน ผู้ตรวจ และความสัมพันธ์กับ identity |
+| [ApiClient ปัจจุบัน](../../../src/Domain/Modules/Iam.Domain/ApiClients/ApiClient.cs) | ย้ายสู่ SystemClients/SystemClientKeys และสัญญา assertion ที่ระบุชัด | การผูก Merchant/environment, scopes และประวัติการเพิกถอน |
+| [Host authentication](../../../src/Api/Api/Program.cs#L292) | เปลี่ยนจาก Business API ที่ผูก session scheme ไปสู่ Platform JWT contract | แยก realm, audience, token purpose และ CSRF ฝั่ง cookie ให้ครบ |
+| [Order](../../../src/Domain/Modules/Orders.Domain/Order.cs) | แยก OrderStatus กับ PaymentStatus และย้ายข้อมูลลิงก์ไป Checkout | ยอด สกุลเงิน OrderId และ provenance ของ owner/branch เดิม |
+| [Session ของ Payments](../../../src/Domain/Modules/Payments.Domain/Session.cs) | ย้ายเป็น Transaction โดยไม่เพิ่ม Payment ชั้นกลาง | PSP reference, idempotency, environment, credential version และประวัติจริง |
+| [Order query filter](../../../src/Infrastructure/Persistence/Persistence.MerchantRuntime/Orders/OrderConfiguration.cs) | เปลี่ยน SELF จากผู้สร้างฝั่ง Merchant เป็น OwnerSaleId และกฎของ actor ตาม HTML | Merchant isolation และสิทธิ์ทุก read/write/export path |
+| [OmiseAdapter](../../../src/Infrastructure/Modules/Payments.Infrastructure/Psp/OmiseAdapter.cs) | ตรวจ capability ของผลิตภัณฑ์ hosted/redirect ที่เลือกก่อนเปิดช่องทาง | source ยังระบุการรอ sandbox evidence ไม่ใช้ชื่อ provider เป็นหลักฐานว่าพร้อมทุกวิธี |
 
 JWT กลางเป็นการเปลี่ยน trust contract ของ Business API จึงต้องอยู่ในแผน auth โดยเฉพาะ ไม่ใช่เปลี่ยนชื่อ cookie เป็น token หรือรับ Entra ID token เข้าธุรกิจโดยตรง การใช้ JWT เพื่อยืนยัน Client กับการใช้ Access Token เรียก Resource API เป็นคนละขั้นตามมาตรฐาน [RFC 7523](https://www.rfc-editor.org/rfc/rfc7523.html), [RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html)
 

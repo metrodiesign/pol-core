@@ -13,6 +13,7 @@
 | เรื่อง | ข้อตกลงรุ่นแรก |
 |---|---|
 | โครงสร้าง | 4 source projects, 3 test projects, API host เดียว, SQL Server database เดียว, BackgroundService ใน host เดิม |
+| ชื่อ project และ assembly | ใช้ชื่อ `Api`, `Application`, `Domain`, `Infrastructure`, `UnitTests`, `ArchitectureTests` และ `IntegrationTests` โดยตัด legacy brand prefix ออกจาก path, project, assembly, script และเอกสาร; คง `PolDbContext` และ runtime database identifiers เดิม |
 | ผู้ใช้ | Employee, Agent, System และลูกค้าแบบ capability โดยไม่สร้าง Account ลูกค้า |
 | Access | หนึ่ง active MerchantAccess ต่อ Account/Merchant; DataScope อยู่ Access; PlatformAccess แยกสำหรับ Employee |
 | Agent | หนึ่ง Account ผูก Sale เดียวใน Merchant เดียว; case การสมัครตรึง identity และ Merchant |
@@ -29,8 +30,8 @@
 
 **เกณฑ์การยอมรับ:**
 
-- 1.1 ระบบต้องจัด source ที่ส่งมอบไว้ใน Pol.Domain, Pol.Application, Pol.Infrastructure และ Pol.Api
-- 1.2 ระบบต้องจัด tests ไว้ใน Pol.UnitTests, Pol.ArchitectureTests และ Pol.IntegrationTests
+- 1.1 ระบบต้องจัด source ที่ส่งมอบไว้ใน Domain, Application, Infrastructure และ Api
+- 1.2 ระบบต้องจัด tests ไว้ใน UnitTests, ArchitectureTests และ IntegrationTests
 - 1.3 ระบบต้องมีเจ้าของการเปลี่ยนข้อมูลหลักเพียงโมดูลเดียวสำหรับแต่ละ entity ตาม design
 - 1.4 ระบบต้องใช้ API host เดียวสำหรับ HTTP และงานเบื้องหลังของรุ่นแรก
 - 1.5 ระบบต้องแยก runtime persistence เป็น Control Plane และ Commerce โดยไม่ใช้ migration context เป็น runtime store

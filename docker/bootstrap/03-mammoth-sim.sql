@@ -37,7 +37,7 @@
 --   servers (no FK, no cross-database transaction, no linked server) — only the agent/broker/branch
 --   data they draw from is shared by construction (byte-identical CASE expressions in both files).
 --   The invariant that keeps them in sync is now proved by
---   tests/Pol.IntegrationTests/Integration.Tests/SimCrossInstanceConsistencyTests.cs, not by a SQL cross-database query
+--   tests/IntegrationTests/Integration.Tests/SimCrossInstanceConsistencyTests.cs, not by a SQL cross-database query
 --   (this file's self-check used to JOIN hippodb.dbo.Documents/mammothdb.dbo.Documents directly when
 --   both lived on one instance — that query is impossible across two separate SQL Server instances
 --   without a linked server, so external-sim-separate-containers REQ-3 moved it to the integration
@@ -342,7 +342,7 @@ GRANT SELECT ON dbo.Documents TO mammoth_app;
 GO
 
 -- Anchor marker (sim-seed-date-stability REQ-2.1): the ONE place that records which "@today" the
--- seeded rows were computed against. SimSeedFixture (tests/Pol.IntegrationTests/Integration.Tests) compares it to the
+-- seeded rows were computed against. SimSeedFixture (tests/IntegrationTests/Integration.Tests) compares it to the
 -- sim's own CAST(GETDATE() AS date) and replays this file when they disagree. NOT part of the SP
 -- contract — the procedure never reads it and production code does not know it exists.
 IF OBJECT_ID(N'dbo.SeedInfo', N'U') IS NULL

@@ -1066,12 +1066,12 @@ Native SQL Server `json` columns มี exactly 5 จุด:
 
 ## Source of truth
 
-1. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
-2. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
-3. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
-4. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
+1. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
+2. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
+3. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
+4. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
 5. Migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants` ในโฟลเดอร์เดียวกัน
-6. `src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
-7. EF configurations ใต้ `src/Pol.Infrastructure/Persistence/` และ module infrastructure
+6. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
+7. EF configurations ใต้ `src/Infrastructure/Persistence/` และ module infrastructure
 
 เมื่อ schema เปลี่ยน ต้องอัปเดต migration, model snapshot และเอกสารนี้พร้อมกัน.

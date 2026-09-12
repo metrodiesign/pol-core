@@ -101,10 +101,10 @@ Current migration chain ถึง `20260811024015_AdminDeliveryRuntimeGrants`; �
 
 ## Source of truth
 
-- `src/Pol.Domain/Modules/Carts.Domain/Cart.cs`
-- `src/Pol.Domain/Modules/Carts.Domain/Items/Item.cs`
-- `src/Pol.Application/Modules/Carts.Application/GetCart.cs`
-- `src/Pol.Application/Modules/Carts.Application/AddItemToCartCommand.cs`
-- `src/Pol.Infrastructure/Modules/Carts.Infrastructure/Items/ItemConfiguration.cs`
-- `src/Pol.Api/Api/Program.cs`
-- `src/Pol.Api/Api/Orders/OrderCreationCoordinator.cs`
+- `src/Domain/Modules/Carts.Domain/Cart.cs`
+- `src/Domain/Modules/Carts.Domain/Items/Item.cs`
+- `src/Application/Modules/Carts.Application/GetCart.cs`
+- `src/Application/Modules/Carts.Application/AddItemToCartCommand.cs`
+- `src/Infrastructure/Modules/Carts.Infrastructure/Items/ItemConfiguration.cs`
+- `src/Api/Api/Program.cs`
+- `src/Api/Api/Orders/OrderCreationCoordinator.cs`

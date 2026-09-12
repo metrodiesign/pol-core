@@ -1,6 +1,6 @@
 # Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> As-built 2026-09-02. Source: `src/Pol.Api/Api/Admins/*.cs`, `Program.cs` (routes),
+> As-built 2026-09-02. Source: `src/Api/Api/Admins/*.cs`, `Program.cs` (routes),
 > `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
@@ -144,7 +144,7 @@ async function bootstrap() {
 }
 ```
 
-Response shape (`AdminMeResponse`, `src/Pol.Api/Api/Program.cs:2393-2395`):
+Response shape (`AdminMeResponse`, `src/Api/Api/Program.cs:2393-2395`):
 
 ```jsonc
 // Super — เห็นทุก merchant; key `merchants` ถูก omit ทิ้งไปเลย (ไม่ใช่ null)
@@ -211,13 +211,13 @@ Scoped ยิงโดน 403.
 
 > **Auth rate limiting**: `GET /auth/{provider}/login` (เท่านั้น — endpoint อื่นในตารางนี้ไม่มี) ผ่าน sliding
 > window ต่อ source IP: 20 request / 60 วินาที (6 segments, ไม่ queue เกิน limit -> 429 ทันที) นโยบายชื่อ
-> `admin-auth` (`src/Pol.Api/Api/Admins/AuthRateLimiting.cs`, ผูกที่ `Program.cs:1011`) กันสแปม login/probe callback
+> `admin-auth` (`src/Api/Api/Admins/AuthRateLimiting.cs`, ผูกที่ `Program.cs:1011`) กันสแปม login/probe callback
 > จาก IP เดียว ไม่กระทบการ login ปกติที่ไม่ถี่.
 >
 > **สองเส้นทาง merchant provisioning อยู่นอก prefix `/api/v1/admins`** (`hierarchical-naming` task 8): map ตรงบน
 > `/api/v1/merchants` แล้ว re-attach control เองทีละ endpoint (`CsrfFilter` + policy `admin` + Super tier บน POST)
 > แทนการ inherit จาก group — admin CORS policy ผูกให้ผ่าน path table ใน method `IsAdminPlane` ของ
-> `src/Pol.Api/BuildingBlocks.Web/CorsExtensions.cs:91-98` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
+> `src/Api/BuildingBlocks.Web/CorsExtensions.cs:91-98` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
 > FE ยังยิงผ่าน proxy เดิมได้ แต่ rewrite rule ต้องครอบ `/api/v1/merchants` ด้วย ไม่ใช่แค่ `/api/v1/admins` (ดู
 > [Proxy](#proxy--same-origin-บังคับ)).
 
@@ -382,24 +382,24 @@ FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'inc
 
 ## Source of truth
 
-ไฟล์ทั้งหมดย้ายเข้าโฟลเดอร์ `src/Pol.Api/Api/Admins/` แล้ว (ตัดคำนำหน้า `Admin` ออกจากชื่อไฟล์ — prefix ซ้ำกับ
+ไฟล์ทั้งหมดย้ายเข้าโฟลเดอร์ `src/Api/Api/Admins/` แล้ว (ตัดคำนำหน้า `Admin` ออกจากชื่อไฟล์ — prefix ซ้ำกับ
 โฟลเดอร์):
 
-- OIDC login + callback (challenge/establish session): `src/Pol.Api/Api/Admins/OidcAuthentication.cs`,
-  `src/Pol.Api/Api/Admins/LoginService.cs`
-- session auth + rotation/reuse/revocation: `src/Pol.Api/Api/Admins/SessionAuthenticationHandler.cs`,
-  `src/Pol.Infrastructure/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
-- cookies (session + CSRF): `src/Pol.Api/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Pol.Api/Api/Admins/CsrfFilter.cs`
-- auth rate limiting: `src/Pol.Api/Api/Admins/AuthRateLimiting.cs`
-- routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Pol.Api/Api/Program.cs`
-- top-level admin control routes: `src/Pol.Api/Api/ControlPlane/AdminControlEndpoints.cs`,
-  `src/Pol.Api/Api/ControlPlane/AdminMerchantIdentityEndpoints.cs`
-- governance/approval/audit: `src/Pol.Api/Api/Governance/GovernanceEndpoints.cs`
-- API clients/secrets: `src/Pol.Api/Api/Iam/ApiClientEndpoints.cs`
-- webhook/notification delivery: `src/Pol.Api/Api/Notifications/DeliveryEndpoints.cs`,
-  `src/Pol.Api/Api/Webhooks/InboundWebhookEndpoints.cs`
-- reporting/transaction projection: `src/Pol.Api/Api/Reporting/AdminReportingEndpoints.cs`
-- OpenAPI audience documents: `src/Pol.Api/Api/OpenApiDocuments.cs`
-- CORS split + path-based policy selection: `src/Pol.Api/BuildingBlocks.Web/CorsExtensions.cs`
-- tier enum: `src/Pol.Domain/Modules/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
-- accessible-merchants value object: `src/Pol.Application/Modules/Admins.Application/Users/AccessibleMerchants.cs`
+- OIDC login + callback (challenge/establish session): `src/Api/Api/Admins/OidcAuthentication.cs`,
+  `src/Api/Api/Admins/LoginService.cs`
+- session auth + rotation/reuse/revocation: `src/Api/Api/Admins/SessionAuthenticationHandler.cs`,
+  `src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
+- cookies (session + CSRF): `src/Api/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Api/Api/Admins/CsrfFilter.cs`
+- auth rate limiting: `src/Api/Api/Admins/AuthRateLimiting.cs`
+- routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Api/Api/Program.cs`
+- top-level admin control routes: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs`,
+  `src/Api/Api/ControlPlane/AdminMerchantIdentityEndpoints.cs`
+- governance/approval/audit: `src/Api/Api/Governance/GovernanceEndpoints.cs`
+- API clients/secrets: `src/Api/Api/Iam/ApiClientEndpoints.cs`
+- webhook/notification delivery: `src/Api/Api/Notifications/DeliveryEndpoints.cs`,
+  `src/Api/Api/Webhooks/InboundWebhookEndpoints.cs`
+- reporting/transaction projection: `src/Api/Api/Reporting/AdminReportingEndpoints.cs`
+- OpenAPI audience documents: `src/Api/Api/OpenApiDocuments.cs`
+- CORS split + path-based policy selection: `src/Api/BuildingBlocks.Web/CorsExtensions.cs`
+- tier enum: `src/Domain/Modules/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
+- accessible-merchants value object: `src/Application/Modules/Admins.Application/Users/AccessibleMerchants.cs`

@@ -77,7 +77,7 @@ PSP webhook ต้องตรวจ provider/account/environment/reference แ�
 ```bash
 set -a; source .env.integration; set +a
 export POL_DB=master
-dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj --filter "Capability=MigrationReadiness"
+dotnet test tests/IntegrationTests/IntegrationTests.csproj --filter "Capability=MigrationReadiness"
 ```
 
 Runner ต้องทำให้ `MigrationRehearsalStatus` เป็น `Blocked` เมื่อ identity/reference/currency/invariant มี conflict และต้องเก็บ `MigrationConflictReport` ที่ไม่มี email, display name, token หรือ secret. `LegacyIdentityMap` ใช้ `(LegacyKind, LegacyId) -> AccountId` จาก identity evidence และ `OrderId`/PSP reference/amount/currency/history ต้องคงเดิม.

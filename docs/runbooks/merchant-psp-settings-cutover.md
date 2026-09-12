@@ -9,14 +9,14 @@
 ## สถานะ ณ วัน merge PR: ยังไม่พร้อม cutover
 
 - `ILegacyPaymentRemediation`
-  (`src/Pol.Application/Modules/Payments.Application/Capabilities/LegacyPaymentRemediation.cs`)
+  (`src/Application/Modules/Payments.Application/Capabilities/LegacyPaymentRemediation.cs`)
   implement และมี test ครบแล้ว 2 operation:
   - `BackfillMerchantEnvironmentsAsync(actorId, globalDefault, ct)` — ตั้ง
     `Merchant.PaymentEnvironment` ให้ merchant ที่ **ไม่เคยสลับ environment** ตามค่า global เดิม
   - `RemediateSessionsAsync(actorId, legacyEnvironment, ct)` — ยกระดับ legacy Session
     (`RoutingSnapshotVersion = 0`) เป็น snapshot v1 หรือคง v0 ถ้าพิสูจน์ historical secret ไม่ได้
   - implementation จริงอยู่ที่
-    `src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/LegacyPaymentRemediationService.cs`
+    `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/LegacyPaymentRemediationService.cs`
 - **ยังไม่มี entry point**: prod boot รัน migration ผ่าน `docker/migrate-entrypoint.sh` ซึ่งรัน
   SQL script ล้วน (`schema.sql` forward-only) ไม่สามารถเรียก scoped .NET service ได้ ทั้งสอง
   operation ข้างต้นจึงยังไม่มีจุดเรียกใน production path เป็นงาน ops รอบถัดไป
@@ -114,5 +114,5 @@
 - AC-9.1 (migration ตาม 12 ขั้น), AC-9.2 (uncharged -> v1, charged -> คง v0),
   AC-9.3 (fetch-confirm ทีละ secret, พิสูจน์ไม่ได้ -> block): `.ai/specs/merchant-psp-settings/spec.md`
 - guard `legacy_snapshot_blocked`:
-  `src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs:669` (credential),
+  `src/Infrastructure/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs:669` (credential),
   `:834` (environment)

@@ -104,7 +104,7 @@ Development เปิดเอกสาร 4 ชุด:
 
 ## Source of truth
 
-- Routes: `src/Pol.Api/Api/ControlPlane/`, `src/Pol.Api/Api/Governance/`, `src/Pol.Api/Api/Iam/ApiClientEndpoints.cs`, `src/Pol.Api/Api/Notifications/`, `src/Pol.Api/Api/Reporting/`, `src/Pol.Api/Api/Webhooks/`
-- OpenAPI: `src/Pol.Api/Api/OpenApiDocuments.cs`, `src/Pol.Api/Api/AudienceOpenApi.cs`
+- Routes: `src/Api/Api/ControlPlane/`, `src/Api/Api/Governance/`, `src/Api/Api/Iam/ApiClientEndpoints.cs`, `src/Api/Api/Notifications/`, `src/Api/Api/Reporting/`, `src/Api/Api/Webhooks/`
+- OpenAPI: `src/Api/Api/OpenApiDocuments.cs`, `src/Api/Api/AudienceOpenApi.cs`
 - Owners: `src/Modules/Governance/`, `src/Modules/Notifications/`, `src/Modules/Reporting/`, `src/Modules/Iam/ApiClients/`, `src/Modules/Payments/AdminControlPlane/`
 - Persisted schema: [entity-fields.md](entity-fields.md)

@@ -79,7 +79,7 @@ class SandboxBuilder:
     def module_dir(self, name: str, with_csproj: bool = True,
                    legacy: bool = False) -> Path:
         base = (self.root / "src/Modules" / name if legacy
-                else self.root / "src/Pol.Domain/Modules" / f"{name}.Domain")
+                else self.root / "src/Domain/Modules" / f"{name}.Domain")
         base.mkdir(parents=True, exist_ok=True)
         if with_csproj:
             (base / f"{name}.csproj").write_text("<Project />", encoding="utf-8")
@@ -91,7 +91,7 @@ class SandboxBuilder:
                             query_filter_cfg: bool = False,
                             legacy: bool = False,
                             file_name: str | None = None) -> Path:
-        base = "src/Persistence" if legacy else "src/Pol.Infrastructure/Persistence"
+        base = "src/Persistence" if legacy else "src/Infrastructure/Persistence"
         ctx = self.root / base / project / f"{file_name or cls}.cs"
         ctx.parent.mkdir(parents=True, exist_ok=True)
         modifier = "internal sealed " if guard_base else ""
@@ -130,13 +130,13 @@ class SandboxBuilder:
                                      guard_base=True, query_filter_cfg=True, legacy=False,
                                      file_name="MerchantRuntimeDbContext")
         tests = self.root / ("tests/Architecture.Tests" if legacy
-                             else "tests/Pol.ArchitectureTests/Architecture.Tests")
+                             else "tests/ArchitectureTests/Architecture.Tests")
         tests.mkdir(parents=True, exist_ok=True)
         (tests / "ModelDisjointnessTests.cs").write_text("class X {}",
                                                          encoding="utf-8")
         project = (self.root / ("tests/Architecture.Tests/Architecture.Tests.csproj"
                                 if legacy else
-                                "tests/Pol.ArchitectureTests/Pol.ArchitectureTests.csproj"))
+                                "tests/ArchitectureTests/ArchitectureTests.csproj"))
         project.parent.mkdir(parents=True, exist_ok=True)
         project.write_text("<Project />", encoding="utf-8")
         guard = self.root / (rpa._LEGACY_PERSISTENCE_BASE if legacy
@@ -239,7 +239,7 @@ class ModulesRowTest(AlignmentFixtureBase):
         s.architecture_with_registry(modules=MODULE_SET)
         for name in MODULE_SET:
             s.module_dir(name, legacy=True)
-        (self.root / "src/Pol.Domain/Modules").mkdir(parents=True)
+        (self.root / "src/Domain/Modules").mkdir(parents=True)
         self.assertEqual(rpa.check_modules(self.root), [])
 
     def test_fake_module_on_disk_fails(self):
@@ -279,7 +279,7 @@ class ModulesRowTest(AlignmentFixtureBase):
 
     def test_generated_source_in_retired_container_does_not_count_as_module(self):
         self.build_valid()
-        generated = self.root / "src/Pol.Domain/Modules/Retired.Domain/obj/Debug/net10.0"
+        generated = self.root / "src/Domain/Modules/Retired.Domain/obj/Debug/net10.0"
         generated.mkdir(parents=True)
         (generated / "Retired.AssemblyInfo.cs").write_text("class Generated {}", encoding="utf-8")
         self.assertEqual(rpa.check_modules(self.root), [])
@@ -342,7 +342,7 @@ class DbContextsRowTest(AlignmentFixtureBase):
         s.persistence_context("Persistence.ControlPlane", "ControlPlaneDbContext", legacy=True)
         s.persistence_context("Persistence.MerchantUsers", "MerchantUserDbContext", legacy=True)
         s.persistence_context("Persistence.MerchantRuntime", "MerchantRuntimeDbContext", legacy=True)
-        (self.root / "src/Pol.Infrastructure/Persistence").mkdir(parents=True)
+        (self.root / "src/Infrastructure/Persistence").mkdir(parents=True)
         self.assertEqual(rpa.check_dbcontexts(self.root), [])
 
     def test_extra_pol_runtime_context_fails(self):
@@ -399,7 +399,7 @@ class MigrationOwnerRowTest(AlignmentFixtureBase):
     def test_runtime_registration_fails(self):
         s = SandboxBuilder(self.root)
         s.persistence_infra()
-        stray = s.root / "src/Pol.Api/Api/Stray.cs"
+        stray = s.root / "src/Api/Api/Stray.cs"
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_text("services.AddDbContext<PolDbContext>();",
                          encoding="utf-8")
@@ -432,13 +432,13 @@ class IsolationRowTest(AlignmentFixtureBase):
         s.isolation_tree(legacy=True)
         (self.root / rpa._CANONICAL_RUNTIME_PERSISTENCE_BASE).mkdir(parents=True)
         (self.root / rpa._PERSISTENCE_BASE).mkdir(parents=True)
-        (self.root / "tests/Pol.ArchitectureTests").mkdir(parents=True)
+        (self.root / "tests/ArchitectureTests").mkdir(parents=True)
         self.assertEqual(rpa.check_isolation(self.root), [])
 
     def test_unsealed_context_fails(self):
         s = SandboxBuilder(self.root)
         s.isolation_tree()
-        victim = (s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime/"
+        victim = (s.root / "src/Infrastructure/Persistence/Persistence.MerchantRuntime/"
                   "MerchantRuntimeDbContext.cs")
         victim.write_text("class CommerceDbContext {}", encoding="utf-8")
         diags = rpa.check_isolation(self.root)
@@ -448,7 +448,7 @@ class IsolationRowTest(AlignmentFixtureBase):
     def test_no_filter_config_fails(self):
         s = SandboxBuilder(self.root)
         s.isolation_tree()
-        for cfg in (s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime").glob("*Cfg.cs"):
+        for cfg in (s.root / "src/Infrastructure/Persistence/Persistence.MerchantRuntime").glob("*Cfg.cs"):
             cfg.unlink()
         diags = rpa.check_isolation(self.root)
         self.assertTrue(any(d.code == "ALIGN_ISOLATION_MISMATCH"
@@ -460,7 +460,7 @@ class IsolationRowTest(AlignmentFixtureBase):
         # a sibling config still declares a deny-default filter, not that the word appears anywhere.
         s = SandboxBuilder(self.root)
         s.isolation_tree()
-        runtime = s.root / "src/Pol.Infrastructure/Persistence/Persistence.MerchantRuntime"
+        runtime = s.root / "src/Infrastructure/Persistence/Persistence.MerchantRuntime"
         for cfg in runtime.glob("*Cfg.cs"):
             cfg.unlink()
         context = runtime / "MerchantRuntimeDbContext.cs"

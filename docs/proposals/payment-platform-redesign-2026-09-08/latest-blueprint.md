@@ -137,7 +137,7 @@ Reporting เป็น query/read model บน Order และ Transaction ไ�
 
 | ส่วน | ปัจจุบันที่สำรวจ | เป้าหมายที่เสนอ |
 |---|---|---|
-| Source projects | 39 | 4: Pol.Domain, Pol.Application, Pol.Infrastructure, Pol.Api |
+| Source projects | 39 | 4: Domain, Application, Infrastructure, Api |
 | Test projects | 14 | 3: Unit, Architecture, Integration |
 | Runtime DbContexts | 3 | 2: Control Plane และ Commerce หลังตรวจ transaction/isolation ครบ |
 | Migration composition | 1 | 1 โดยใช้ mapping เจ้าของเดียวกับ runtime ไม่คัดลอก column/index |
@@ -194,7 +194,7 @@ Reporting เป็น query/read model บน Order และ Transaction ไ�
 ## 10. Source anchors
 
 - Target: `/Users/king_developer/Downloads/pol-platform-latest/01-business-overview.md`, `/Users/king_developer/Downloads/pol-platform-latest/04-data-model-and-migration.md`
-- Current identity/access: `src/Pol.Domain/Modules/Admins.Domain/Users/User.cs`, `src/Pol.Domain/Modules/Merchants.Domain/Users/User.cs`, `src/Pol.Domain/Modules/Iam.Domain/ApiClients/ApiClient.cs`
-- Current merchant/order/checkout: `src/Pol.Domain/Modules/Merchants.Domain/Originator.cs`, `src/Pol.Domain/Modules/Orders.Domain/Order.cs`
-- Current transaction/event: `src/Pol.Domain/Modules/Payments.Domain/Session.cs`, `src/Pol.Application/Contracts/PaymentPaid.cs`
-- Current notification: `src/Modules/Notifications/`, `src/Pol.Infrastructure/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs`
+- Current identity/access: `src/Domain/Modules/Admins.Domain/Users/User.cs`, `src/Domain/Modules/Merchants.Domain/Users/User.cs`, `src/Domain/Modules/Iam.Domain/ApiClients/ApiClient.cs`
+- Current merchant/order/checkout: `src/Domain/Modules/Merchants.Domain/Originator.cs`, `src/Domain/Modules/Orders.Domain/Order.cs`
+- Current transaction/event: `src/Domain/Modules/Payments.Domain/Session.cs`, `src/Application/Contracts/PaymentPaid.cs`
+- Current notification: `src/Modules/Notifications/`, `src/Infrastructure/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs`

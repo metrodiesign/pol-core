@@ -8,7 +8,7 @@ fail() {
   exit 1
 }
 
-migration_dir=src/Pol.Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations
+migration_dir=src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations
 mapfile -t migration_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*.cs' \
   ! -name '*.Designer.cs' ! -name '*ModelSnapshot.cs' -print | sort)
 mapfile -t designer_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*.Designer.cs' -print | sort)
@@ -104,8 +104,8 @@ tmp_script="$(mktemp)"
 trap 'rm -f "$tmp_script"' EXIT
 dotnet ef migrations script 0 \
   --context PolDbContext \
-  --project src/Pol.Infrastructure \
-  --startup-project src/Pol.Api \
+  --project src/Infrastructure \
+  --startup-project src/Api \
   --output "$tmp_script" >/dev/null
 
 preflight_line="$(grep -nE 'InitialSchema refused non-empty or legacy target database' "$tmp_script" | head -1 | cut -d: -f1)"

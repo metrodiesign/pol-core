@@ -155,7 +155,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build API image
-        run: docker build --target final --build-arg HOST_PROJECT=src/Pol.Api/Pol.Api.csproj --build-arg HOST_DLL=Pol.Api.dll -t pol-core-api:ci .
+        run: docker build --target final --build-arg HOST_PROJECT=src/Api/Api.csproj --build-arg HOST_DLL=Api.dll -t pol-core-api:ci .
       - name: Build migrate image
         run: docker build --target migrate -t pol-core-migrate:ci .
       - name: Validate docker-compose.prod.yml renders

@@ -71,8 +71,8 @@ services:
       target: final
       args:
         DOTNET_VERSION: *dotnet
-        HOST_PROJECT: src/Pol.Api/Pol.Api.csproj
-        HOST_DLL: Pol.Api.dll
+        HOST_PROJECT: src/Api/Api.csproj
+        HOST_DLL: Api.dll
     environment:
       DB_SERVER: ${DB_SERVER:?set DB_SERVER in .env}
       DB_PORT: ${DB_PORT:-1433}

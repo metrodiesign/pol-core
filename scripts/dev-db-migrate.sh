@@ -31,14 +31,14 @@ fi
 
 echo "[dev-db-migrate] applying EF migrations (PolDbContext)..."
 dotnet ef database update --context PolDbContext \
-  --project src/Pol.Infrastructure \
-  --startup-project src/Pol.Api
+  --project src/Infrastructure \
+  --startup-project src/Api
 
 echo "[dev-db-migrate] completing workforce identity migration..."
 # Fresh/empty Admin inventory completes with zero counts and needs no manifest. A populated legacy
 # inventory needs the six protected WORKFORCE_* first-run inputs + strict manifest — see
 # docs/runbooks/admin-workforce-jit-rollout.md; this script does not automate that path.
-if ! dotnet run --project src/Pol.Infrastructure/Pol.Infrastructure.csproj; then
+if ! dotnet run --project src/Infrastructure/Infrastructure.csproj; then
   echo "[dev-db-migrate] migrator did not complete. If this DB has existing Admin rows that need an" >&2
   echo "  authoritative Entra manifest, follow docs/runbooks/admin-workforce-jit-rollout.md." >&2
   echo "  For a stale local demo DB with no real identities, clear the invalid Admin rows first." >&2

@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ACTUAL=$(dotnet ef migrations list --context PolDbContext \
-  --project src/Pol.Infrastructure --startup-project src/Pol.Api 2>&1)
+  --project src/Infrastructure --startup-project src/Api 2>&1)
 
 mapfile -t IDS < <(printf '%s\n' "$ACTUAL" | sed -nE 's/^([0-9]{14}_(InitialSchema|SecurityObjects|SeedData|OneBasedPersistedEnumStorage)).*/\1/p')
 EXPECTED_SUFFIXES=("_InitialSchema" "_SecurityObjects" "_SeedData" "_OneBasedPersistedEnumStorage")

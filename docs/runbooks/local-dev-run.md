@@ -75,8 +75,8 @@ Psp__TwoCTwoP__FrontendReturnUrl=https://localhost:3000/checkout/return
 Psp__Omise__ReturnUri=https://localhost:3000/checkout/return
 ```
 
-อีกทางคือ copy `src/Pol.Api/appsettings.Development.json.example` เป็นไฟล์
-`src/Pol.Api/appsettings.Development.json` ที่ถูก Git ignore แล้วแทน local password. ตั้งคีย์หนึ่งจุดเท่านั้น เพราะ
+อีกทางคือ copy `src/Api/appsettings.Development.json.example` เป็นไฟล์
+`src/Api/appsettings.Development.json` ที่ถูก Git ignore แล้วแทน local password. ตั้งคีย์หนึ่งจุดเท่านั้น เพราะ
 environment จาก `.env` มี precedence สูงกว่า Development JSON.
 
 ข้อกำหนดสำคัญ:
@@ -169,17 +169,17 @@ SQL Server compile ทั้ง batch ก่อนประเมิน guard. b
 
 ```bash
 dotnet ef database update --context PolDbContext \
-  --project src/Pol.Infrastructure \
-  --startup-project src/Pol.Api
+  --project src/Infrastructure \
+  --startup-project src/Api
 
 # Fresh empty Admin inventory: no manifest is required and the tool completes with zero counts.
 # Existing Admin inventory: set the six protected WORKFORCE_* first-run inputs and use the strict manifest
 # procedure in docs/runbooks/admin-workforce-jit-rollout.md; do not print their values.
-dotnet run --project src/Pol.Infrastructure/Pol.Infrastructure.csproj
+dotnet run --project src/Infrastructure/Infrastructure.csproj
 
 dotnet ef migrations list --context PolDbContext \
-  --project src/Pol.Infrastructure \
-  --startup-project src/Pol.Api
+  --project src/Infrastructure \
+  --startup-project src/Api
 ```
 
 ปัจจุบันต้องมี 31 migrations และตัวสุดท้ายต้องเป็น:
@@ -284,7 +284,7 @@ Development จะ throw ตอน start; ให้ลบค่านั้น�
 ใน terminal ที่ source `.env` และ inject OIDC secret แล้ว:
 
 ```bash
-dotnet watch --project src/Pol.Api/Pol.Api.csproj run
+dotnet watch --project src/Api/Api.csproj run
 ```
 
 `dotnet watch` ไม่ apply migration อัตโนมัติ: `PolDbContext` เป็น migration-only composition และไม่ถูก
@@ -339,7 +339,7 @@ API ไม่อ่าน `.env` เอง. หลังแก้ไฟล์ �
 
 ```bash
 set -a && source .env && set +a
-dotnet run --project src/Pol.Api --launch-profile https
+dotnet run --project src/Api --launch-profile https
 ```
 
 ## 9. รัน SPA
@@ -427,7 +427,7 @@ dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
 ด้วย timeout 90–150 วินาที:
 
 ```bash
-dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj --no-build \
+dotnet test tests/IntegrationTests/IntegrationTests.csproj --no-build \
   --filter "Category!=Integration" \
   --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type none \
   --results-directory /tmp/pol-hosts-results \
@@ -453,18 +453,18 @@ Integration suite ต้องใช้ local SQL ที่แยกจาก sh
 
 ```bash
 source .env.integration
-dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj \
+dotnet test tests/IntegrationTests/IntegrationTests.csproj \
   --filter "Category=Integration"
 ```
 
 OIDC/migration regression ที่เกี่ยวข้องโดยตรง:
 
 ```bash
-dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj \
+dotnet test tests/IntegrationTests/IntegrationTests.csproj \
   --filter "FullyQualifiedName~MicrosoftAuthLoginRedirectTests|FullyQualifiedName~OidcCallbackE2ETests|FullyQualifiedName~MerchantUserAuthLoginRedirectTests"
 
 source .env.integration
-dotnet test tests/Pol.IntegrationTests/Pol.IntegrationTests.csproj \
+dotnet test tests/IntegrationTests/IntegrationTests.csproj \
   --filter "FullyQualifiedName~ProviderDiscriminatorMigrationTests"
 ```
 

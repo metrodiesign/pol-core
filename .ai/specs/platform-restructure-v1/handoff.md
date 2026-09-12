@@ -57,11 +57,11 @@ Implementation และ coverage matrix อยู่ที่ [changes-task3.md
 
 ## Files Changed
 
-- Source/test projects ย้ายใต้ `src/Pol.*` และ `tests/Pol.*Tests`; ลบ project wrappers เดิม
+- Source/test projects ย้ายใต้ `src/{Api,Application,Domain,Infrastructure}` และ `tests/{UnitTests,ArchitectureTests,IntegrationTests}`; ลบ project wrappers เดิม
 - Solution/build props, Docker/CI, migration scripts และ runbooks ใช้ project/DLL paths ใหม่
 - SDD path extractor และ tests รองรับ layout เก่า/ใหม่; ไม่เปลี่ยน comparator/scope policy
 - [packaging-inventory.md](packaging-inventory.md) เก็บ callers, DI/generated wiring, jobs/config และ pending-data anchors
-- Task 2 source/test ครอบ `src/Pol.*` และ `tests/Pol.*Tests` ตาม changes evidence; รายการเต็มอยู่ใน [changes-task2.md](../../../.pipeline/platform-restructure-v1/changes-task2.md)
+- Task 2 source/test ครอบ canonical source/test roots ตาม changes evidence; รายการเต็มอยู่ใน [changes-task2.md](../../../.pipeline/platform-restructure-v1/changes-task2.md)
 
 ## Important Decisions
 

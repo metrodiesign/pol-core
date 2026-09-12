@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PlatformLayer>Application</PlatformLayer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mediator.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="UnitTests" />
+    <InternalsVisibleTo Include="ArchitectureTests" />
+    <InternalsVisibleTo Include="IntegrationTests" />
+  </ItemGroup>
+
+</Project>
