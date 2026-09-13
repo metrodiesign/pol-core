@@ -22,7 +22,8 @@
         "IdentityAccess__WorkforceIssuer": "https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0",
         "IdentityAccess__WorkforceTenantId": "05ab044e-e2c5-47dc-bbfb-fd7ea077fa71",
         "IdentityAccess__WorkforceAudience": "ca9110ac-2be1-49ea-a7ee-badb792db8ce",
-        "IdentityAccess__WorkforceWebAppBaseUrl": "https://localhost:3001"
+        "IdentityAccess__WorkforceWebAppBaseUrl": "https://localhost:3001",
+        "IdentityAccess__BffSessionMinutes": "1440"
       }
     }
   }
