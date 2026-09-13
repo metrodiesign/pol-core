@@ -367,8 +367,13 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         (typeof(AdminAuthAudit), WriteOperation.Insert),
         (typeof(IdentityAccount), WriteOperation.Insert),
         (typeof(LoginAccount), WriteOperation.Insert),
+        // Repeat login observes the provider's current email/display name on the existing LoginAccount.
+        (typeof(LoginAccount), WriteOperation.Update),
         (typeof(EmployeeAccount), WriteOperation.Insert),
         (typeof(BffSessionTicket), WriteOperation.Insert),
+        // BFF session lifecycle (logout revoke, refresh rotate, merchant-context switch) runs under the BFF cookie
+        // scheme, which never binds IAdminScope (that is the legacy admin.Users session), so it is unbound here.
+        (typeof(BffSessionTicket), WriteOperation.Update),
         (typeof(RegistrationSession), WriteOperation.Insert),
         (typeof(AgentRegistration), WriteOperation.Insert),
         (typeof(AgentRegistration), WriteOperation.Update),

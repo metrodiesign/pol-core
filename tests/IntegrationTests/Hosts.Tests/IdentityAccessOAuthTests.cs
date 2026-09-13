@@ -672,6 +672,34 @@ public sealed class IdentityAccessOAuthTests
             await manager.GetStatusAsync(newToken!, default));
     }
 
+    // Bugfix: the employee callback stored Entra's refresh token in the BFF ticket, so API-011 (rotate through the
+    // OpenIddict manager) never found it -> 401 on every refresh, and logout revoked nothing. The session must
+    // start from a platform-issued reference token.
+    [Fact]
+    [Trait("Requirement", "REQ-2.14")]
+    public async Task Issued_bff_refresh_token_is_an_openiddict_reference_for_the_account_that_rotates()
+    {
+        using var factory = new IdentityAccessOAuthFactory();
+        using var scope = factory.Services.CreateScope();
+        var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>();
+        var rotator = scope.ServiceProvider.GetRequiredService<
+            ApiHost::Api.IdentityAccess.OpenIddictRefreshTokenRotator>();
+        var accountId = Guid.NewGuid();
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
+
+        var raw = await rotator.IssueAsync(accountId, expiresAt, default);
+
+        var token = await manager.FindByReferenceIdAsync(raw, default);
+        Assert.NotNull(token);
+        Assert.Equal(accountId.ToString("D"), await manager.GetSubjectAsync(token!, default));
+        Assert.Equal(OpenIddictConstants.TokenTypeIdentifiers.RefreshToken, await manager.GetTypeAsync(token!, default));
+        Assert.Equal(OpenIddictConstants.Statuses.Valid, await manager.GetStatusAsync(token!, default));
+        Assert.Equal(expiresAt, await manager.GetExpirationDateAsync(token!, default));
+        var successor = await rotator.RotateAsync(raw, default);
+        Assert.False(string.IsNullOrWhiteSpace(successor));
+        Assert.NotEqual(raw, successor);
+    }
+
     [Fact]
     [Trait("Requirement", "REQ-2.14")]
     public async Task Selected_logout_revokes_the_openiddict_refresh_token_and_bff_session()

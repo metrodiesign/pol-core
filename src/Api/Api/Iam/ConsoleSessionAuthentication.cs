@@ -39,7 +39,11 @@ internal static class ConsoleSessionAuthentication
         {
             "admin" => ConsoleAudience.Admin,
             "merchant-user" => ConsoleAudience.Merchant,
-            PolicyName when HasAdminCookie(context.Request.Cookies) => ConsoleAudience.Admin,
+            // Dual-console: the admin cookie, or an employee BFF cookie without a merchant-user cookie, is the
+            // Admin audience (the BFF scheme then binds IAdminScope); identity order routes are re-routed below.
+            PolicyName when HasAdminCookie(context.Request.Cookies)
+                || (HasBffCookie(context.Request.Cookies) && !HasMerchantCookie(context.Request.Cookies))
+                => ConsoleAudience.Admin,
             AdminOrIdentityOrderPolicyName => ConsoleAudience.Admin,
             _ => ConsoleAudience.Merchant,
         };
@@ -54,12 +58,29 @@ internal static class ConsoleSessionAuthentication
                 : Api.IdentityAccess.BffSessionAuthenticationHandler.SchemeName;
         }
         context.Features.Set(new SelectedConsoleAudience(audience));
-        return audience == ConsoleAudience.Admin
-            ? SessionAuthenticationHandler.SchemeName
-            : UserSessionAuthenticationHandler.SchemeName;
+        if (audience != ConsoleAudience.Admin)
+            return UserSessionAuthenticationHandler.SchemeName;
+        // Admin console: the legacy admin cookie wins; an employee BFF cookie alone authenticates through the BFF
+        // scheme (which binds IAdminScope for the Admin audience). A Bearer token never reaches the console.
+        return !HasAdminCookie(context.Request.Cookies) && HasBffCookie(context.Request.Cookies)
+            ? Api.IdentityAccess.BffSessionAuthenticationHandler.SchemeName
+            : SessionAuthenticationHandler.SchemeName;
     }
 
     private static bool HasAdminCookie(IRequestCookieCollection cookies) =>
         cookies.ContainsKey(SessionCookies.SessionCookieName)
         || cookies.ContainsKey(SessionCookies.SessionCookieNameDevHttp);
+
+    private static bool HasMerchantCookie(IRequestCookieCollection cookies) =>
+        cookies.ContainsKey(UserSessionCookies.SessionCookieName)
+        || cookies.ContainsKey(UserSessionCookies.SessionCookieNameDevHttp);
+
+    internal static bool HasBffCookie(IRequestCookieCollection cookies) =>
+        cookies.ContainsKey(Api.IdentityAccess.BffSessionManager.SessionCookieName)
+        || cookies.ContainsKey(Api.IdentityAccess.BffSessionManager.SessionCookieNameDevHttp);
+
+    /// <summary>True when an admin-console request is authenticated by the employee BFF cookie rather than the
+    /// legacy admin cookie: the CSRF double-submit then reads the BFF pair.</summary>
+    internal static bool UsesBffSession(IRequestCookieCollection cookies) =>
+        !HasAdminCookie(cookies) && HasBffCookie(cookies);
 }

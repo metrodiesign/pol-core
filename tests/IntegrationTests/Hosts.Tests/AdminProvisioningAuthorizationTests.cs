@@ -33,7 +33,9 @@ public sealed class AdminProvisioningAuthorizationTests
 
         var policy = await sp.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync("admin");
         Assert.NotNull(policy);
-        Assert.Contains(SessionAuthenticationHandler.SchemeName, policy!.AuthenticationSchemes); // REQ-10.6 scheme-pinned
+        // REQ-10.6 scheme-pinned: the console policy scheme, which forwards to the admin cookie scheme or (BFF
+        // cookie only) the employee BFF scheme — never a Bearer audience.
+        Assert.Equal([ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName], policy!.AuthenticationSchemes);
         Assert.False((await sp.GetRequiredService<IAuthorizationService>().AuthorizeAsync(Anonymous(), "admin")).Succeeded); // REQ-7.2
     }
 

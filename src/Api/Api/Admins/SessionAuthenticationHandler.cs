@@ -193,9 +193,13 @@ internal static class SessionSchemeRegistration
             .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(
                 SessionAuthenticationHandler.SchemeName, _ => { });
 
+        // The policy goes through the console policy scheme so an employee BFF session (__Host-pol_session) can
+        // reach the same routes: ConsoleSessionAuthentication.SelectScheme picks this scheme when the admin cookie
+        // is present, the BFF scheme (which then binds IAdminScope from the account's authorization snapshot)
+        // when only the BFF cookie is present, and this scheme's admin_session_required challenge otherwise.
         services.AddAuthorizationBuilder()
             .AddPolicy("admin", policy => policy
-                .AddAuthenticationSchemes(SessionAuthenticationHandler.SchemeName)
+                .AddAuthenticationSchemes(Api.Iam.ConsoleSessionAuthentication.SchemeName)
                 .RequireAuthenticatedUser());
 
         return services;

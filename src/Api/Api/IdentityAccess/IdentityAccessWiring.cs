@@ -135,6 +135,12 @@ internal static class IdentityAccessWiring
             options.ClientId = provider.ClientId;
             options.ClientSecret = provider.ClientSecret;
             options.CallbackPath = provider.CallbackPath;
+            // The CallbackPath may be shared with the legacy admin OIDC scheme (the only redirect URI registered on
+            // the workforce app). State is data-protected per scheme, so a callback whose state this handler cannot
+            // unprotect is not ours: pass it through instead of failing. Load-bearing order: AddIdentityAccess runs
+            // before AddAdminOidcAuthentication in Program.cs, so this handler sees the shared callback first and the
+            // admin handler (last, no skip) keeps its own failure path.
+            options.SkipUnrecognizedRequests = true;
             options.SignInScheme = "identity-oidc-noop";
             options.ResponseType = "code";
             options.UsePkce = true;
@@ -152,18 +158,47 @@ internal static class IdentityAccessWiring
                 {
                     var login = context.HttpContext.RequestServices
                         .GetRequiredService<IdentityBffLoginService>();
-                    await login.CompleteAsync(context, kind);
+                    try
+                    {
+                        await login.CompleteAsync(context, kind);
+                    }
+                    catch (IdentityAccessException failure)
+                    {
+                        // Policy/JIT denial (tenant, issuer, audience, eligibility): a browser outcome, not a 500.
+                        context.HttpContext.RequestServices.GetRequiredService<ILogger<IdentityBffLoginService>>()
+                            .LogWarning("{Kind} login denied at callback: {Code}. TraceId {TraceId}.",
+                                kind, failure.Code, context.HttpContext.TraceIdentifier);
+                        DenyToWebApp(context.HttpContext, kind, failure.Code.Replace('_', '-'));
+                    }
                     context.HandleResponse();
+                },
+                OnAccessDenied = context =>
+                {
+                    DenyToWebApp(context.HttpContext, kind, "access-denied");
+                    context.HandleResponse();
+                    return Task.CompletedTask;
                 },
                 OnRemoteFailure = context =>
                 {
-                    if (!context.Response.HasStarted)
-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    DenyToWebApp(context.HttpContext, kind, "auth-failed");
                     context.HandleResponse();
                     return Task.CompletedTask;
                 },
             };
         });
+    }
+
+    /// <summary>The callback lands on the API origin, so a failed login is sent back to the SPA error page with a
+    /// non-sensitive reason (same contract as the legacy admin flow: <c>/login-error?reason=...</c>).</summary>
+    private static void DenyToWebApp(HttpContext http, IdentityLoginKind kind, string reason)
+    {
+        if (http.Response.HasStarted)
+            return;
+        var settings = http.RequestServices.GetRequiredService<IOptions<IdentityAccessOptions>>().Value;
+        var target = IdentityBffLoginService.ToWebApp(
+            "/login-error",
+            kind == IdentityLoginKind.Employee ? settings.WorkforceWebAppBaseUrl : settings.AgentWebAppBaseUrl);
+        http.Response.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(target, "reason", reason));
     }
 }
 
@@ -178,6 +213,7 @@ internal sealed class IdentityBffLoginService(
     RegistrationSessionService registrationSessions,
     IIdentityAccessQuery identities,
     BffSessionManager bff,
+    OpenIddictRefreshTokenRotator refreshTokens,
     IOptions<IdentityAccessOptions> options)
 {
     public async Task CompleteAsync(TicketReceivedContext context, IdentityLoginKind kind)
@@ -185,8 +221,11 @@ internal sealed class IdentityBffLoginService(
         var principal = context.Principal
             ?? throw new InvalidOperationException("OIDC callback did not contain a principal.");
         var properties = context.Properties ?? new AuthenticationProperties();
-        var verified = FromPrincipal(principal, workforceEligible: kind == IdentityLoginKind.Employee);
+        var verified = FromPrincipal(principal, properties.GetTokenValue("id_token"), workforceEligible: kind == IdentityLoginKind.Employee);
         var settings = options.Value;
+        // RemoteAuthenticationHandler moves Properties.RedirectUri into ReturnUri (and nulls it) before raising
+        // TicketReceived, so the login-time returnTo is only available here.
+        var returnTo = context.ReturnUri ?? properties.RedirectUri;
         if (kind == IdentityLoginKind.Employee)
         {
             var result = await employeeJit.ResolveAsync(
@@ -197,16 +236,22 @@ internal sealed class IdentityBffLoginService(
                 context.HttpContext.RequestAborted);
             var account = await identities.FindAccountAsync(result.AccountId, context.HttpContext.RequestAborted)
                 ?? throw new InvalidOperationException("JIT account was not persisted.");
+            // The ticket carries platform tokens, not Entra's: refresh rotates and logout revokes this OpenIddict
+            // reference token (design API-011). Entra's access/refresh tokens are not needed after the callback.
+            var refreshToken = await refreshTokens.IssueAsync(
+                account.Id,
+                DateTimeOffset.UtcNow.AddMinutes(settings.BffSessionMinutes),
+                context.HttpContext.RequestAborted);
             var issue = await bff.CreateAsync(
                 account,
                 clientId: null,
-                properties.GetTokenValue("access_token"),
-                properties.GetTokenValue("refresh_token"),
+                accessToken: null,
+                refreshToken,
                 merchantId: null,
-                properties.RedirectUri ?? "/",
+                returnTo ?? "/",
                 context.HttpContext.RequestAborted);
             bff.WriteCookies(context.HttpContext, issue.SessionToken, issue.CsrfToken);
-            Redirect(context.HttpContext, properties.RedirectUri);
+            context.HttpContext.Response.Redirect(ToWebApp(returnTo, settings.WorkforceWebAppBaseUrl));
             return;
         }
 
@@ -223,16 +268,34 @@ internal sealed class IdentityBffLoginService(
             "pol_registration_session",
             session.RawReference,
             new CookieOptions { HttpOnly = true, Secure = context.HttpContext.Request.IsHttps, Path = "/" });
-        Redirect(context.HttpContext, "/register");
+        context.HttpContext.Response.Redirect(ToWebApp("/register", settings.AgentWebAppBaseUrl));
     }
 
-    private static VerifiedHumanIdentity FromPrincipal(ClaimsPrincipal principal, bool workforceEligible)
+    /// <summary>The callback lands on the API origin: a same-origin path (already normalized at login) is made
+    /// absolute against the SPA origin when one is configured, otherwise it stays relative. Anything that is not
+    /// a same-origin path collapses to "/". Mirrors admin LoginService.ToSpa.</summary>
+    internal static string ToWebApp(string? path, string webAppBaseUrl)
+    {
+        // "//host" and "/\host" are both read as protocol-relative (off-origin) by browsers.
+        var target = string.IsNullOrWhiteSpace(path)
+            || !path.StartsWith('/')
+            || path.StartsWith("//", StringComparison.Ordinal)
+            || path.StartsWith("/\\", StringComparison.Ordinal)
+            ? "/"
+            : path;
+        return string.IsNullOrEmpty(webAppBaseUrl) ? target : webAppBaseUrl.TrimEnd('/') + target;
+    }
+
+    private static VerifiedHumanIdentity FromPrincipal(ClaimsPrincipal principal, string? idToken, bool workforceEligible)
     {
         var provider = "microsoft";
         var tenantId = principal.FindFirstValue("tid") ?? string.Empty;
         var externalUserId = principal.FindFirstValue("oid") ?? principal.FindFirstValue("sub") ?? string.Empty;
-        var issuer = principal.FindFirstValue("iss") ?? string.Empty;
-        var audience = principal.FindFirstValue("aud") ?? string.Empty;
+        // The token handler validates iss/aud but does not copy them into the ClaimsIdentity; fall back to the
+        // already-validated id_token saved by SaveTokens=true.
+        var token = string.IsNullOrEmpty(idToken) ? null : new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(idToken);
+        var issuer = principal.FindFirstValue("iss") ?? token?.Issuer ?? string.Empty;
+        var audience = principal.FindFirstValue("aud") ?? token?.Audiences.FirstOrDefault() ?? string.Empty;
         return new VerifiedHumanIdentity(
             ExternalIdentity.Create(provider, tenantId, externalUserId),
             issuer,
@@ -250,10 +313,4 @@ internal sealed class IdentityBffLoginService(
         Guid.TryParse(value, out var merchantId) && merchantId != Guid.Empty
             ? merchantId
             : throw new IdentityAccessException("registration_merchant_required", "A trusted Merchant context is required.");
-
-    private static void Redirect(HttpContext context, string? path)
-    {
-        var target = string.IsNullOrWhiteSpace(path) || !path.StartsWith('/') ? "/" : path;
-        context.Response.Redirect(target);
-    }
 }

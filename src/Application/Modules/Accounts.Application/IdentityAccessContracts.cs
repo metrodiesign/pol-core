@@ -72,7 +72,9 @@ public sealed class EmployeeJitService(IEmployeeJitStore store)
     {
         var validation = HumanIdentityPolicy.Validate(identity, expectedIssuer, expectedTenantId, expectedAudience);
         if (!validation.IsValid)
-            throw new IdentityAccessException(validation.Code!, "Human identity validation failed.");
+            throw new IdentityAccessException(
+                validation.Code!,
+                $"Human identity validation failed ({validation.Code}): iss='{identity.Issuer}' aud='{identity.Audience}' tid='{identity.Identity.TenantId}'.");
         if (!identity.WorkforceEligible)
             throw new IdentityAccessException("workforce_not_eligible", "The identity is not eligible for Employee access.");
         return await store.GetOrCreateAsync(identity, cancellationToken);
@@ -100,7 +102,9 @@ public sealed class RegistrationSessionService(IRegistrationSessionStore store)
         var validation = HumanIdentityPolicy.Validate(
             identity, expectedIssuer, expectedTenantId, expectedAudience);
         if (!validation.IsValid)
-            throw new IdentityAccessException(validation.Code!, "Human identity validation failed.");
+            throw new IdentityAccessException(
+                validation.Code!,
+                $"Human identity validation failed ({validation.Code}): iss='{identity.Issuer}' aud='{identity.Audience}' tid='{identity.Identity.TenantId}'.");
         if (identity.WorkforceEligible)
             throw new IdentityAccessException("registration_identity_not_agent", "Workforce identities cannot use agent registration.");
         if (await store.HasApprovedAccountAsync(identity.Identity, cancellationToken))
@@ -224,6 +228,9 @@ public sealed record SystemClientResolution(
 public interface IIdentityAccessQuery
 {
     Task<Account?> FindAccountAsync(Guid accountId, CancellationToken cancellationToken);
+
+    /// <summary>Contact email of the account's human login (null for SYSTEM accounts or when the IdP sent none).</summary>
+    Task<string?> FindLoginEmailAsync(Guid accountId, CancellationToken cancellationToken);
 
     Task<SystemClientResolution?> FindSystemClientAsync(
         string clientId, CancellationToken cancellationToken);

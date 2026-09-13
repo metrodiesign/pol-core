@@ -843,6 +843,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
         public Task<Account?> FindAccountAsync(Guid requestedAccountId, CancellationToken cancellationToken) =>
             Task.FromResult<Account?>(null);
 
+        public Task<string?> FindLoginEmailAsync(Guid requestedAccountId, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>(null);
+
         public Task<SystemClientResolution?> FindSystemClientAsync(
             string clientId, CancellationToken cancellationToken) =>
             Task.FromResult<SystemClientResolution?>(null);

@@ -218,6 +218,9 @@ public sealed class IdentityAccessBffTests
         public Task<Account?> FindAccountAsync(Guid accountId, CancellationToken cancellationToken) =>
             Task.FromResult<Account?>(accountId == account.Id ? account : null);
 
+        public Task<string?> FindLoginEmailAsync(Guid accountId, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>(null);
+
         public Task<SystemClientResolution?> FindSystemClientAsync(string clientId, CancellationToken cancellationToken) =>
             Task.FromResult<SystemClientResolution?>(null);
 
