@@ -11,7 +11,17 @@
         "MerchantSession__WebAppBaseUrl": "https://localhost:3002",
         "MerchantAuth__Providers__Microsoft__Authority": "https://vcpexternaldev.ciamlogin.com/2a6d4554-88f1-4089-a995-0bf31c622493/v2.0",
         "MerchantAuth__Providers__Microsoft__ClientId": "dd7d2f17-60dc-4bd9-99a4-e2a93077bc9a",
-        "MerchantAuth__Providers__Microsoft__CallbackPath": "/api/v1/merchants/auth/microsoft/callback"
+        "MerchantAuth__Providers__Microsoft__CallbackPath": "/api/v1/merchants/auth/microsoft/callback",
+        "AdminSession__WebAppBaseUrl": "https://localhost:3001",
+        "AdminAuth__Providers__Microsoft__Authority": "https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0",
+        "AdminAuth__Providers__Microsoft__ClientId": "ca9110ac-2be1-49ea-a7ee-badb792db8ce",
+        "AdminAuth__Providers__Microsoft__CallbackPath": "/api/v1/admins/auth/microsoft/callback",
+        "IdentityAccess__Workforce__Authority": "https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0",
+        "IdentityAccess__Workforce__ClientId": "ca9110ac-2be1-49ea-a7ee-badb792db8ce",
+        "IdentityAccess__Workforce__CallbackPath": "/api/v1/admins/auth/microsoft/callback",
+        "IdentityAccess__WorkforceIssuer": "https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0",
+        "IdentityAccess__WorkforceTenantId": "05ab044e-e2c5-47dc-bbfb-fd7ea077fa71",
+        "IdentityAccess__WorkforceAudience": "ca9110ac-2be1-49ea-a7ee-badb792db8ce"
       }
     }
   }

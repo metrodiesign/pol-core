@@ -135,6 +135,12 @@ internal static class IdentityAccessWiring
             options.ClientId = provider.ClientId;
             options.ClientSecret = provider.ClientSecret;
             options.CallbackPath = provider.CallbackPath;
+            // The CallbackPath may be shared with the legacy admin OIDC scheme (the only redirect URI registered on
+            // the workforce app). State is data-protected per scheme, so a callback whose state this handler cannot
+            // unprotect is not ours: pass it through instead of failing. Load-bearing order: AddIdentityAccess runs
+            // before AddAdminOidcAuthentication in Program.cs, so this handler sees the shared callback first and the
+            // admin handler (last, no skip) keeps its own failure path.
+            options.SkipUnrecognizedRequests = true;
             options.SignInScheme = "identity-oidc-noop";
             options.ResponseType = "code";
             options.UsePkce = true;
@@ -185,7 +191,7 @@ internal sealed class IdentityBffLoginService(
         var principal = context.Principal
             ?? throw new InvalidOperationException("OIDC callback did not contain a principal.");
         var properties = context.Properties ?? new AuthenticationProperties();
-        var verified = FromPrincipal(principal, workforceEligible: kind == IdentityLoginKind.Employee);
+        var verified = FromPrincipal(principal, properties.GetTokenValue("id_token"), workforceEligible: kind == IdentityLoginKind.Employee);
         var settings = options.Value;
         if (kind == IdentityLoginKind.Employee)
         {
@@ -226,13 +232,16 @@ internal sealed class IdentityBffLoginService(
         Redirect(context.HttpContext, "/register");
     }
 
-    private static VerifiedHumanIdentity FromPrincipal(ClaimsPrincipal principal, bool workforceEligible)
+    private static VerifiedHumanIdentity FromPrincipal(ClaimsPrincipal principal, string? idToken, bool workforceEligible)
     {
         var provider = "microsoft";
         var tenantId = principal.FindFirstValue("tid") ?? string.Empty;
         var externalUserId = principal.FindFirstValue("oid") ?? principal.FindFirstValue("sub") ?? string.Empty;
-        var issuer = principal.FindFirstValue("iss") ?? string.Empty;
-        var audience = principal.FindFirstValue("aud") ?? string.Empty;
+        // The token handler validates iss/aud but does not copy them into the ClaimsIdentity; fall back to the
+        // already-validated id_token saved by SaveTokens=true.
+        var token = string.IsNullOrEmpty(idToken) ? null : new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(idToken);
+        var issuer = principal.FindFirstValue("iss") ?? token?.Issuer ?? string.Empty;
+        var audience = principal.FindFirstValue("aud") ?? token?.Audiences.FirstOrDefault() ?? string.Empty;
         return new VerifiedHumanIdentity(
             ExternalIdentity.Create(provider, tenantId, externalUserId),
             issuer,
