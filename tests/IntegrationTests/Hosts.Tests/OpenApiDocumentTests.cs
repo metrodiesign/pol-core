@@ -158,7 +158,7 @@ public sealed class AudienceOpenApiDocumentTests
     }
 
     [Fact]
-    public async Task Admin_prebound_invite_and_read_contracts_publish_required_tuple_evidence_and_nullable_email()
+    public async Task Admin_prebound_invite_requires_email_and_read_contracts_publish_nullable_email()
     {
         using var factory = new OpenApiDocumentFactory();
         using var client = factory.CreateClient();
@@ -171,10 +171,11 @@ public sealed class AudienceOpenApiDocumentTests
 
         Assert.Contains("objectId", requestRequired);
         Assert.Contains("identityApprovalReference", requestRequired);
-        Assert.DoesNotContain("email", requestRequired);
+        Assert.Contains("email", requestRequired);
         Assert.Equal("string", requestProperties.GetProperty("objectId").GetProperty("type").GetString());
         Assert.Equal("uuid", requestProperties.GetProperty("objectId").GetProperty("format").GetString());
-        AssertNullableString(requestProperties.GetProperty("email"));
+        Assert.Equal("string", requestProperties.GetProperty("email").GetProperty("type").GetString());
+        Assert.False(requestProperties.GetProperty("email").TryGetProperty("nullable", out _));
 
         foreach (var schemaName in new[]
                  {

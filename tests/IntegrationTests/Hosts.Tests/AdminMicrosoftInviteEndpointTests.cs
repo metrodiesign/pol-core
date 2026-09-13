@@ -123,20 +123,20 @@ public sealed class AdminMicrosoftInviteEndpointTests
     private static readonly Guid ObjectId = Guid.Parse("11111111-1111-4111-8111-111111111111");
 
     [Fact]
-    public async Task Super_with_csrf_dispatches_the_verified_tuple_contract_and_returns_nullable_email()
+    public async Task Super_with_csrf_dispatches_the_verified_tuple_contract_with_required_email()
     {
         using var factory = new MicrosoftInviteEndpointFactory(Tier.Super);
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         using var response = await client.SendAsync(Request(
-            $$"""{"objectId":"{{ObjectId:D}}","identityApprovalReference":"entra-export-42"}"""));
+            $$"""{"objectId":"{{ObjectId:D}}","identityApprovalReference":"entra-export-42","email":"admin@viriyah.co.th"}"""));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal($"/api/v1/admins/{RecordingMicrosoftInviteMediator.CreatedAdminId:D}",
             response.Headers.Location?.ToString());
         var command = Assert.IsType<CreateScopedCommand>(factory.Mediator.Command);
         Assert.Equal(ObjectId, command.ObjectId);
-        Assert.Null(command.Email);
+        Assert.Equal("admin@viriyah.co.th", command.Email);
         Assert.Equal("entra-export-42", command.IdentityApprovalReference);
         Assert.Equal(MicrosoftInviteAdminScope.AdminId, command.ActingAdminId);
         Assert.False(string.IsNullOrWhiteSpace(command.CorrelationId));

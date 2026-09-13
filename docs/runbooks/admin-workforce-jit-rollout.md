@@ -205,14 +205,16 @@ Offline mapping ต้อง:
 {
   "objectId": "<verified-entra-object-guid>",
   "identityApprovalReference": "<non-sensitive-reference>",
-  "email": "<optional-contact>"
+  "email": "<contact-email>"
 }
 ```
 
 `objectId` ต้องมาจาก verified Entra export ของ tenant ที่ persist ไว้ ระบบสร้าง exact tuple ตั้งแต่ invite และ first login
 resolve `AdminId` เดิม ห้ามสร้าง invite ที่รอ bind ด้วย Email และห้ามใช้ Email/EmployeeId เพื่อ recovery
 
-Email ที่ absent/blank/overlength ถูกเก็บเป็น `NULL` โดยไม่ block valid identity invite Email ซ้ำกันได้
+`email` เป็น contact ที่ **บังคับ** ในการสร้างผ่าน endpoint นี้ (Super กรอกจาก Entra export เพื่อใช้ส่งอีเมล); blank/overlength
+ถูก reject เป็น `400` แต่ Email ยังไม่ unique จึงซ้ำกันได้ (ข้อจำกัด email-optional/`NULL` ยังใช้กับ JIT login path ที่ token
+อาจไม่มี email เท่านั้น)
 `identityApprovalReference` ถูก trim, bounded และเก็บเป็น `create-scoped` audit correlation ใน transaction เดียว
 
 ## 9. Failure และ recovery

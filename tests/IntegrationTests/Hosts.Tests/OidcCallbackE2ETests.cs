@@ -366,10 +366,13 @@ public sealed class OidcCallbackE2ETests
     }
 
     [Fact]
-    public async Task Admin_microsoft_callback_without_email_uses_the_tuple_and_never_falls_back_to_username()
+    public async Task Admin_microsoft_callback_uses_the_tuple_and_takes_contact_email_from_graph_not_username()
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        // No id_token email claim; a mutable preferred_username is present but must NEVER become the contact email.
+        // The deliverable email is sourced from Graph mail instead (identity still resolves purely on the tuple).
+        factory.Graph.Body = """{"employeeId":"e12","mail":"ops@viriyah.co.th"}""";
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(
             TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
@@ -382,7 +385,7 @@ public sealed class OidcCallbackE2ETests
             factory.AdminResolver.Resolved);
         Assert.Equal(Guid.Parse(TestOidc.WorkforceTenant), factory.AdminResolver.TenantId);
         Assert.Equal(Guid.Parse(TestOidc.WorkforceOid), factory.AdminResolver.ObjectId);
-        Assert.Null(factory.AdminResolver.Email);
+        Assert.Equal("ops@viriyah.co.th", factory.AdminResolver.Email); // Graph mail, NOT the token preferred_username
         Assert.Equal("not-provisioned", Reason(response));
     }
 
