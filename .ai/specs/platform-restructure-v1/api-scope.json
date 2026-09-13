@@ -3,7 +3,7 @@
   "feature": "platform-restructure-v1",
   "sourceSha256": "5e65de360108d8d8de03ea932a0ff300b1e46c993a594ee653a3aec8317c6015",
   "source": "pol-platform-latest/sources/api-endpoints.json",
-  "v1Count": 111,
+  "v1Count": 107,
   "deferredCount": 5,
   "operations": [
     {
@@ -29,7 +29,7 @@
       "path": "/.well-known/jwks.json",
       "callerAndPermission": "ทุกคน — สาธารณะ",
       "purpose": "อ่าน Public Keys สำหรับตรวจ Platform JWT",
-      "rules": "แยก key usage ของ access token และ event; ไม่คืน private key; ผลปกติ 200",
+      "rules": "OpenIddict ตรวจ registered redirect URI, PKCE S256 และ state; ไม่มี login cookie จะ challenge Entra แล้วกลับมาที่ request เดิม; ผลปกติ 302 พร้อม code",
       "contractStatus": "PROPOSED",
       "release": "v1",
       "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
@@ -45,7 +45,7 @@
       "path": "/oauth/authorize",
       "callerAndPermission": "O / E / A — OAuth client + PKCE",
       "purpose": "เริ่มขอ authorization code สำหรับผู้ใช้ที่ได้รับสิทธิ์แล้ว",
-      "rules": "registered redirect_uri, state, PKCE; ผู้สมัครยังไม่มี business grant; ผลปกติ 302",
+      "rules": "authorization_code + PKCE และ refresh_token ของ workforce SPA (public client) ออก access JWT + opaque refresh token; refresh หมุน token ทุกครั้งและรับ merchant_id เพื่อออก token ใน merchant context; client_credentials + private_key_jwt ของ SYSTEM; ผลปกติ 200",
       "contractStatus": "PROPOSED",
       "release": "v1",
       "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
@@ -95,8 +95,8 @@
       "purpose": "เริ่ม Entra Workforce Login ของพนักงาน",
       "rules": "BFF ผูก state กับ client, realm และ return path ที่อนุญาต; ผลปกติ 302",
       "contractStatus": "PROPOSED",
-      "release": "v1",
-      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "release": "retired",
+      "releaseReason": "SPA เริ่ม login ที่ /oauth/authorize (authorization code + PKCE) โดยตรง ไม่มี BFF login entry แล้ว (employee JWT, 2026-09-14)",
       "requirements": [
         "REQ-2",
         "REQ-10"
@@ -159,8 +159,8 @@
       "purpose": "อ่านสถานะ Login และ nextAction",
       "rules": "ไม่คืน JWT, refresh token หรือข้อมูลผู้สมัครคนอื่น; ผลปกติ 200",
       "contractStatus": "PROPOSED",
-      "release": "v1",
-      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "release": "retired",
+      "releaseReason": "ไม่มี BFF session ฝั่ง server แล้ว SPA ถือ access JWT + refresh token เอง (employee JWT, 2026-09-14)",
       "requirements": [
         "REQ-2",
         "REQ-10"
@@ -175,8 +175,8 @@
       "purpose": "ต่ออายุ human session/token ฝั่ง server",
       "rules": "หมุน refresh token และตรวจการนำกลับมาใช้; R ไม่ได้ business token; ผลปกติ 200",
       "contractStatus": "PROPOSED",
-      "release": "v1",
-      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "release": "retired",
+      "releaseReason": "ต่ออายุผ่าน POST /oauth/token grant_type=refresh_token ของ OpenIddict (employee JWT, 2026-09-14)",
       "requirements": [
         "REQ-2",
         "REQ-10"
@@ -191,8 +191,8 @@
       "purpose": "เลือก Merchant ที่ได้รับสิทธิ์และเปลี่ยน token context",
       "rules": "หนึ่ง business token ผูกหนึ่ง Merchant; ไม่เชื่อ merchantId โดยไม่ตรวจ; ผลปกติ 200",
       "contractStatus": "PROPOSED",
-      "release": "v1",
-      "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
+      "release": "retired",
+      "releaseReason": "เลือก merchant context ด้วย parameter merchant_id บน refresh_token grant ที่ /oauth/token (employee JWT, 2026-09-14)",
       "requirements": [
         "REQ-2",
         "REQ-10"
@@ -203,9 +203,9 @@
       "group": "01 Authentication",
       "method": "POST",
       "path": "/api/v1/auth/logout",
-      "callerAndPermission": "E / A / R — Session + CSRF",
+      "callerAndPermission": "E / A — Bearer JWT",
       "purpose": "จบ local session และเพิกถอนสิทธิ์ต่ออายุของ session นั้น",
-      "rules": "ไม่อ้างว่า logout Microsoft ทุกแอป; ล้าง cookie; ผลปกติ 204",
+      "rules": "ต้องส่ง Bearer; เพิกถอน OpenIddict authorization ของ login นั้นทำให้ access และ refresh token ใช้ต่อไม่ได้ทันที; ไม่อ้างว่า logout Microsoft ทุกแอป; ผลปกติ 204",
       "contractStatus": "PROPOSED",
       "release": "v1",
       "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
@@ -235,9 +235,9 @@
       "group": "02 Account",
       "method": "GET",
       "path": "/api/v1/me/sessions",
-      "callerAndPermission": "E / A — บัญชีตนเอง",
+      "callerAndPermission": "E / A — Bearer JWT (บัญชีตนเอง)",
       "purpose": "ดู human sessions ของตนเอง",
-      "rules": "ไม่คืน token; ผลปกติ 200",
+      "rules": "หนึ่งรายการต่อ OpenIddict authorization (login); ไม่คืน token; ผลปกติ 200",
       "contractStatus": "PROPOSED",
       "release": "v1",
       "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
@@ -251,9 +251,9 @@
       "group": "02 Account",
       "method": "DELETE",
       "path": "/api/v1/me/sessions/{sessionId}",
-      "callerAndPermission": "E / A — บัญชีตนเอง",
+      "callerAndPermission": "E / A — Bearer JWT (บัญชีตนเอง)",
       "purpose": "เพิกถอน session ที่เลือก",
-      "rules": "ไม่ใช่การลบ audit history; ผลปกติ 204",
+      "rules": "revoke authorization ที่เป็นของบัญชีตนเองแบบ idempotent; ไม่ใช่การลบ audit history; ผลปกติ 204",
       "contractStatus": "PROPOSED",
       "release": "v1",
       "releaseReason": "รองรับ core use case ตามชุดล่าสุด",
@@ -1859,5 +1859,6 @@
         "REQ-10"
       ]
     }
-  ]
+  ],
+  "retiredCount": 4
 }

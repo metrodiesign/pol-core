@@ -8254,3 +8254,26 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260913174013_RetireBffSessionTickets'
+)
+BEGIN
+    DROP TABLE [acct].[BffSessionTickets];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260913174013_RetireBffSessionTickets'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260913174013_RetireBffSessionTickets', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

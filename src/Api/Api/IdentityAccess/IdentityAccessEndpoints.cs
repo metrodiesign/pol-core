@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
@@ -34,32 +35,22 @@ internal static class IdentityAccessEndpoints
             .WithName("IssueOAuthToken")
             .WithTags("การเข้าสู่ระบบ")
             .WithSummary("ออก OAuth token")
-            .WithDescription("รองรับ authorization code, refresh token และ client credentials ตาม OAuth error contract");
+            .WithDescription("รองรับ authorization code (+PKCE) และ refresh token ของ workforce SPA และ client credentials ของ SYSTEM client; refresh token รับ merchant_id เพื่อออก token ใน merchant context");
 
         var auth = app.MapGroup("/api/v1/auth")
             .WithTags("การเข้าสู่ระบบ")
             .WithSummary("จัดการการยืนยันตัวตน")
-            .WithDescription("เริ่ม OIDC login และจัดการ BFF session ตาม provider policy");
+            .WithDescription("เริ่ม OIDC login ของ agent และจบ employee session ตาม provider policy");
 
-        auth.MapGet("/employees/login", BeginEmployeeLogin)
-            .AllowAnonymous().WithName("BeginEmployeeLogin").WithTags("การเข้าสู่ระบบ");
         auth.MapGet("/agents/login", BeginAgentLogin)
             .AllowAnonymous().WithName("BeginAgentLogin").WithTags("การเข้าสู่ระบบ");
 
-        auth.MapGet("/session", GetSession)
-            .RequireAuthorization("identity-platform").WithName("GetIdentitySession").WithTags("การเข้าสู่ระบบ");
-        auth.MapPost("/session/refresh", RefreshSession)
-            .WithMetadata(new BffCsrfProtected())
-            .AddEndpointFilter<BffCsrfFilter>()
-            .RequireAuthorization("identity-bff").WithName("RefreshIdentitySession").WithTags("การเข้าสู่ระบบ");
-        auth.MapPost("/merchant-context", SelectMerchantContext)
-            .WithMetadata(new BffCsrfProtected())
-            .AddEndpointFilter<BffCsrfFilter>()
-            .RequireAuthorization("identity-bff").WithName("SelectIdentityMerchantContext").WithTags("การเข้าสู่ระบบ");
         auth.MapPost("/logout", Logout)
-            .WithMetadata(new BffCsrfProtected())
-            .AddEndpointFilter<BffCsrfFilter>()
-            .RequireAuthorization("identity-bff").WithName("LogoutIdentitySession").WithTags("การเข้าสู่ระบบ");
+            .RequireIdentityPlatformMutation()
+            .RequireAuthorization("identity-platform").WithName("LogoutIdentitySession").WithTags("การเข้าสู่ระบบ")
+            .WithSummary("ออกจากระบบ")
+            .WithDescription("เพิกถอน OpenIddict authorization ของ token ปัจจุบัน ทำให้ access และ refresh token ของ login นั้นใช้ต่อไม่ได้ทันที")
+            .Produces(StatusCodes.Status204NoContent);
 
         var account = app.MapGroup("/api/v1")
             .WithTags("การเข้าสู่ระบบ")
@@ -116,16 +107,16 @@ internal static class IdentityAccessEndpoints
         account.MapGet("/me/sessions", ListMySessions)
             .RequireAuthorization("identity-platform")
             .WithName("ListMySessions").WithTags("การเข้าสู่ระบบ")
-            .WithSummary("รายการ BFF sessions ของบัญชีตนเอง")
-            .WithDescription("คืน metadata ของ session เท่านั้น ไม่คืน ticket หรือ token และกรองด้วย AccountId จาก auth context")
-            .Produces<IReadOnlyList<BffSessionAdminView>>();
-        account.MapDelete("/me/sessions/{sessionId:guid}", RevokeMySession)
-            .WithMetadata(new BffCsrfProtected(), new IdempotencyMutationMarker())
-            .AddEndpointFilter<BffCsrfFilter>()
-            .RequireAuthorization("identity-bff")
+            .WithSummary("รายการ login sessions ของบัญชีตนเอง")
+            .WithDescription("คืน metadata ของ OpenIddict authorization (หนึ่งรายการต่อ login) เท่านั้น ไม่คืน token และกรองด้วย AccountId จาก auth context")
+            .Produces<IReadOnlyList<EmployeeSessionView>>();
+        account.MapDelete("/me/sessions/{sessionId}", RevokeMySession)
+            .WithMetadata(new IdempotencyMutationMarker())
+            .RequireIdentityPlatformMutation()
+            .RequireAuthorization("identity-platform")
             .WithName("RevokeMySession").WithTags("การเข้าสู่ระบบ")
-            .WithSummary("เพิกถอน BFF session ที่เลือก")
-            .WithDescription("ตรวจว่า session เป็นของ Account ปัจจุบันแล้ว revoke แบบ idempotent")
+            .WithSummary("เพิกถอน login session ที่เลือก")
+            .WithDescription("ตรวจว่า authorization เป็นของ Account ปัจจุบันแล้ว revoke แบบ idempotent; token ทุกใบของ login นั้นใช้ต่อไม่ได้")
             .Produces(StatusCodes.Status204NoContent).ProducesProblem(StatusCodes.Status404NotFound);
 
         var system = app.MapGroup("/api/v1/system-clients")
@@ -171,11 +162,15 @@ internal static class IdentityAccessEndpoints
     private static async Task<IResult> IssueToken(
         HttpContext http,
         IIdentityAccessQuery identities,
+        IOptions<IdentityAccessOptions> options,
         CancellationToken cancellationToken)
     {
         var request = Microsoft.AspNetCore.OpenIddictServerAspNetCoreHelpers.GetOpenIddictServerRequest(http);
         if (request is null)
             return Results.NotFound();
+
+        if (request.IsAuthorizationCodeGrantType() || request.IsRefreshTokenGrantType())
+            return await IssueEmployeeTokenAsync(http, request, identities, options.Value, cancellationToken);
 
         if (string.Equals(request.GrantType, OpenIddictConstants.GrantTypes.ClientCredentials,
                 StringComparison.Ordinal))
@@ -220,10 +215,80 @@ internal static class IdentityAccessEndpoints
                 authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
 
-        return Results.SignIn(new ClaimsPrincipal(new ClaimsIdentity(
-            OpenIddictServerAspNetCoreDefaults.AuthenticationScheme)),
+        return OAuthError(OpenIddictConstants.Errors.UnsupportedGrantType, "The grant type is not supported.");
+    }
+
+    /// <summary>Authorization code and refresh token grants of the workforce SPA. OpenIddict has already validated
+    /// the code/PKCE or the reference refresh token (one-time use, authorization still valid); the principal it
+    /// stored is re-checked against the account and re-issued with the CURRENT authorization version, so a
+    /// refresh is where a stale token re-syncs. A refresh may also select a merchant context.</summary>
+    private static async Task<IResult> IssueEmployeeTokenAsync(
+        HttpContext http,
+        OpenIddictRequest request,
+        IIdentityAccessQuery identities,
+        IdentityAccessOptions settings,
+        CancellationToken cancellationToken)
+    {
+        var stored = (await http.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme)).Principal;
+        if (stored is null || !Guid.TryParse(stored.GetClaim(OpenIddictConstants.Claims.Subject), out var accountId))
+            return OAuthError(OpenIddictConstants.Errors.InvalidGrant, "The token is no longer valid.");
+
+        var account = await identities.FindAccountAsync(accountId, cancellationToken);
+        if (account is null || account.Status != AccountStatus.Active)
+            return OAuthError(OpenIddictConstants.Errors.InvalidGrant, "The account is not active.");
+
+        Guid? merchantId = Guid.TryParse(stored.GetClaim("merchant_id"), out var current) && current != Guid.Empty
+            ? current
+            : null;
+        if (request.IsRefreshTokenGrantType() && (string?)request.GetParameter("merchant_id") is { } requested)
+        {
+            if (string.IsNullOrWhiteSpace(requested))
+                merchantId = null;
+            else if (!Guid.TryParse(requested, out var selected) || selected == Guid.Empty)
+                return OAuthError(OpenIddictConstants.Errors.InvalidRequest, "merchant_id must be a non-empty GUID.");
+            else
+            {
+                var authorization = await identities.ResolveAuthorizationAsync(
+                    account.Id, selected, null, cancellationToken);
+                if (authorization?.MerchantId != selected || authorization.AccountStatus != AccountStatus.Active)
+                    return OAuthError(OpenIddictConstants.Errors.InvalidGrant, "The account has no active access to that merchant.");
+                merchantId = selected;
+            }
+        }
+
+        // Keep OpenIddict's private claims (authorization id, presenters, scopes) and replace ours.
+        var identity = new ClaimsIdentity(
+            stored.Claims.Where(claim => claim.Type is not ("account_type" or "authz_version" or "token_context"
+                or "merchant_id" or "scope")),
+            OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,
+            nameType: "sub",
+            roleType: "role");
+        ApplyEmployeeClaims(identity, account, merchantId, settings);
+        return Results.SignIn(new ClaimsPrincipal(identity),
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
+
+    /// <summary>Claims every employee JWT carries; the same set the BFF cookie used to materialize per request.</summary>
+    private static void ApplyEmployeeClaims(
+        ClaimsIdentity identity, Account account, Guid? merchantId, IdentityAccessOptions settings)
+    {
+        identity.SetClaim(OpenIddictConstants.Claims.Subject, account.Id.ToString("D"));
+        identity.SetClaim("account_type", account.AccountType.ToString().ToUpperInvariant());
+        identity.SetClaim("authz_version", account.AuthorizationVersion.ToString());
+        identity.SetClaim("token_context", merchantId is null ? "ACCOUNT_SELF" : "MERCHANT");
+        if (merchantId is { } selected)
+            identity.SetClaim("merchant_id", selected.ToString("D"));
+        identity.SetResources(SystemClientScopeRegistry.ApiAudience);
+        identity.SetAudiences(SystemClientScopeRegistry.ApiAudience);
+        identity.SetAccessTokenLifetime(TimeSpan.FromMinutes(settings.AccessTokenMinutes));
+        identity.SetRefreshTokenLifetime(TimeSpan.FromMinutes(settings.RefreshTokenMinutes));
+        identity.SetDestinations(_ => [OpenIddictConstants.Destinations.AccessToken]);
+    }
+
+    private static IResult OAuthError(string error, string description) => Results.Json(
+        new { error, error_description = description },
+        statusCode: StatusCodes.Status400BadRequest,
+        contentType: "application/json");
 
     private static IResult InvalidClient(HttpContext http)
     {
@@ -253,7 +318,7 @@ internal static class IdentityAccessEndpoints
             response_types_supported = new[] { "code" },
             grant_types_supported = new[] { "authorization_code", "refresh_token", "client_credentials" },
             code_challenge_methods_supported = new[] { "S256" },
-            token_endpoint_auth_methods_supported = new[] { "private_key_jwt" },
+            token_endpoint_auth_methods_supported = new[] { "private_key_jwt", "none" },
         });
     }
 
@@ -277,25 +342,48 @@ internal static class IdentityAccessEndpoints
         return Results.Ok(new { keys });
     }
 
-    private static IResult Authorize(HttpContext http)
+    /// <summary>Workforce SPA entry point (authorization code + PKCE). Without the login cookie the request is
+    /// parked in the Entra challenge's RedirectUri; the callback signs the verified account into that cookie and
+    /// returns here, where OpenIddict issues the code and the cookie is discarded.</summary>
+    private static async Task<IResult> Authorize(
+        HttpContext http,
+        IdentityAccessProviders providers,
+        IIdentityAccessQuery identities,
+        IOptions<IdentityAccessOptions> options,
+        CancellationToken cancellationToken)
     {
         var request = Microsoft.AspNetCore.OpenIddictServerAspNetCoreHelpers.GetOpenIddictServerRequest(http);
         if (request is null || string.IsNullOrWhiteSpace(request.RedirectUri))
             return Results.Json(new { error = OpenIddictConstants.Errors.InvalidRequest }, statusCode: 400);
-        if (http.User.Identity?.IsAuthenticated != true)
-            return Results.Challenge(authenticationSchemes: ["IdentityWorkforceMicrosoft"]);
 
-        var subject = http.User.FindFirstValue(OpenIddictConstants.Claims.Subject)
-            ?? http.User.FindFirstValue("sub");
-        if (string.IsNullOrWhiteSpace(subject))
+        var login = await http.AuthenticateAsync(IdentityAccessWiring.LoginCookieScheme);
+        if (login.Principal?.Identity?.IsAuthenticated != true)
+        {
+            if (!providers.TryGetValue("employees", out var scheme))
+                return Results.Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "Employee login is not configured.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "capability_not_configured" });
+            var properties = new AuthenticationProperties
+            {
+                RedirectUri = http.Request.GetEncodedPathAndQuery(),
+            };
+            properties.Items["identity.expected_issuer"] = options.Value.WorkforceIssuer;
+            properties.Items["identity.realm"] = "workforce";
+            return Results.Challenge(properties, [scheme]);
+        }
+
+        await http.SignOutAsync(IdentityAccessWiring.LoginCookieScheme);
+        if (!Guid.TryParse(login.Principal.FindFirstValue("sub"), out var accountId))
             return Results.Json(new { error = OpenIddictConstants.Errors.LoginRequired }, statusCode: 401);
-        var identity = new ClaimsIdentity(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
-        identity.SetClaim(OpenIddictConstants.Claims.Subject, subject);
-        identity.SetClaim(OpenIddictConstants.Claims.Name, http.User.Identity?.Name ?? subject);
+        var account = await identities.FindAccountAsync(accountId, cancellationToken);
+        if (account is null || account.Status != AccountStatus.Active)
+            return Results.Json(new { error = OpenIddictConstants.Errors.AccessDenied }, statusCode: 403);
+
+        var identity = new ClaimsIdentity(
+            OpenIddictServerAspNetCoreDefaults.AuthenticationScheme, nameType: "sub", roleType: "role");
         identity.SetScopes(request.GetScopes());
-        identity.SetResources(SystemClientScopeRegistry.ApiAudience);
-        identity.SetAudiences(SystemClientScopeRegistry.ApiAudience);
-        identity.SetDestinations(_ => [OpenIddictConstants.Destinations.AccessToken]);
+        ApplyEmployeeClaims(identity, account, merchantId: null, options.Value);
         return Results.SignIn(new ClaimsPrincipal(identity),
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
@@ -310,21 +398,48 @@ internal static class IdentityAccessEndpoints
         });
 
     private static async Task<IResult> ListMySessions(
-        HttpContext http, IIdentityAccessAdminStore store, CancellationToken cancellationToken)
-    {
-        var accountId = GetAccountId(http.User);
-        return accountId is null
-            ? Results.Unauthorized()
-            : Results.Ok(await store.ListBffSessionsAsync(accountId.Value, cancellationToken));
-    }
-
-    private static async Task<IResult> RevokeMySession(
-        Guid sessionId, HttpContext http, IIdentityAccessAdminStore store, CancellationToken cancellationToken)
+        HttpContext http,
+        IOpenIddictAuthorizationManager authorizations,
+        IOpenIddictApplicationManager applications,
+        IOptions<IdentityAccessOptions> options,
+        CancellationToken cancellationToken)
     {
         var accountId = GetAccountId(http.User);
         if (accountId is null)
             return Results.Unauthorized();
-        await store.RevokeBffSessionAsync(accountId.Value, sessionId, cancellationToken);
+        var application = await applications.FindByClientIdAsync(options.Value.WorkforceClientId, cancellationToken);
+        if (application is null)
+            return Results.Ok(Array.Empty<EmployeeSessionView>());
+        var client = await applications.GetIdAsync(application, cancellationToken) ?? string.Empty;
+        var sessions = new List<EmployeeSessionView>();
+        await foreach (var authorization in authorizations.FindAsync(
+            accountId.Value.ToString("D"), client, status: null, type: null, scopes: null, cancellationToken))
+        {
+            sessions.Add(new EmployeeSessionView(
+                await authorizations.GetIdAsync(authorization, cancellationToken) ?? string.Empty,
+                accountId.Value,
+                (await authorizations.GetCreationDateAsync(authorization, cancellationToken))?.UtcDateTime,
+                await authorizations.GetStatusAsync(authorization, cancellationToken) ?? string.Empty,
+                await authorizations.HasStatusAsync(authorization, OpenIddictConstants.Statuses.Valid, cancellationToken)));
+        }
+        return Results.Ok(sessions.OrderByDescending(x => x.IssuedAt).ThenByDescending(x => x.SessionId, StringComparer.Ordinal).ToArray());
+    }
+
+    private static async Task<IResult> RevokeMySession(
+        string sessionId,
+        HttpContext http,
+        IOpenIddictAuthorizationManager authorizations,
+        CancellationToken cancellationToken)
+    {
+        var accountId = GetAccountId(http.User);
+        if (accountId is null)
+            return Results.Unauthorized();
+        var authorization = await authorizations.FindByIdAsync(sessionId, cancellationToken);
+        if (authorization is null
+            || !string.Equals(await authorizations.GetSubjectAsync(authorization, cancellationToken),
+                accountId.Value.ToString("D"), StringComparison.Ordinal))
+            return Results.NotFound();
+        await authorizations.TryRevokeAsync(authorization, cancellationToken);
         return Results.NoContent();
     }
 
@@ -446,21 +561,6 @@ internal static class IdentityAccessEndpoints
         return Results.NoContent();
     }
 
-    private static IResult BeginEmployeeLogin(
-        HttpContext http,
-        IdentityAccessProviders providers,
-        IOptions<IdentityAccessOptions> options,
-        string? returnTo = null)
-    {
-        return BeginLogin(
-            http,
-            providers,
-            "employees",
-            NormalizeReturnTo(returnTo),
-            properties => properties.Items["identity.realm"] = "workforce",
-            options.Value.WorkforceIssuer);
-    }
-
     private static IResult BeginAgentLogin(
         HttpContext http,
         IdentityAccessProviders providers,
@@ -504,125 +604,19 @@ internal static class IdentityAccessEndpoints
         return Results.Challenge(properties, [scheme]);
     }
 
-    private static IResult GetSession(HttpContext http, BffSessionManager manager)
-    {
-        var token = manager.ReadSessionToken(http);
-        if (string.IsNullOrEmpty(token))
-            return Results.Unauthorized();
-
-        var session = http.Features.Get<BffSessionContext>();
-        if (session is null)
-            return Results.Unauthorized();
-
-        return Results.Ok(new
-        {
-            accountId = session.Ticket.AccountId,
-            clientId = session.Ticket.ClientId,
-            merchantId = session.ProtectedTicket.MerchantId,
-            issuedAt = session.Ticket.IssuedAt,
-            expiresAt = session.Ticket.ExpiresAt,
-        });
-    }
-
-    internal static async Task<IResult> RefreshSession(
-        HttpContext http,
-        BffSessionManager manager,
-        IBffSessionStore sessions,
-        IIdentityAccessQuery identities,
-        CancellationToken cancellationToken,
-        OpenIddictRefreshTokenRotator? rotator = null)
-    {
-        var current = await FindCurrentSessionAsync(http, manager, sessions, cancellationToken);
-        if (current is null)
-            return Results.Unauthorized();
-
-        var account = await identities.FindAccountAsync(current.Ticket.AccountId, cancellationToken);
-        if (account is null || account.Status != AccountStatus.Active)
-            return Results.Unauthorized();
-        if (string.IsNullOrWhiteSpace(current.ProtectedTicket.RefreshToken))
-            return Results.Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "The BFF session cannot be refreshed.",
-                extensions: new Dictionary<string, object?> { ["code"] = "refresh_unavailable" });
-
-        var refreshToken = current.ProtectedTicket.RefreshToken;
-        if (rotator is not null)
-        {
-            refreshToken = await rotator.RotateAsync(refreshToken, manager.NextExpiresAt(), cancellationToken);
-            if (refreshToken is null)
-                return Results.Unauthorized();
-        }
-
-        var replacement = await manager.RotateAsync(
-            current.Ticket,
-            account,
-            current.ProtectedTicket.AccessToken,
-            refreshToken,
-            current.ProtectedTicket.MerchantId,
-            current.ProtectedTicket.ReturnTo,
-            cancellationToken);
-        manager.WriteCookies(http, replacement.SessionToken, replacement.CsrfToken);
-        return Results.Ok(new { expiresAt = replacement.Ticket.ExpiresAt });
-    }
-
-    internal static async Task<IResult> SelectMerchantContext(
-        HttpContext http,
-        MerchantContextRequest request,
-        BffSessionManager manager,
-        IBffSessionStore sessions,
-        IIdentityAccessQuery identities,
-        CancellationToken cancellationToken)
-    {
-        if (request.MerchantId == Guid.Empty)
-            return Results.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["merchantId"] = ["A non-empty MerchantId is required."],
-            });
-
-        var current = await FindCurrentSessionAsync(http, manager, sessions, cancellationToken);
-        if (current is null)
-            return Results.Unauthorized();
-
-        var account = await identities.FindAccountAsync(current.Ticket.AccountId, cancellationToken);
-        var authorization = account is null
-            ? null
-            : await identities.ResolveAuthorizationAsync(
-                account.Id, request.MerchantId, null, cancellationToken);
-        if (account is null || account.Status != AccountStatus.Active || authorization?.MerchantId != request.MerchantId)
-            return Results.Forbid();
-
-        var replacement = await manager.RotateAsync(
-            current.Ticket,
-            account,
-            current.ProtectedTicket.AccessToken,
-            current.ProtectedTicket.RefreshToken,
-            request.MerchantId,
-            current.ProtectedTicket.ReturnTo,
-            cancellationToken);
-        manager.WriteCookies(http, replacement.SessionToken, replacement.CsrfToken);
-        return Results.Ok(new { merchantId = request.MerchantId, expiresAt = replacement.Ticket.ExpiresAt });
-    }
-
+    /// <summary>Ends the login the Bearer token belongs to: revoking its OpenIddict authorization rejects every
+    /// access and refresh token issued under it on the next request (authorization entry validation).</summary>
     internal static async Task<IResult> Logout(
         HttpContext http,
-        BffSessionManager manager,
-        IBffSessionStore sessions,
-        CancellationToken cancellationToken,
-        IOpenIddictTokenManager? tokenManager = null)
+        IOpenIddictAuthorizationManager authorizations,
+        CancellationToken cancellationToken)
     {
-        var current = await FindCurrentSessionAsync(http, manager, sessions, cancellationToken);
-        if (current is not null)
-        {
-            if (tokenManager is not null && !string.IsNullOrWhiteSpace(current.ProtectedTicket.RefreshToken))
-            {
-                var token = await tokenManager.FindByReferenceIdAsync(
-                    current.ProtectedTicket.RefreshToken, cancellationToken);
-                if (token is not null)
-                    await tokenManager.TryRevokeAsync(token, cancellationToken);
-            }
-            await sessions.RevokeAsync(current.Ticket, DateTime.UtcNow, cancellationToken);
-        }
-        manager.ClearCookies(http);
+        var authorizationId = http.User.GetAuthorizationId();
+        if (!string.IsNullOrWhiteSpace(authorizationId)
+            && await authorizations.FindByIdAsync(authorizationId, cancellationToken) is { } authorization
+            && string.Equals(await authorizations.GetSubjectAsync(authorization, cancellationToken),
+                http.User.FindFirstValue("sub"), StringComparison.Ordinal))
+            await authorizations.TryRevokeAsync(authorization, cancellationToken);
         return Results.NoContent();
     }
 
@@ -689,22 +683,6 @@ internal static class IdentityAccessEndpoints
         return Results.Ok(snapshot);
     }
 
-    private static async Task<BffSessionContext?> FindCurrentSessionAsync(
-        HttpContext http,
-        BffSessionManager manager,
-        IBffSessionStore sessions,
-        CancellationToken cancellationToken)
-    {
-        var raw = manager.ReadSessionToken(http);
-        if (string.IsNullOrEmpty(raw))
-            return null;
-        var ticket = await sessions.FindByHashAsync(BffSessionManager.Hash(raw), cancellationToken);
-        var protectedTicket = ticket is null ? null : manager.Unprotect(ticket);
-        return ticket is null || protectedTicket is null
-            ? null
-            : new BffSessionContext(ticket, protectedTicket);
-    }
-
     private static Guid? GetAccountId(ClaimsPrincipal principal) =>
         Guid.TryParse(principal.FindFirstValue("sub"), out var id) && id != Guid.Empty ? id : null;
 
@@ -719,7 +697,9 @@ internal static class IdentityAccessEndpoints
             ? returnTo
             : "/";
 
-internal sealed record MerchantContextRequest(Guid MerchantId);
+/// <summary>One login session of the caller (an OpenIddict authorization); never carries a token.</summary>
+internal sealed record EmployeeSessionView(
+    string SessionId, Guid AccountId, DateTime? IssuedAt, string Status, bool Live);
 }
 
 internal sealed record SystemClientCreateRequest(

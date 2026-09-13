@@ -12,11 +12,11 @@ internal static class IdentityPermissionAuthorization
 {
     internal sealed record IdentityOrderPermissionMarker;
 
+    /// <summary>Employee, agent and SYSTEM identities all present a platform JWT; console cookies are the legacy
+    /// admin and merchant-user sessions.</summary>
     public static bool IsIdentityRequest(HttpContext http) =>
         http.Request.Headers.Authorization.ToString()
-            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-        || http.Request.Cookies.ContainsKey(Api.IdentityAccess.BffSessionManager.SessionCookieName)
-        || http.Request.Cookies.ContainsKey(Api.IdentityAccess.BffSessionManager.SessionCookieNameDevHttp);
+            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsIdentityOrderRoute(HttpContext http)
         => http.GetEndpoint()?.Metadata.GetMetadata<IdentityOrderPermissionMarker>() is not null;
@@ -76,8 +76,7 @@ internal static class IdentityPermissionAuthorization
             var authorization = identity.Snapshot;
             var scoped = http.User.FindAll("scope").SelectMany(value =>
                 value.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            var systemToken = http.User.FindFirst("client_id") is not null;
-            var allowed = systemToken
+            var allowed = identity.IsSystemClient
                 ? authorization is not null && scoped.Contains(systemScope, StringComparer.Ordinal)
                 : authorization?.Permissions.Contains(humanPermission, StringComparer.Ordinal) == true;
             if (authorization is null || !allowed)

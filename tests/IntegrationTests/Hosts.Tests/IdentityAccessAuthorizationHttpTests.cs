@@ -140,6 +140,9 @@ public sealed class IdentityAccessAuthorizationHttpTests
     [Fact]
     [Trait("Requirement", "REQ-3.4")]
     [Trait("Requirement", "REQ-3.11")]
+    // This host swaps the identity-platform scheme for a test scheme, so only the authorization requirement
+    // runs (403). Behind the real PlatformToken scheme a stale version fails authentication first (401);
+    // IdentityAccessAdminConsoleBridgeTests covers that.
     public async Task Authenticated_http_request_is_denied_when_authz_version_is_stale()
     {
         using var factory = new IdentityAuthorizationFactory();

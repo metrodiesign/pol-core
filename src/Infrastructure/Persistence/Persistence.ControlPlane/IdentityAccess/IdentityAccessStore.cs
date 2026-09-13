@@ -26,7 +26,7 @@ namespace Persistence.ControlPlane.IdentityAccess;
 /// </summary>
 internal sealed class IdentityAccessStore
     : IEmployeeJitStore, IRegistrationSessionStore, IAssertionReplayStore,
-      IBffSessionStore, IRegistrationSessionLookup, IIdentityAccessQuery, IIdentityAccessAdminStore
+      IRegistrationSessionLookup, IIdentityAccessQuery, IIdentityAccessAdminStore
 {
     private readonly ControlPlaneDbContext db;
     private readonly IClock clock;
@@ -35,6 +35,7 @@ internal sealed class IdentityAccessStore
     private readonly IRoleAssignmentValidator? roleAssignments;
     private readonly IOpenIddictApplicationManager? openIddictApplications;
     private readonly IOpenIddictScopeManager? openIddictScopes;
+    private readonly IOpenIddictAuthorizationManager? openIddictAuthorizations;
     private readonly IIdentityAuthorizationRoleReader? roleReader;
 
     public IdentityAccessStore(
@@ -55,7 +56,8 @@ internal sealed class IdentityAccessStore
         IRoleAssignmentValidator? roleAssignments = null,
         IOpenIddictApplicationManager? openIddictApplications = null,
         IOpenIddictScopeManager? openIddictScopes = null,
-        IIdentityAuthorizationRoleReader? roleReader = null)
+        IIdentityAuthorizationRoleReader? roleReader = null,
+        IOpenIddictAuthorizationManager? openIddictAuthorizations = null)
     {
         this.db = db;
         this.clock = clock;
@@ -65,6 +67,7 @@ internal sealed class IdentityAccessStore
         this.openIddictApplications = openIddictApplications;
         this.openIddictScopes = openIddictScopes;
         this.roleReader = roleReader;
+        this.openIddictAuthorizations = openIddictAuthorizations;
     }
     public async Task<EmployeeJitResult> GetOrCreateAsync(
         VerifiedHumanIdentity identity, CancellationToken cancellationToken)
@@ -203,30 +206,6 @@ internal sealed class IdentityAccessStore
         string applicationId, string jti, CancellationToken cancellationToken) =>
         await db.AssertionReplays.AnyAsync(
             x => x.ApplicationId == applicationId && x.Jti == jti, cancellationToken);
-
-    Task<BffSessionTicket?> IBffSessionStore.FindByHashAsync(
-        byte[] ticketKeyHash, CancellationToken cancellationToken) =>
-        db.BffSessionTickets.FirstOrDefaultAsync(x => x.TicketKeyHash == ticketKeyHash, cancellationToken);
-
-    public void Add(BffSessionTicket ticket) => db.BffSessionTickets.Add(ticket);
-
-    public async Task RevokeAsync(
-        BffSessionTicket ticket, DateTime now, CancellationToken cancellationToken)
-    {
-        ticket.Revoke(now);
-        await SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task ReplaceAsync(
-        BffSessionTicket current, BffSessionTicket replacement, DateTime now,
-        CancellationToken cancellationToken)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        current.Revoke(now);
-        db.BffSessionTickets.Add(replacement);
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
 
@@ -420,12 +399,17 @@ internal sealed class IdentityAccessStore
         var account = await db.Accounts.SingleOrDefaultAsync(x => x.Id == accountId, cancellationToken)
             ?? throw new NotFoundException("Account was not found.");
         account.BumpAuthorizationVersion(clock.UtcNow);
-        var now = clock.UtcNow;
-        var sessions = await db.BffSessionTickets.Where(x => x.AccountId == accountId && x.RevokedAt == null)
-            .ToListAsync(cancellationToken);
-        foreach (var session in sessions)
-            session.Revoke(now);
         await db.SaveChangesAsync(cancellationToken);
+        // Every login of the account is an OpenIddict authorization; revoking them rejects their access and
+        // refresh tokens on the next request (authorization entry validation), not at token expiry.
+        if (openIddictAuthorizations is null)
+            return;
+        var revocable = new List<object>();
+        await foreach (var authorization in openIddictAuthorizations.FindBySubjectAsync(
+            accountId.ToString("D"), cancellationToken))
+            revocable.Add(authorization);
+        foreach (var authorization in revocable)
+            await openIddictAuthorizations.TryRevokeAsync(authorization, cancellationToken);
     }
 
     public Task<bool> RevokeSessionsIdempotentAsync(
@@ -435,27 +419,6 @@ internal sealed class IdentityAccessStore
             await RevokeSessionsAsync(accountId, ct);
             return true;
         }, cancellationToken).ContinueWith(x => x.Result.Value, cancellationToken);
-
-    public async Task<IReadOnlyList<BffSessionAdminView>> ListBffSessionsAsync(
-        Guid accountId, CancellationToken cancellationToken)
-    {
-        var account = await db.Accounts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == accountId, cancellationToken)
-            ?? throw new NotFoundException("Account was not found.");
-        var now = clock.UtcNow;
-        return (await db.BffSessionTickets.AsNoTracking().Where(x => x.AccountId == accountId)
-            .OrderByDescending(x => x.IssuedAt).ThenByDescending(x => x.Id).ToListAsync(cancellationToken))
-            .Select(x => new BffSessionAdminView(x.Id, x.AccountId, x.ClientId, x.IssuedAt, x.ExpiresAt,
-                x.RevokedAt, x.IsLiveAt(now, account.AuthorizationVersion))).ToArray();
-    }
-
-    public async Task RevokeBffSessionAsync(Guid accountId, Guid sessionId, CancellationToken cancellationToken)
-    {
-        var row = await db.BffSessionTickets.SingleOrDefaultAsync(
-            x => x.Id == sessionId && x.AccountId == accountId, cancellationToken)
-            ?? throw new NotFoundException("Session was not found.");
-        row.Revoke(clock.UtcNow);
-        await db.SaveChangesAsync(cancellationToken);
-    }
 
     public async Task<IReadOnlyList<SystemClientAdminView>> ListSystemClientsAsync(
         Guid? merchantId, CancellationToken cancellationToken)

@@ -204,16 +204,6 @@ public sealed class SystemClientAssertionService(IAssertionReplayStore replaySto
     }
 }
 
-public interface IBffSessionStore
-{
-    Task<BffSessionTicket?> FindByHashAsync(byte[] ticketKeyHash, CancellationToken cancellationToken);
-    void Add(BffSessionTicket ticket);
-    Task RevokeAsync(BffSessionTicket ticket, DateTime now, CancellationToken cancellationToken);
-    Task ReplaceAsync(BffSessionTicket current, BffSessionTicket replacement, DateTime now,
-        CancellationToken cancellationToken);
-    Task SaveChangesAsync(CancellationToken cancellationToken);
-}
-
 public interface IRegistrationSessionLookup
 {
     Task<RegistrationSession?> FindByHashAsync(byte[] sessionReferenceHash, CancellationToken cancellationToken);

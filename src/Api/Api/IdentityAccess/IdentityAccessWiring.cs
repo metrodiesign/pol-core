@@ -3,6 +3,7 @@ using Accounts.Application;
 using Accounts.Domain;
 using Api.Iam;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -15,6 +16,12 @@ namespace Api.IdentityAccess;
 
 internal static class IdentityAccessWiring
 {
+    /// <summary>Short-lived cookie that carries the verified employee account from the Entra callback back to
+    /// <c>/oauth/authorize</c>, where OpenIddict turns it into an authorization code. It is signed out as soon as
+    /// the code is issued and is never accepted by any API route.</summary>
+    public const string LoginCookieScheme = "identity-login";
+    public const string LoginCookieName = "pol_login";
+
     public static IServiceCollection AddIdentityAccess(
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
@@ -34,14 +41,32 @@ internal static class IdentityAccessWiring
             }, "IdentityAccess options are invalid.")
             .ValidateOnStart();
 
-        services.AddScoped<BffSessionManager>();
-        services.AddScoped<OpenIddictRefreshTokenRotator>();
         services.AddScoped<IAuthorizationHandler, IdentityAccessAuthorizationHandler>();
         services.AddScoped<IdentityBffLoginService>();
+        services.AddHostedService<WorkforceClientRegistration>();
         services.AddAuthentication()
-            .AddScheme<AuthenticationSchemeOptions, BffSessionAuthenticationHandler>(
-                BffSessionAuthenticationHandler.SchemeName, _ => { })
-            .AddCookie("identity-oidc-noop");
+            .AddScheme<AuthenticationSchemeOptions, PlatformTokenAuthenticationHandler>(
+                PlatformTokenAuthenticationHandler.SchemeName, _ => { })
+            .AddCookie(LoginCookieScheme, options =>
+            {
+                options.Cookie.Name = LoginCookieName;
+                options.Cookie.HttpOnly = true;
+                options.Cookie.SameSite = SameSiteMode.Lax;
+                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                options.Cookie.IsEssential = true;
+                options.ExpireTimeSpan = TimeSpan.FromMinutes(2);
+                options.SlidingExpiration = false;
+                options.Events.OnRedirectToLogin = context =>
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return Task.CompletedTask;
+                };
+                options.Events.OnRedirectToAccessDenied = context =>
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return Task.CompletedTask;
+                };
+            });
 
         var authentication = services.AddAuthentication();
         var providers = new IdentityAccessProviders();
@@ -68,14 +93,8 @@ internal static class IdentityAccessWiring
         services.AddSingleton(providers);
 
         services.AddAuthorizationBuilder()
-            .AddPolicy("identity-bff", policy => policy
-                .AddAuthenticationSchemes(BffSessionAuthenticationHandler.SchemeName)
-                .RequireAuthenticatedUser()
-                .AddRequirements(new IdentityAccessRequirement()))
             .AddPolicy("identity-platform", policy => policy
-                .AddAuthenticationSchemes(
-                    BffSessionAuthenticationHandler.SchemeName,
-                    OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme)
+                .AddAuthenticationSchemes(PlatformTokenAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .AddRequirements(new IdentityAccessRequirement()));
 
@@ -87,16 +106,11 @@ internal static class IdentityAccessWiring
         {
             var hasBearer = context.Request.Headers.Authorization.ToString()
                 .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
-            var hasBffCookie = context.Request.Cookies.ContainsKey(BffSessionManager.SessionCookieName)
-                || context.Request.Cookies.ContainsKey(BffSessionManager.SessionCookieNameDevHttp);
             var hasConsoleCookie = context.Request.Cookies.ContainsKey(Api.Admins.SessionCookies.SessionCookieName)
                 || context.Request.Cookies.ContainsKey(Api.Admins.SessionCookies.SessionCookieNameDevHttp)
                 || context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieName)
                 || context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieNameDevHttp);
-            var ambiguousOrderContext = IdentityPermissionAuthorization.IsIdentityOrderRoute(context)
-                && ((hasBearer && (hasBffCookie || hasConsoleCookie))
-                    || (hasBffCookie && hasConsoleCookie));
-            if (ambiguousOrderContext)
+            if (IdentityPermissionAuthorization.IsIdentityOrderRoute(context) && hasBearer && hasConsoleCookie)
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await Results.Problem(
@@ -141,7 +155,7 @@ internal static class IdentityAccessWiring
             // before AddAdminOidcAuthentication in Program.cs, so this handler sees the shared callback first and the
             // admin handler (last, no skip) keeps its own failure path.
             options.SkipUnrecognizedRequests = true;
-            options.SignInScheme = "identity-oidc-noop";
+            options.SignInScheme = LoginCookieScheme;
             options.ResponseType = "code";
             options.UsePkce = true;
             options.SaveTokens = true;
@@ -169,8 +183,8 @@ internal static class IdentityAccessWiring
                             .LogWarning("{Kind} login denied at callback: {Code}. TraceId {TraceId}.",
                                 kind, failure.Code, context.HttpContext.TraceIdentifier);
                         DenyToWebApp(context.HttpContext, kind, failure.Code.Replace('_', '-'));
+                        context.HandleResponse();
                     }
-                    context.HandleResponse();
                 },
                 OnAccessDenied = context =>
                 {
@@ -212,8 +226,6 @@ internal sealed class IdentityBffLoginService(
     EmployeeJitService employeeJit,
     RegistrationSessionService registrationSessions,
     IIdentityAccessQuery identities,
-    BffSessionManager bff,
-    OpenIddictRefreshTokenRotator refreshTokens,
     IOptions<IdentityAccessOptions> options)
 {
     public async Task CompleteAsync(TicketReceivedContext context, IdentityLoginKind kind)
@@ -223,9 +235,6 @@ internal sealed class IdentityBffLoginService(
         var properties = context.Properties ?? new AuthenticationProperties();
         var verified = FromPrincipal(principal, properties.GetTokenValue("id_token"), workforceEligible: kind == IdentityLoginKind.Employee);
         var settings = options.Value;
-        // RemoteAuthenticationHandler moves Properties.RedirectUri into ReturnUri (and nulls it) before raising
-        // TicketReceived, so the login-time returnTo is only available here.
-        var returnTo = context.ReturnUri ?? properties.RedirectUri;
         if (kind == IdentityLoginKind.Employee)
         {
             var result = await employeeJit.ResolveAsync(
@@ -236,22 +245,19 @@ internal sealed class IdentityBffLoginService(
                 context.HttpContext.RequestAborted);
             var account = await identities.FindAccountAsync(result.AccountId, context.HttpContext.RequestAborted)
                 ?? throw new InvalidOperationException("JIT account was not persisted.");
-            // The ticket carries platform tokens, not Entra's: refresh rotates and logout revokes this OpenIddict
-            // reference token (design API-011). Entra's access/refresh tokens are not needed after the callback.
-            var refreshToken = await refreshTokens.IssueAsync(
-                account.Id,
-                DateTimeOffset.UtcNow.AddMinutes(settings.BffSessionMinutes),
-                context.HttpContext.RequestAborted);
-            var issue = await bff.CreateAsync(
-                account,
-                clientId: null,
-                accessToken: null,
-                refreshToken,
-                merchantId: null,
-                returnTo ?? "/",
-                context.HttpContext.RequestAborted);
-            bff.WriteCookies(context.HttpContext, issue.SessionToken, issue.CsrfToken);
-            context.HttpContext.Response.Redirect(ToWebApp(returnTo, settings.WorkforceWebAppBaseUrl));
+            // Hand the verified account to /oauth/authorize through the short-lived login cookie: the OIDC handler
+            // signs this principal into the cookie scheme and redirects to ReturnUri (the pending authorize
+            // request). Entra's tokens are dropped here; the platform issues its own JWT + refresh token.
+            var identity = new ClaimsIdentity(IdentityAccessWiring.LoginCookieScheme);
+            identity.AddClaim(new Claim("sub", account.Id.ToString("D")));
+            context.Principal = new ClaimsPrincipal(identity);
+            context.Properties = new AuthenticationProperties
+            {
+                IsPersistent = false,
+                ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(2),
+            };
+            if (!IsAuthorizeRequest(context.ReturnUri))
+                context.ReturnUri = "/";
             return;
         }
 
@@ -269,7 +275,14 @@ internal sealed class IdentityBffLoginService(
             session.RawReference,
             new CookieOptions { HttpOnly = true, Secure = context.HttpContext.Request.IsHttps, Path = "/" });
         context.HttpContext.Response.Redirect(ToWebApp("/register", settings.AgentWebAppBaseUrl));
+        context.HandleResponse();
     }
+
+    /// <summary>The only place an employee callback may land is the pending same-origin authorize request.</summary>
+    internal static bool IsAuthorizeRequest(string? returnUri) =>
+        !string.IsNullOrEmpty(returnUri)
+        && (returnUri.StartsWith("/oauth/authorize?", StringComparison.Ordinal)
+            || returnUri.Equals("/oauth/authorize", StringComparison.Ordinal));
 
     /// <summary>The callback lands on the API origin: a same-origin path (already normalized at login) is made
     /// absolute against the SPA origin when one is configured, otherwise it stays relative. Anything that is not

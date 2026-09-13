@@ -1,9 +1,12 @@
 extern alias ApiHost;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using Accounts.Application;
 using Accounts.Domain;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -11,7 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using ApiIdentity = ApiHost::Api.IdentityAccess;
+using OpenIddict.Validation.AspNetCore;
 
 namespace Hosts.Tests;
 
@@ -20,6 +23,9 @@ file sealed class BridgeState
     public Account Account { get; set; } = Account.Create(AccountType.Employee, "Bridge employee", DateTime.UtcNow);
     public bool HasPlatformAccess { get; set; } = true;
     public HashSet<string> Permissions { get; set; } = ["txn.view"];
+    public string? ClientId { get; set; }
+    /// <summary>authz_version to stamp on the token; null = the account's current version.</summary>
+    public long? TokenVersion { get; set; }
 }
 
 file sealed class BridgeQuery(BridgeState state) : IIdentityAccessQuery
@@ -57,35 +63,34 @@ file sealed class BridgeQuery(BridgeState state) : IIdentityAccessQuery
         Task.FromResult<IReadOnlyList<MerchantAccessSummary>>([]);
 }
 
-file sealed class BridgeBffStore : IBffSessionStore
+/// <summary>Stands in for OpenIddict token validation: any Bearer header becomes the platform JWT principal of
+/// the state account (the claims the /oauth/token handler puts on an employee token).</summary>
+file sealed class BridgeBearerHandler(
+    Microsoft.Extensions.Options.IOptionsMonitor<AuthenticationSchemeOptions> options,
+    Microsoft.Extensions.Logging.ILoggerFactory logger,
+    System.Text.Encodings.Web.UrlEncoder encoder,
+    BridgeState state)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    private readonly List<BffSessionTicket> _tickets = [];
-
-    public Task<BffSessionTicket?> FindByHashAsync(byte[] ticketKeyHash, CancellationToken cancellationToken) =>
-        Task.FromResult(_tickets.FirstOrDefault(ticket => ticket.TicketKeyHash.SequenceEqual(ticketKeyHash)));
-
-    public void Add(BffSessionTicket ticket) => _tickets.Add(ticket);
-
-    public Task RevokeAsync(BffSessionTicket ticket, DateTime now, CancellationToken cancellationToken)
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        ticket.Revoke(now);
-        return Task.CompletedTask;
+        if (!Context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return Task.FromResult(AuthenticateResult.NoResult());
+        var identity = new ClaimsIdentity(Scheme.Name);
+        identity.AddClaim(new Claim("sub", state.Account.Id.ToString("D")));
+        identity.AddClaim(new Claim("account_type", state.Account.AccountType.ToString().ToUpperInvariant()));
+        identity.AddClaim(new Claim("authz_version", (state.TokenVersion ?? state.Account.AuthorizationVersion).ToString()));
+        identity.AddClaim(new Claim("token_context", "ACCOUNT_SELF"));
+        if (state.ClientId is not null)
+            identity.AddClaim(new Claim("client_id", state.ClientId));
+        return Task.FromResult(AuthenticateResult.Success(
+            new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
     }
-
-    public Task ReplaceAsync(BffSessionTicket current, BffSessionTicket replacement, DateTime now, CancellationToken cancellationToken)
-    {
-        current.Revoke(now);
-        _tickets.Add(replacement);
-        return Task.CompletedTask;
-    }
-
-    public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 file sealed class BridgeFactory : WebApplicationFactory<ApiHost::Program>
 {
     public BridgeState State { get; } = new();
-    public BridgeBffStore Store { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -107,38 +112,29 @@ file sealed class BridgeFactory : WebApplicationFactory<ApiHost::Program>
             services.AddSingleton(State);
             services.RemoveAll<IIdentityAccessQuery>();
             services.AddScoped<IIdentityAccessQuery>(sp => new BridgeQuery(sp.GetRequiredService<BridgeState>()));
-            services.RemoveAll<IBffSessionStore>();
-            services.AddSingleton<IBffSessionStore>(Store);
+            services.AddTransient<BridgeBearerHandler>();
+            services.PostConfigure<AuthenticationOptions>(options =>
+                options.Schemes.Single(scheme =>
+                        scheme.Name == OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme)
+                    .HandlerType = typeof(BridgeBearerHandler));
         });
     }
 
-    /// <summary>Mints a live BFF session for the state account and returns the Cookie header the SPA would send
-    /// (https origin, so the __Host- session cookie is the one the handler reads).</summary>
-    public async Task<(string Cookie, string Csrf)> LoginAsync()
-    {
-        using var scope = Services.CreateScope();
-        var manager = scope.ServiceProvider.GetRequiredService<ApiIdentity.BffSessionManager>();
-        var issue = await manager.CreateAsync(State.Account, null, null, "refresh", null, "/", default);
-        return (
-            $"{ApiIdentity.BffSessionManager.SessionCookieName}={issue.SessionToken}; {ApiIdentity.BffSessionManager.CsrfCookieName}={issue.CsrfToken}",
-            issue.CsrfToken);
-    }
-
-    public HttpClient CreateBrowser(string cookie)
+    public HttpClient CreateBearerClient()
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
             BaseAddress = new Uri("https://localhost"),
         });
-        client.DefaultRequestHeaders.Add("Cookie", cookie);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "employee-jwt");
         return client;
     }
 }
 
-/// <summary>Employee BFF session on the admin console: the "admin" policy forwards to the BFF scheme when only
-/// the BFF cookie is present, the handler binds IAdminScope from the account's authorization snapshot, and the
-/// admin CSRF filter reads the BFF double-submit pair.</summary>
+/// <summary>Employee JWT on the admin console: the "admin" policy forwards a Bearer request to the platform token
+/// scheme (OpenIddict validation, stood in for here), which materializes IAdminScope from the account's
+/// authorization snapshot; the admin CSRF filter does not apply to a Bearer request.</summary>
 [Trait("Capability", "IdentityAccess")]
 public sealed class IdentityAccessAdminConsoleBridgeTests
 {
@@ -146,8 +142,7 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
     public async Task Employee_with_platform_access_reads_the_admin_console_as_an_unrestricted_admin()
     {
         using var factory = new BridgeFactory();
-        var (cookie, _) = await factory.LoginAsync();
-        using var client = factory.CreateBrowser(cookie);
+        using var client = factory.CreateBearerClient();
 
         var response = await client.GetAsync("/api/v1/admins/me");
 
@@ -161,12 +156,11 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
     }
 
     [Fact]
-    public async Task Bff_cookie_alone_is_rejected_without_the_admin_cookie_when_the_account_is_not_an_employee()
+    public async Task Bearer_token_of_a_non_employee_account_is_rejected_on_the_admin_console()
     {
         using var factory = new BridgeFactory();
         factory.State.Account = Account.Create(AccountType.Agent, "Bridge agent", DateTime.UtcNow);
-        var (cookie, _) = await factory.LoginAsync();
-        using var client = factory.CreateBrowser(cookie);
+        using var client = factory.CreateBearerClient();
 
         var response = await client.GetAsync("/api/v1/admins/me");
 
@@ -174,12 +168,36 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
     }
 
     [Fact]
-    public async Task Dual_console_route_treats_the_bff_cookie_as_the_admin_audience()
+    public async Task System_client_token_never_reaches_the_admin_console()
+    {
+        using var factory = new BridgeFactory();
+        factory.State.Account = Account.Create(AccountType.System, "Bridge system", DateTime.UtcNow);
+        factory.State.ClientId = "system-client";
+        using var client = factory.CreateBearerClient();
+
+        var response = await client.GetAsync("/api/v1/admins/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Stale_authorization_version_is_unauthenticated_not_forbidden()
+    {
+        using var factory = new BridgeFactory();
+        factory.State.TokenVersion = factory.State.Account.AuthorizationVersion + 1;
+        using var client = factory.CreateBearerClient();
+
+        var response = await client.GetAsync("/api/v1/admins/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dual_console_route_treats_the_bearer_token_as_the_admin_audience()
     {
         using var factory = new BridgeFactory();
         factory.State.Permissions = [];
-        var (cookie, _) = await factory.LoginAsync();
-        using var client = factory.CreateBrowser(cookie);
+        using var client = factory.CreateBearerClient();
 
         // Admin audience + bound scope without the permission = 403 from the permission gate, not a 401 from
         // the merchant-user scheme.
@@ -190,21 +208,15 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
     }
 
     [Fact]
-    public async Task Admin_console_mutation_accepts_the_bff_csrf_pair_and_still_gates_on_permission()
+    public async Task Admin_console_mutation_with_a_bearer_token_skips_csrf_and_still_gates_on_permission()
     {
         using var factory = new BridgeFactory();
         factory.State.Permissions = [];
-        var (cookie, csrf) = await factory.LoginAsync();
-        using var client = factory.CreateBrowser(cookie);
+        using var client = factory.CreateBearerClient();
 
-        var withoutHeader = await client.PostAsJsonAsync("/api/v1/roles", new { });
-        Assert.Equal(HttpStatusCode.Forbidden, withoutHeader.StatusCode);
-        Assert.Contains("csrf_failed", await withoutHeader.Content.ReadAsStringAsync());
+        var response = await client.PostAsJsonAsync("/api/v1/roles", new { });
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/roles") { Content = JsonContent.Create(new { }) };
-        request.Headers.Add(ApiIdentity.BffSessionManager.HeaderName, csrf);
-        var withHeader = await client.SendAsync(request);
-        Assert.Equal(HttpStatusCode.Forbidden, withHeader.StatusCode);
-        Assert.DoesNotContain("csrf_failed", await withHeader.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.DoesNotContain("csrf_failed", await response.Content.ReadAsStringAsync());
     }
 }

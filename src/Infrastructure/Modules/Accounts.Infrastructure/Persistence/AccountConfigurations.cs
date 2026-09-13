@@ -130,26 +130,6 @@ public sealed class AssertionReplayConfiguration : IEntityTypeConfiguration<Asse
     }
 }
 
-public sealed class BffSessionTicketConfiguration : IEntityTypeConfiguration<BffSessionTicket>
-{
-    public void Configure(EntityTypeBuilder<BffSessionTicket> builder)
-    {
-        builder.ToTable("BffSessionTickets", SchemaNames.Acct);
-        builder.HasKey(x => x.Id);
-        builder.Property(x => x.Id).ValueGeneratedNever();
-        builder.Property(x => x.TicketKeyHash).HasMaxLength(32).IsRequired();
-        builder.Property(x => x.AccountId).IsRequired();
-        builder.Property(x => x.ClientId).HasMaxLength(128);
-        builder.Property(x => x.ProtectedAuthenticationTicket).IsUnicode().IsRequired();
-        builder.Property(x => x.AuthorizationVersion).IsRequired();
-        builder.Property(x => x.IssuedAt).IsRequired();
-        builder.Property(x => x.ExpiresAt).IsRequired();
-        builder.Property(x => x.RevokedAt);
-        builder.HasIndex(x => x.TicketKeyHash).IsUnique();
-        builder.HasIndex(x => new { x.AccountId, x.RevokedAt });
-    }
-}
-
 public sealed class RegistrationSessionConfiguration : IEntityTypeConfiguration<RegistrationSession>
 {
     public void Configure(EntityTypeBuilder<RegistrationSession> builder)

@@ -116,7 +116,7 @@ public sealed class TransactionInventoryTests
         // is now the ONLY transaction this flow opens.
         ["src/Infrastructure/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs"] = 1,
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/Notifications/WebhookDeliveryDispatcher.cs"] = 1, // row 46
-        ["src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs"] = 2, // account/access atomic identity flows
+        ["src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs"] = 1, // account/access atomic identity flow (BFF ticket rotation retired with the employee JWT flow)
         ["src/Infrastructure/BuildingBlocks.Infrastructure/Migration/SqlMigrationMaintenanceLease.cs"] = 1, // Task9 writer lease
         ["src/Infrastructure/BuildingBlocks.Infrastructure/Migration/SqlMigrationReadinessStore.cs"] = 2, // Task9 durable rehearsal writes
         // Tier 0 offline cutover tool: separate privileged serializable first-run and completed-verifier paths;

@@ -317,22 +317,13 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
                 """, ("@merchant", merchantId), ("@sale", saleA), ("@branch", branchA)) ??
                 throw new InvalidOperationException("The in-scope branch order was not found."));
 
-            using var bffScope = factory.Services.CreateScope();
-            var httpAccessor = bffScope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
-            httpAccessor.HttpContext = new DefaultHttpContext();
-            var identities = bffScope.ServiceProvider.GetRequiredService<IIdentityAccessQuery>();
-            var account = await identities.FindAccountAsync(accountId, default)
-                ?? throw new InvalidOperationException("The branch BFF account was not found.");
-            var bff = bffScope.ServiceProvider.GetRequiredService<ApiIdentity.BffSessionManager>();
-            var bffIssue = await bff.CreateAsync(account, null, null, null, merchantId, "/api/v1/orders", default);
-            httpAccessor.HttpContext = null;
-            var sessionCookie = ApiIdentity.BffSessionManager.SessionCookieNameDevHttp;
-            var csrfCookie = ApiIdentity.BffSessionManager.CsrfCookieName;
-            var bffCookies = $"{sessionCookie}={bffIssue.SessionToken}; {csrfCookie}={bffIssue.CsrfToken}";
+            var login = await EmployeeTokenFlow.LoginAsync(client, factory.Services, accountId);
+            var scoped = await EmployeeTokenFlow.RefreshAsync(client, login.RefreshToken, merchantId);
+            var bearer = new AuthenticationHeaderValue("Bearer", scoped.AccessToken);
 
             using var list = new HttpRequestMessage(
                 HttpMethod.Get, $"/api/v1/orders?merchantId={merchantId:D}");
-            list.Headers.Add("Cookie", bffCookies);
+            list.Headers.Authorization = bearer;
             using var listResponse = await client.SendAsync(list);
             var listBody = await listResponse.Content.ReadAsStringAsync();
             Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
@@ -346,8 +337,7 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
 
             using var outsidePatch = PatchRequest(
                 merchantId, otherOrderId, saleB, branchB, $"branch-patch-outside-{runTag}");
-            outsidePatch.Headers.Add("Cookie", bffCookies);
-            outsidePatch.Headers.Add(ApiIdentity.BffSessionManager.HeaderName, bffIssue.CsrfToken);
+            outsidePatch.Headers.Authorization = bearer;
             outsidePatch.Headers.Add("If-Match", "\"v1\"");
             using var outsidePatchResponse = await client.SendAsync(outsidePatch);
             Assert.Equal(HttpStatusCode.NotFound, outsidePatchResponse.StatusCode);
@@ -356,8 +346,7 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
                 "SELECT Version FROM shop.Orders WHERE Id=@order;", ("@order", insideOrderId)));
             using var ownPatch = PatchRequest(
                 merchantId, insideOrderId, saleA, branchA, $"branch-patch-own-{runTag}");
-            ownPatch.Headers.Add("Cookie", bffCookies);
-            ownPatch.Headers.Add(ApiIdentity.BffSessionManager.HeaderName, bffIssue.CsrfToken);
+            ownPatch.Headers.Authorization = bearer;
             ownPatch.Headers.Add("If-Match", $"\"v{insideVersion}\"");
             using var ownPatchResponse = await client.SendAsync(ownPatch);
             Assert.True(ownPatchResponse.StatusCode == HttpStatusCode.OK,

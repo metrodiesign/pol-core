@@ -51,7 +51,6 @@ using AgentAccount = Accounts.Domain.Agent;
 using SystemClient = Accounts.Domain.SystemClient;
 using ClientKeyPolicy = Accounts.Domain.ClientKeyPolicy;
 using AssertionReplay = Accounts.Domain.AssertionReplay;
-using BffSessionTicket = Accounts.Domain.BffSessionTicket;
 using RegistrationSession = Accounts.Domain.RegistrationSession;
 using AgentRegistration = Accounts.Domain.AgentRegistration;
 using AgentRegistrationAttempt = Accounts.Domain.AgentRegistrationAttempt;
@@ -330,7 +329,7 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         typeof(PaymentProvider), typeof(PaymentProviderMethod), typeof(PaymentProviderMethodOption),
         typeof(PaymentAuthorizationState), typeof(PaymentCapabilityMigrationConflict),
         typeof(IdentityAccount), typeof(LoginAccount), typeof(EmployeeAccount), typeof(AgentAccount),
-        typeof(SystemClient), typeof(ClientKeyPolicy), typeof(AssertionReplay), typeof(BffSessionTicket),
+        typeof(SystemClient), typeof(ClientKeyPolicy), typeof(AssertionReplay),
         typeof(RegistrationSession), typeof(AccountMerchantAccess), typeof(AccessRole), typeof(BranchAccess),
         typeof(PlatformAccess), typeof(PlatformAccessRole), typeof(SystemClientScope), typeof(MerchantAccessMethod),
         typeof(AgentRegistration), typeof(AgentRegistrationAttempt),
@@ -370,10 +369,6 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         // Repeat login observes the provider's current email/display name on the existing LoginAccount.
         (typeof(LoginAccount), WriteOperation.Update),
         (typeof(EmployeeAccount), WriteOperation.Insert),
-        (typeof(BffSessionTicket), WriteOperation.Insert),
-        // BFF session lifecycle (logout revoke, refresh rotate, merchant-context switch) runs under the BFF cookie
-        // scheme, which never binds IAdminScope (that is the legacy admin.Users session), so it is unbound here.
-        (typeof(BffSessionTicket), WriteOperation.Update),
         (typeof(RegistrationSession), WriteOperation.Insert),
         (typeof(AgentRegistration), WriteOperation.Insert),
         (typeof(AgentRegistration), WriteOperation.Update),
