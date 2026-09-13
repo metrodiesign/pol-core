@@ -179,6 +179,7 @@ Super Admin สร้าง invite ผ่าน `POST /api/v1/admins` พร้�
 |---|---|---|
 | `auth-failed` | protocol, code exchange, signature, audience, nonce หรือ lifetime fail | generic denied-auth audit บน fresh scope |
 | `workforce-access-denied` | issuer หรือ exact-one `tid`/`oid` invalid, tenant mismatch | generic denied-auth audit; ไม่เรียก Graph/DB/session |
+| `workforce-email-unavailable` | ไม่พบ deliverable email ทั้งจาก id_token และ Graph `mail`/`userPrincipalName` (assumption ว่าทุก identity มี mailbox แตก) | denied-auth audit; ไม่สร้าง null-email admin |
 | `suspended` | exact tuple เป็น Suspended | denied-auth audit; ไม่มี session |
 | `identity-conflict` | employee mismatch/taken หรือ unresolved unique race | rollback resolution; denied-auth audit |
 | `employee-profile-unavailable` | Graph/HR dependency unavailable | rollback resolution; denied-auth audit |

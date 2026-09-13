@@ -170,6 +170,16 @@ internal static class OidcAuthentication
                     return;
                 }
 
+                // Deliverable-contact guard: a workforce identity must resolve to a real email (id_token OR Graph).
+                // The invariant is that every tenant identity has a mailbox, so this never fires in practice; if it
+                // does, an assumption broke — deny the login loudly instead of provisioning a null-email admin.
+                if (claims.Email is null)
+                {
+                    MicrosoftOidcFailureClassifier.MarkEmailUnavailable(context.HttpContext);
+                    context.Fail(new MicrosoftWorkforcePolicyException());
+                    return;
+                }
+
                 context.HttpContext.Items[MicrosoftWorkforceClaimsValidator.ContextItemKey] = claims;
             },
 

@@ -312,6 +312,32 @@ public sealed class AdminGraphEmployeeProfileE2ETests
     }
 
     [Fact]
+    public async Task Login_is_denied_when_no_email_resolves_from_token_or_graph()
+    {
+        var (factory, client) = Build();
+        using (factory)
+        using (client)
+        {
+            factory.Graph.Body = """{"employeeId":"e12"}"""; // employeeId present; no mail / userPrincipalName
+            var challenge = await StartAsync(client);
+
+            // id_token carries NO email claim, and Graph offers no contact fallback -> deny loudly, provision nothing.
+            factory.Backchannel.IdToken = GraphTestOidc.CreateIdToken(
+                GraphE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+                ("sub", "pairwise"), ("tid", GraphTestOidc.WorkforceTenant), ("oid", GraphTestOidc.WorkforceObject));
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{Callback}?code=e2e-code&state={Uri.EscapeDataString(challenge.State)}");
+            request.Headers.Add("Cookie", challenge.Cookies);
+
+            var response = await client.SendAsync(request);
+
+            Assert.Equal("workforce-email-unavailable", Reason(response));
+            Assert.Null(factory.AdminResolver.Resolved); // denied before resolve — no null-email admin created
+            Assert.Empty(factory.AdminSessions.Added);
+        }
+    }
+
+    [Fact]
     public async Task Successful_profile_resolution_establishes_a_session()
     {
         var (factory, client) = Build();
