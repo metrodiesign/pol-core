@@ -275,14 +275,39 @@ public sealed class AdminGraphEmployeeProfileE2ETests
             Assert.Equal(new GraphAdminResolved(
                 User.MicrosoftProvider, Guid.Parse(GraphTestOidc.WorkforceTenant),
                 GraphTestOidc.WorkforceObject, Email, "AB12"), factory.AdminResolver.Resolved); // REQ-2.1/2.16
-            var graph = Assert.Single(factory.Graph.Requests); // REQ-1.3/1.18: exactly one GET /v1.0/me?$select=employeeId
+            var graph = Assert.Single(factory.Graph.Requests); // REQ-1.18: exactly one GET /me (employeeId + contact fallback)
             Assert.Equal(HttpMethod.Get, graph.Method);
-            Assert.Equal(GraphTestOidc.GraphOrigin + "/v1.0/me?$select=employeeId", graph.RequestUri!.ToString());
+            Assert.Equal(GraphTestOidc.GraphOrigin + "/v1.0/me?$select=employeeId,mail,userPrincipalName", graph.RequestUri!.ToString());
             Assert.Equal("Bearer", graph.Headers.Authorization!.Scheme);
             Assert.Equal(GraphTestOidc.AccessToken, graph.Headers.Authorization.Parameter);
             // REQ-1.5/1.6: the token reaches neither the browser nor the audit.
             Assert.DoesNotContain(GraphTestOidc.AccessToken, response.Headers.Location!.ToString(), StringComparison.Ordinal);
             Assert.DoesNotContain(response.Headers.GetValues("Set-Cookie"), c => c.Contains(GraphTestOidc.AccessToken, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task Missing_id_token_email_falls_back_to_graph_mail()
+    {
+        var (factory, client) = Build();
+        using (factory)
+        using (client)
+        {
+            factory.Graph.Body =
+                """{"employeeId":"e12","mail":"graph.user@viriyah.co.th","userPrincipalName":"upn@viriyah.co.th"}""";
+            var challenge = await StartAsync(client);
+
+            // id_token carries NO email claim; the resolver must receive the Graph mail (mail wins over UPN).
+            factory.Backchannel.IdToken = GraphTestOidc.CreateIdToken(
+                GraphE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+                ("sub", "pairwise"), ("tid", GraphTestOidc.WorkforceTenant), ("oid", GraphTestOidc.WorkforceObject));
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{Callback}?code=e2e-code&state={Uri.EscapeDataString(challenge.State)}");
+            request.Headers.Add("Cookie", challenge.Cookies);
+
+            await client.SendAsync(request);
+
+            Assert.Equal("graph.user@viriyah.co.th", factory.AdminResolver.Resolved!.Email);
         }
     }
 

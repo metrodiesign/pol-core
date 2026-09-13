@@ -20,7 +20,8 @@ Subject  = canonical validated oid
   workforce claims, เรียก Graph, query database หรือสร้าง session
 - lookup, JIT, conflict และ recovery ใช้ exact `(Provider, TenantId, Subject)` เท่านั้น
 - Email เป็น optional non-unique contact attribute อาจ absent, mutable, reused หรือซ้ำกันได้
-- Admin Microsoft ไม่ fallback ไป Email, UPN, `preferred_username`, `WorkforceEmailKey` หรือ `EmployeeId`
+- Admin Microsoft ไม่ fallback ไป Email, UPN, `preferred_username`, `WorkforceEmailKey` หรือ `EmployeeId` เพื่อ
+  resolve/bind/JIT/authorization (identity/authz เท่านั้น) — การ populate contact email มี Graph fallback ดูข้อ 4
 - claims ไม่เปลี่ยน Tier, role, permission หรือ `MerchantAccess`
 - unknown exact tuple ทำ roleless `Active + Scoped` JIT; Suspended exact tuple ถูกปฏิเสธ
 - session ownership ยังคง internal `AdminId`
@@ -72,12 +73,16 @@ loginด้วย `access_denied`ยังได้ `access-denied` ระบบ
 ทุก Admin Microsoft OIDC callbackใหม่ที่ protocolและ workforce validationผ่านใช้ access tokenแบบ transientเพื่อเรียก:
 
 ```http
-GET /v1.0/me?$select=employeeId
+GET /v1.0/me?$select=employeeId,mail,userPrincipalName
 ```
 
 access token ไม่ถูก persist จากนั้นระบบ normalize `employeeId` และ query `dbo.VibEmp` ด้วย exact parameterized
 `EmpCode` match โดยอ่านเฉพาะ `EmpCode`, `FirstNameTh`, `LastNameTh` แล้ว commit identity, profileและ `UserAudits`
 ตาม transaction contract Existing Admin session requestและ session rotationไม่ใช่ OIDC callbackใหม่ จึงไม่เรียก Graph
+
+Contact email (non-identity): id_token `email` claim มาก่อน; ถ้า absent/malformed จึง fallback ไป Graph `mail`
+แล้ว `userPrincipalName` ค่าที่ได้ผ่าน `AdminContactEmail` (format + TLD) ถ้าไม่ผ่านก็เก็บ `NULL` โดย login ไม่ล่ม
+`employeeId` ยัง mandatory และเป็นตัวตัดสิน success ของ callback เหมือนเดิม
 
 กฎ profile:
 
