@@ -23,7 +23,10 @@ internal sealed class OpenIddictRefreshTokenRotator(IOpenIddictTokenManager toke
         return descriptor.ReferenceId;
     }
 
-    public async Task<string?> RotateAsync(string refreshToken, CancellationToken cancellationToken)
+    /// <summary>Redeems the current reference token and creates its successor expiring at <paramref name="expiresAt"/>:
+    /// the successor must track the new BFF ticket, not the lifetime of the row it replaces, or a proactively
+    /// refreshed session would outlive its refresh token row (and be pruned from under it once pruning is on).</summary>
+    public async Task<string?> RotateAsync(string refreshToken, DateTimeOffset expiresAt, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(refreshToken))
             return null;
@@ -37,7 +40,7 @@ internal sealed class OpenIddictRefreshTokenRotator(IOpenIddictTokenManager toke
             ApplicationId = await tokens.GetApplicationIdAsync(current, cancellationToken),
             AuthorizationId = await tokens.GetAuthorizationIdAsync(current, cancellationToken),
             CreationDate = DateTimeOffset.UtcNow,
-            ExpirationDate = await tokens.GetExpirationDateAsync(current, cancellationToken),
+            ExpirationDate = expiresAt,
             ReferenceId = BffSessionManager.NewToken(),
             Status = OpenIddictConstants.Statuses.Valid,
             Subject = await tokens.GetSubjectAsync(current, cancellationToken),

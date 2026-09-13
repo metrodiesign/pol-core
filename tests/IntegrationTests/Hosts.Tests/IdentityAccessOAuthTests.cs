@@ -657,8 +657,12 @@ public sealed class IdentityAccessOAuthTests
             ExpirationDate = DateTimeOffset.UtcNow.AddMinutes(10),
         };
         await manager.CreateAsync(descriptor, default);
+        // A refreshed session gets a full new lifetime; the successor row must follow it, not the 10-minute
+        // expiry of the row it replaces.
+        var later = DateTimeOffset.UtcNow.AddHours(8);
+        var successorExpiresAt = new DateTimeOffset(later.Ticks - later.Ticks % TimeSpan.TicksPerSecond, TimeSpan.Zero);
 
-        var successor = await rotator.RotateAsync(raw, default);
+        var successor = await rotator.RotateAsync(raw, successorExpiresAt, default);
 
         Assert.False(string.IsNullOrWhiteSpace(successor));
         Assert.NotEqual(raw, successor);
@@ -670,6 +674,7 @@ public sealed class IdentityAccessOAuthTests
             await manager.GetStatusAsync(oldToken!, default));
         Assert.Equal(OpenIddictConstants.Statuses.Valid,
             await manager.GetStatusAsync(newToken!, default));
+        Assert.Equal(successorExpiresAt, await manager.GetExpirationDateAsync(newToken!, default));
     }
 
     // Bugfix: the employee callback stored Entra's refresh token in the BFF ticket, so API-011 (rotate through the
@@ -695,7 +700,7 @@ public sealed class IdentityAccessOAuthTests
         Assert.Equal(OpenIddictConstants.TokenTypeIdentifiers.RefreshToken, await manager.GetTypeAsync(token!, default));
         Assert.Equal(OpenIddictConstants.Statuses.Valid, await manager.GetStatusAsync(token!, default));
         Assert.Equal(expiresAt, await manager.GetExpirationDateAsync(token!, default));
-        var successor = await rotator.RotateAsync(raw, default);
+        var successor = await rotator.RotateAsync(raw, expiresAt.AddHours(1), default);
         Assert.False(string.IsNullOrWhiteSpace(successor));
         Assert.NotEqual(raw, successor);
     }
