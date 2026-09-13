@@ -1,4 +1,5 @@
 extern alias ApiHost;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using Accounts.Application;
 using Accounts.Domain;
@@ -22,12 +23,16 @@ file sealed class IdentityAuthorizationState
     public string? TokenContext { get; set; }
     public string? RequiredPermission { get; set; }
     public Guid? TokenAccountId { get; set; }
+    public string? Email { get; set; }
 }
 
 file sealed class IdentityAuthorizationQuery(IdentityAuthorizationState state) : IIdentityAccessQuery
 {
     public Task<Account?> FindAccountAsync(Guid accountId, CancellationToken cancellationToken) =>
         Task.FromResult<Account?>(accountId == state.Account.Id ? state.Account : null);
+
+    public Task<string?> FindLoginEmailAsync(Guid accountId, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(accountId == state.Account.Id ? state.Email : null);
 
     public Task<SystemClientResolution?> FindSystemClientAsync(string clientId, CancellationToken cancellationToken) =>
         Task.FromResult<SystemClientResolution?>(null);
@@ -145,6 +150,19 @@ public sealed class IdentityAccessAuthorizationHttpTests
         factory.State.Account.BumpAuthorizationVersion(DateTime.UtcNow);
         response = await client.GetAsync("/api/v1/me");
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Me_exposes_the_login_contact_email()
+    {
+        using var factory = new IdentityAuthorizationFactory();
+        using var client = factory.CreateClient();
+        factory.State.Email = "employee@example.test";
+
+        var me = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/me");
+
+        Assert.Equal("employee@example.test", me.GetProperty("email").GetString());
+        Assert.Equal(factory.State.Account.DisplayName, me.GetProperty("displayName").GetString());
     }
 
     [Fact]

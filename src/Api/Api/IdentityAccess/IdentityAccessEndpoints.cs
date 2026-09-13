@@ -644,6 +644,7 @@ internal static class IdentityAccessEndpoints
             accountId = account.Id,
             accountType = account.AccountType.ToString().ToUpperInvariant(),
             displayName = account.DisplayName,
+            email = await identities.FindLoginEmailAsync(account.Id, cancellationToken),
             status = account.Status.ToString().ToUpperInvariant(),
             authorizationVersion = account.AuthorizationVersion,
             merchantContext = GetMerchantId(http.User),

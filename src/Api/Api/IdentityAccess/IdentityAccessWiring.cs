@@ -158,18 +158,47 @@ internal static class IdentityAccessWiring
                 {
                     var login = context.HttpContext.RequestServices
                         .GetRequiredService<IdentityBffLoginService>();
-                    await login.CompleteAsync(context, kind);
+                    try
+                    {
+                        await login.CompleteAsync(context, kind);
+                    }
+                    catch (IdentityAccessException failure)
+                    {
+                        // Policy/JIT denial (tenant, issuer, audience, eligibility): a browser outcome, not a 500.
+                        context.HttpContext.RequestServices.GetRequiredService<ILogger<IdentityBffLoginService>>()
+                            .LogWarning("{Kind} login denied at callback: {Code}. TraceId {TraceId}.",
+                                kind, failure.Code, context.HttpContext.TraceIdentifier);
+                        DenyToWebApp(context.HttpContext, kind, failure.Code.Replace('_', '-'));
+                    }
                     context.HandleResponse();
+                },
+                OnAccessDenied = context =>
+                {
+                    DenyToWebApp(context.HttpContext, kind, "access-denied");
+                    context.HandleResponse();
+                    return Task.CompletedTask;
                 },
                 OnRemoteFailure = context =>
                 {
-                    if (!context.Response.HasStarted)
-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    DenyToWebApp(context.HttpContext, kind, "auth-failed");
                     context.HandleResponse();
                     return Task.CompletedTask;
                 },
             };
         });
+    }
+
+    /// <summary>The callback lands on the API origin, so a failed login is sent back to the SPA error page with a
+    /// non-sensitive reason (same contract as the legacy admin flow: <c>/login-error?reason=...</c>).</summary>
+    private static void DenyToWebApp(HttpContext http, IdentityLoginKind kind, string reason)
+    {
+        if (http.Response.HasStarted)
+            return;
+        var settings = http.RequestServices.GetRequiredService<IOptions<IdentityAccessOptions>>().Value;
+        var target = IdentityBffLoginService.ToWebApp(
+            "/login-error",
+            kind == IdentityLoginKind.Employee ? settings.WorkforceWebAppBaseUrl : settings.AgentWebAppBaseUrl);
+        http.Response.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(target, "reason", reason));
     }
 }
 

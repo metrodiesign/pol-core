@@ -20,6 +20,7 @@ file sealed class IdentityAccessLoginFactory : WebApplicationFactory<ApiHost::Pr
     public const string Tenant = "task2-tenant";
     public const string ClientId = "task2-workforce-client";
     public const string Authority = "https://login.task2.test/task2-tenant/v2.0";
+    public const string WebApp = "https://spa.task2.test";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -34,6 +35,7 @@ file sealed class IdentityAccessLoginFactory : WebApplicationFactory<ApiHost::Pr
         builder.UseSetting("IdentityAccess:WorkforceIssuer", Authority);
         builder.UseSetting("IdentityAccess:WorkforceTenantId", Tenant);
         builder.UseSetting("IdentityAccess:WorkforceAudience", ClientId);
+        builder.UseSetting("IdentityAccess:WorkforceWebAppBaseUrl", WebApp);
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.IgnoreMachineLocalDevelopmentSettings();
@@ -98,6 +100,38 @@ public sealed class IdentityAccessLoginTests
         Assert.NotNull(properties);
         Assert.Equal("/dashboard", properties!.RedirectUri);
         Assert.Equal("workforce", properties.Items["identity.realm"]);
+    }
+
+    [Theory]
+    [InlineData("access_denied", "access-denied")]
+    [InlineData("server_error", "auth-failed")]
+    public async Task Provider_failure_at_the_callback_redirects_to_the_web_app_error_page(
+        string providerError, string expectedReason)
+    {
+        using var factory = new IdentityAccessLoginFactory();
+        // https base: the OIDC correlation cookie is Secure, so the client only replays it on an https origin.
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri("https://localhost"),
+        });
+        var login = await client.GetAsync("/api/v1/auth/employees/login?returnTo=/dashboard");
+        var state = QueryHelpers.ParseQuery(login.Headers.Location!.Query)["state"].ToString();
+
+        var callback = await client.PostAsync(
+            "/api/v1/auth/employees/callback",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["state"] = state,
+                ["error"] = providerError,
+                ["error_description"] = "provider rejected the request",
+            }));
+
+        Assert.Equal(HttpStatusCode.Found, callback.StatusCode);
+        Assert.Equal(
+            $"{IdentityAccessLoginFactory.WebApp}/login-error?reason={expectedReason}",
+            callback.Headers.Location!.ToString());
+        Assert.DoesNotContain("provider rejected", callback.Headers.Location.ToString());
     }
 
     [Fact]

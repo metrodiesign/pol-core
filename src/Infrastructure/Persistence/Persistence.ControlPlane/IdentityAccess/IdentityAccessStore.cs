@@ -238,6 +238,12 @@ internal sealed class IdentityAccessStore
     public Task<Account?> FindAccountAsync(Guid accountId, CancellationToken cancellationToken) =>
         db.Accounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId, cancellationToken);
 
+    public Task<string?> FindLoginEmailAsync(Guid accountId, CancellationToken cancellationToken) =>
+        db.LoginAccounts.AsNoTracking()
+            .Where(x => x.AccountId == accountId)
+            .Select(x => x.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<SystemClientResolution?> FindSystemClientAsync(
         string clientId, CancellationToken cancellationToken)
     {

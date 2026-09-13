@@ -229,6 +229,9 @@ public interface IIdentityAccessQuery
 {
     Task<Account?> FindAccountAsync(Guid accountId, CancellationToken cancellationToken);
 
+    /// <summary>Contact email of the account's human login (null for SYSTEM accounts or when the IdP sent none).</summary>
+    Task<string?> FindLoginEmailAsync(Guid accountId, CancellationToken cancellationToken);
+
     Task<SystemClientResolution?> FindSystemClientAsync(
         string clientId, CancellationToken cancellationToken);
 
