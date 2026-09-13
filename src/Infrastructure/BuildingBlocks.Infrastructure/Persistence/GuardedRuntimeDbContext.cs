@@ -35,6 +35,11 @@ public abstract class GuardedRuntimeDbContext : DbContext
         _telemetry = telemetry;
     }
 
+    // Every runtime context builder (registrations, factories, provisioning, tests) funnels through here, so the
+    // pooled-connection isolation-level reset cannot be forgotten by a new UseSqlServer call site.
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+        optionsBuilder.AddInterceptors(ReadCommittedResetInterceptor.Instance);
+
     public sealed override int SaveChanges() => SaveChanges(acceptAllChangesOnSuccess: true);
 
     public sealed override int SaveChanges(bool acceptAllChangesOnSuccess)
