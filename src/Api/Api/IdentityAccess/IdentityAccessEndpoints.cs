@@ -642,10 +642,11 @@ internal static class IdentityAccessEndpoints
         return Results.Ok(new
         {
             accountId = account.Id,
-            accountType = account.AccountType.ToString().ToUpperInvariant(),
+            // Enums go through the global JsonStringEnumConverter so /me spells them the same way /me/access does.
+            accountType = account.AccountType,
             displayName = account.DisplayName,
             email = await identities.FindLoginEmailAsync(account.Id, cancellationToken),
-            status = account.Status.ToString().ToUpperInvariant(),
+            status = account.Status,
             authorizationVersion = account.AuthorizationVersion,
             merchantContext = GetMerchantId(http.User),
         });

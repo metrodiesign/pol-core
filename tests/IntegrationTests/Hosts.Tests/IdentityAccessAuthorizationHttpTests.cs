@@ -166,6 +166,21 @@ public sealed class IdentityAccessAuthorizationHttpTests
     }
 
     [Fact]
+    public async Task Me_spells_account_type_and_status_the_same_way_as_me_access()
+    {
+        using var factory = new IdentityAuthorizationFactory();
+        using var client = factory.CreateClient();
+
+        var me = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/me");
+        var access = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/me/access");
+
+        Assert.Equal("Employee", me.GetProperty("accountType").GetString());
+        Assert.Equal("Active", me.GetProperty("status").GetString());
+        Assert.Equal(access.GetProperty("accountType").GetString(), me.GetProperty("accountType").GetString());
+        Assert.Equal(access.GetProperty("accountStatus").GetString(), me.GetProperty("status").GetString());
+    }
+
+    [Fact]
     [Trait("Requirement", "REQ-3.4")]
     public async Task Account_self_context_denies_a_subject_that_is_not_the_account_owner()
     {
