@@ -259,15 +259,17 @@ permission key เฉพาะ); เขียน (create/update/delete role, set
 | Method | Path | Gate | CSRF | Success | Note |
 |---|---|---|---|---|---|
 | GET | `/api/v1/admins/permissions` | any admin | — | 200 | catalog: `groups[{key,label}]` + `permissions[{key,label,resource}]` |
-| GET | `/api/v1/admins/roles` | any admin | — | 200 | SFS list ของบทบาท พร้อม permissions + จำนวนผู้ใช้ที่ผูก (`userCount`) |
-| GET | `/api/v1/admins/roles/{code}` | any admin | — | 200 | บทบาทเดียว; ไม่รู้จัก code -> 404 |
-| POST | `/api/v1/admins/roles` | `user.roles` | ต้อง | 201 | รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
-| PUT | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 200 | code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
-| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409; `platform_admin` (seed anchor) ลบไม่ได้เสมอ -> 409 แม้ไม่มีใครผูกอยู่เลย |
-| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404 |
+| GET | `/api/v1/admins/roles` | any admin | — | 200 | **`PagedResult<RoleResponse>`** `{ items, page, limit, total }` (ไม่ใช่ array ตรง ๆ) SFS: `page`/`limit`/`filters`/`sort`/`search`; แต่ละ item มี `version` แต่ list ไม่ส่ง header `ETag` |
+| GET | `/api/v1/admins/roles/{code}` | any admin | — | 200 | บทบาทเดียว + header `ETag: "v<version>"`; ไม่รู้จัก code -> 404 |
+| POST | `/api/v1/admins/roles` | `user.roles` | ต้อง | 201 | คืน `ETag` ของ role ใหม่; รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
+| PUT | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 200 | **ต้องส่ง `If-Match: "v<version>"`** ไม่ส่ง/รูปแบบผิด -> 400 `invalid_etag`; version ไม่ตรง -> 409 `state_conflict`; คืน `ETag` ใหม่; code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
+| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | **ต้องส่ง `If-Match`** (400/409 เหมือน PUT); บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409; `platform_admin` (seed anchor) ลบไม่ได้เสมอ -> 409 แม้ไม่มีใครผูกอยู่เลย |
+| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404; ไม่ใช้ `If-Match` |
 
-`RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount }` — `status` เป็น
-lowercase wire string เหมือน admin tier/status.
+`RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount, version }` — `status` เป็น
+lowercase wire string เหมือน admin tier/status; `version` เป็นเลขเดียวกับใน `ETag` (`"v<version>"` เป็น strong ETag
+มี double quote ครอบ) client ต้องเก็บจาก GET/POST/PUT ล่าสุดแล้วส่งกลับใน `If-Match` ตอน PUT/DELETE (SPA ใช้
+`items[].version` จาก list ได้เพราะ list ไม่มี header).
 
 ### Admin control plane
 
