@@ -235,7 +235,7 @@ reads gate ด้วย permission `user.view` (single-key ไม่ใช่ ti
 | Method | Path | Gate | CSRF | Success | Note |
 |---|---|---|---|---|---|
 | GET | `/api/v1/admins` | `user.view` | — | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
-| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive) และ version; unknown -> 404 |
+| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive) และ `version` + header `ETag: "v<version>"` (ใช้เป็น `If-Match` ของ `PUT /{id}/roles`); unknown -> 404 |
 | GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | — | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/tier` | **Super** | ต้อง | 200 | body `{ "tier": "super"\|"scoped" }` (response `tier` เป็น PascalCase — ดู quirk ด้านบน); เปลี่ยน tier ตัวเอง -> 403; idempotent ถ้า tier ตรงกับปัจจุบัน; tier ไม่รู้จัก -> 400; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/reactivate` | **Super** | ต้อง | 204 | คืน Active + revoke session ทั้งหมดของ target (fresh-login); idempotent; unknown -> 404 |
@@ -264,7 +264,7 @@ permission key เฉพาะ); เขียน (create/update/delete role, set
 | POST | `/api/v1/admins/roles` | `user.roles` | ต้อง | 201 | คืน `ETag` ของ role ใหม่; รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
 | PUT | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 200 | **ต้องส่ง `If-Match: "v<version>"`** ไม่ส่ง/รูปแบบผิด -> 400 `invalid_etag`; version ไม่ตรง -> 409 `state_conflict`; คืน `ETag` ใหม่; code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
 | DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | **ต้องส่ง `If-Match`** (400/409 เหมือน PUT); บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409; `platform_admin` (seed anchor) ลบไม่ได้เสมอ -> 409 แม้ไม่มีใครผูกอยู่เลย |
-| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404; ไม่ใช้ `If-Match` |
+| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | **ต้องส่ง `If-Match: "v<version>"` ของ Admin** (จาก `ETag`/`version` ของ `GET /admins/{id}` ไม่ใช่ของ role) ไม่ส่ง -> 400 `invalid_etag`, stale -> 409 `state_conflict`; คืน `ETag` ใหม่บน 204; แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404 |
 
 `RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount, version }` — `status` เป็น
 lowercase wire string เหมือน admin tier/status; `version` เป็นเลขเดียวกับใน `ETag` (`"v<version>"` เป็น strong ETag
