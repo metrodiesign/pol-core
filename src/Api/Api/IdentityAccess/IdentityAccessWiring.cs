@@ -194,6 +194,9 @@ internal sealed class IdentityBffLoginService(
         var properties = context.Properties ?? new AuthenticationProperties();
         var verified = FromPrincipal(principal, properties.GetTokenValue("id_token"), workforceEligible: kind == IdentityLoginKind.Employee);
         var settings = options.Value;
+        // RemoteAuthenticationHandler moves Properties.RedirectUri into ReturnUri (and nulls it) before raising
+        // TicketReceived, so the login-time returnTo is only available here.
+        var returnTo = context.ReturnUri ?? properties.RedirectUri;
         if (kind == IdentityLoginKind.Employee)
         {
             var result = await employeeJit.ResolveAsync(
@@ -216,10 +219,10 @@ internal sealed class IdentityBffLoginService(
                 accessToken: null,
                 refreshToken,
                 merchantId: null,
-                properties.RedirectUri ?? "/",
+                returnTo ?? "/",
                 context.HttpContext.RequestAborted);
             bff.WriteCookies(context.HttpContext, issue.SessionToken, issue.CsrfToken);
-            Redirect(context.HttpContext, properties.RedirectUri);
+            context.HttpContext.Response.Redirect(ToWebApp(returnTo, settings.WorkforceWebAppBaseUrl));
             return;
         }
 
@@ -236,7 +239,22 @@ internal sealed class IdentityBffLoginService(
             "pol_registration_session",
             session.RawReference,
             new CookieOptions { HttpOnly = true, Secure = context.HttpContext.Request.IsHttps, Path = "/" });
-        Redirect(context.HttpContext, "/register");
+        context.HttpContext.Response.Redirect(ToWebApp("/register", settings.AgentWebAppBaseUrl));
+    }
+
+    /// <summary>The callback lands on the API origin: a same-origin path (already normalized at login) is made
+    /// absolute against the SPA origin when one is configured, otherwise it stays relative. Anything that is not
+    /// a same-origin path collapses to "/". Mirrors admin LoginService.ToSpa.</summary>
+    internal static string ToWebApp(string? path, string webAppBaseUrl)
+    {
+        // "//host" and "/\host" are both read as protocol-relative (off-origin) by browsers.
+        var target = string.IsNullOrWhiteSpace(path)
+            || !path.StartsWith('/')
+            || path.StartsWith("//", StringComparison.Ordinal)
+            || path.StartsWith("/\\", StringComparison.Ordinal)
+            ? "/"
+            : path;
+        return string.IsNullOrEmpty(webAppBaseUrl) ? target : webAppBaseUrl.TrimEnd('/') + target;
     }
 
     private static VerifiedHumanIdentity FromPrincipal(ClaimsPrincipal principal, string? idToken, bool workforceEligible)
@@ -266,10 +284,4 @@ internal sealed class IdentityBffLoginService(
         Guid.TryParse(value, out var merchantId) && merchantId != Guid.Empty
             ? merchantId
             : throw new IdentityAccessException("registration_merchant_required", "A trusted Merchant context is required.");
-
-    private static void Redirect(HttpContext context, string? path)
-    {
-        var target = string.IsNullOrWhiteSpace(path) || !path.StartsWith('/') ? "/" : path;
-        context.Response.Redirect(target);
-    }
 }
