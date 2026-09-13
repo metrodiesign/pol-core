@@ -1,60 +1,84 @@
-# Source Structure
+# โครงสร้าง Source ปัจจุบัน
 
-> As-built 2026-08-13.
+เอกสารนี้อธิบาย layout ที่ tracked ของ `pol-core` หลัง `platform-restructure-v1` โดยยึด 4 source projects และ 3 test projects ใน solution ปัจจุบัน.
+
+## Projects และเส้นทางหลัก
 
 ```text
 src/
-  BuildingBlocks/
-    BuildingBlocks.Application/
-    BuildingBlocks.Infrastructure/   migration owner, vault/outbox/security base
-    BuildingBlocks.Web/
-  Contracts/                         versioned cross-module events
-  Hosts/Api/                         composition, BFF, routes, Order coordinator
-  Modules/
-    Admins/ Iam/ Governance/ Notifications/ Reporting/
-    Merchants/ Products/ Carts/ Orders/ Payments/
-  Persistence/
-    Persistence.ControlPlane/
-    Persistence.MerchantUsers/
-    Persistence.MerchantRuntime/
-    Persistence.Provisioning/
-  SharedKernel/
+  Api/
+    Api/                         composition root, HTTP routes, BFF และ background dispatch
+    BuildingBlocks.Web/          middleware, CORS, health และ ProblemDetails
+  Application/
+    BuildingBlocks.Application/  ports, actor/tenant guards, paging/SFS และ cross-cutting contracts
+    Contracts/                   published cross-module notifications/events
+    Modules/                     module commands, queries, handlers และ ports
+  Domain/                         one Domain project
+    SharedKernel/                Entity, AggregateRoot, Money และ value types
+    Modules/                     domain aggregates, invariants และ enums
+  Infrastructure/
+    BuildingBlocks.Infrastructure/ migration owner, persistence primitives, outbox และ vault base
+    Modules/                     module registrations, adapters และ EF mappings
+    Persistence/                 runtime contexts, repositories, dispatchers และ provisioning
+    Tools/                       explicit operator tools เช่น workforce identity migrator
+
 tests/
-  * module tests
-  Architecture.Tests/
-  Hosts.Tests/
-  Integration.Tests/
+  UnitTests/                     domain/application/unit coverage แยกตาม module
+  ArchitectureTests/             dependency, mapping, isolation และ write-floor checks
+  IntegrationTests/              host, SQL Server, migration และ end-to-end contract checks
 ```
+
+Project wrappers หรือ compatibility/build residue รุ่นเก่าที่อาจเหลือใน working tree ไม่ใช่ tracked source projects ปัจจุบัน. Source of truth คือ project paths ด้านบนและ `pol-core.slnx`.
 
 ## Dependency direction
 
-Domain has no infrastructure dependency. Application depends on Domain + published ports/contracts. Infrastructure
-implements owner ports. Host composes modules and owns narrow cross-module coordinator. Architecture tests enforce project
-references, raw/bypass allowlists, transaction ownership and retired-surface bans.
+```text
+Api -> Infrastructure -> Application -> Domain
+Domain/SharedKernel เป็น folder ภายใน project Domain ไม่ใช่ project เพิ่ม
+Application/Contracts เป็น event seam ที่ host และ adapter ใช้ร่วมกัน
+```
 
-Commerce flow: `Products -> Carts -> Orders -> Payments`. Admin support is split into `Governance`,
-`Notifications` and `Reporting`; it reads/writes through existing module owners and does not add a Transaction
-ledger. No Checkouts project. Cross-module events are `PaymentPaid`, `PaymentFailed`, `PaymentExpired` plus
-notification/governance outbox messages.
+`Domain` ไม่ reference EF Core หรือ `Infrastructure`. `Application` ประกาศ command/query, handler contract และ port; `Infrastructure` เป็น implementation; `Api` เป็น composition root และเป็นเจ้าของ route รวมถึง coordinator ที่ต้องเชื่อมหลาย module. เนื่องจากทุก domain module อยู่ใน project เดียวกัน architecture tests จึงบังคับ module namespace/dependency boundary แทนการอ้าง project reference แยก; cross-module business fact ใช้ `Application/Contracts` หรือ approved application port.
 
-## Persistence
+## Current module roots
 
-`PolDbContext` owns migrations only. Runtime contexts are ControlPlane, MerchantUsers and MerchantRuntime. Fresh migration
-folder contains the initial schema, one-based enum storage, Merchant/Admin API identity, governance, resource-version,
-tenant/PSP/routing, commerce lifecycle and delivery/inbound-webhook migrations plus snapshot. EF configuration remains
-colocated with module Infrastructure or runtime persistence adapter according to ownership.
+Module names ที่ source ใช้จริงมี `Access`, `Accounts`, `Admins`, `Carts`, `Checkouts`, `Governance`, `Iam`, `Merchants`, `Migration`, `Notifications`, `Orders`, `Payments`, `Platform`, `Products` และ `Reporting`. บาง module เป็น support-only และจึงมีเพียงบาง layer เช่น `Migration`/`Platform` อยู่ใน Application หรือ `Access` มี Domain/Infrastructure mapping.
 
-## API
+Commerce path คือ `Products -> Carts -> Orders -> Checkouts/PaymentLink -> Payments -> Notifications`. `Checkouts` ใน current code เป็น capability/payment-link และ transaction boundary; ไม่ใช่ persisted legacy Checkout session.
 
-Routes use `/api/v1/{area}`. Infrastructure routes are `/health/*`, `/openapi/*`, `/scalar`. Merchant-user and Admin BFF,
-Admin control-plane, governance, delivery and reporting routes run in the same `Api` host. Schemes/cookies/CORS are
-separate. Mutations require corresponding CSRF policy. OpenAPI contract tests boot real host.
+## Runtime persistence
+
+Runtime register เพียง 2 contexts:
+
+| Context | เจ้าของข้อมูล | ข้อสังเกต |
+|---|---|---|
+| `ControlPlaneDbContext` | `admin`, `iam`, `acct`, `access`, `oauth`, `cfg`, merchant identity/profile/vault และ `txn` provider/routing/capability/approval configuration | identity/access rows อยู่ context เดียวกัน; merchant-scoped reads ใช้ actor/filter ตาม entity |
+| `CommerceDbContext` | `shop`, `checkout` และ `txn` เฉพาะ payment attempts, Transactions/events, inbound webhooks, outbox และ notification runtime | query filter `MerchantId == CurrentMerchant` และ user/order ownership filter เป็น isolation floor |
+
+`PolDbContext` อยู่ใน `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/PolDbContext.cs` และเป็น migration owner/design-time model เท่านั้น. API startup ไม่ register context นี้; local migration ใช้ explicit operator command.
+
+ทุก runtime context ใช้ `GuardedRuntimeDbContext`, tenant-key metadata และ sealed write authorizer. Named escape hatches สำหรับ admin/cross-merchant read อยู่ใน allowlist พร้อม architecture tests; SQL RLS, `SESSION_CONTEXT` และ bypass principal ไม่ใช่ runtime mechanism ปัจจุบัน.
+
+## API และ background runtime
+
+`src/Api/Api/Program.cs` รวม route root `/api/v1`, named OpenAPI documents, BFF auth, CORS, module registrations และ background dispatch ใน process เดียว. ไม่มี Worker host ที่เป็น runtime dependency. Background services จัดการ outbox, notification/webhook delivery, session/photo pruning และ maintenance ตาม registrations ใน `src/Infrastructure/Persistence/` และ `src/Api/Api/BackgroundDispatch/`.
+
+Infrastructure routes อยู่นอก API area ได้แก่ `/health/*`, `/openapi/*` และ `/scalar`. API area ใช้ path scheme `/api/v1/{area}`; audience/auth policy อยู่ metadata ของ endpoint ไม่อยู่ใน path.
 
 ## Tests
 
-- unit/domain/application: module test projects, including `Governance.Tests`
-- boundary/model/security: Architecture.Tests
-- HTTP/OpenAPI/transaction composition: Hosts.Tests
-- SQL catalog/grants/concurrency/JSON: Integration.Tests on SQL Server 2025
+- `tests/UnitTests` ตรวจ domain/application behavior และ contracts
+- `tests/ArchitectureTests` ตรวจ project references, mapping ownership, query/write floor, bypass allowlist และ legacy retirement
+- `tests/IntegrationTests` ตรวจ real SQL Server, migrations, host routes, OpenAPI, transactions, outbox และ provider capture boundaries
 
-Frontend repositories are outside this tree and not modified by backend specs.
+ชุดทดสอบจาก handoff `platform-restructure-v1` ผ่าน local gates แล้ว แต่ live Entra, PSP, Email/SMS และ production cutover authorization ยังไม่มีหลักฐานใน environment นี้ จึงไม่ประกาศ production-ready.
+
+## Source of truth
+
+- `src/Api/Api/Program.cs`
+- `src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs`
+- `src/Application/Modules/`
+- `src/Domain/Modules/`
+- `src/Infrastructure/Modules/`
+- `src/Infrastructure/Persistence/`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`

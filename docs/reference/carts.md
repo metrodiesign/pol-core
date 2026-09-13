@@ -1,15 +1,15 @@
 # โมดูล Carts
 
-> As-built 2026-08-13. Cart เป็น aggregate ของ merchant สำหรับเก็บรายการก่อนสร้าง Order โดยตรง.
+> As-built 2026-09-12. Cart เป็น aggregate ของ merchant สำหรับ compatibility Cart-to-Order path; canonical Order create ใช้ `CreateOrderCommand` และไม่รับ `cartId`.
 
 ## ขอบเขตปัจจุบัน
 
-- ไม่มี persisted `Checkout` หรือ `CheckoutSession`.
-- Cart flow คือ `Products → Cart → Order → Payment`.
+- ไม่มี persisted legacy `CheckoutSession`; `Checkouts` ปัจจุบันเป็น PaymentLink/capability และ transaction boundary.
+- Compatibility flow คือ `Products → Cart → /orders/from-cart`; canonical flow คือ `Products/trusted source → /orders → PaymentLink → Transaction`.
 - `MerchantId` และ `SaleCode` มาจาก authenticated merchant user; client ส่งสองค่านี้ไม่ได้.
 - `Cart.Status` มี `Open` และ `CheckedOut`.
 - `Cart.Version` เป็น application-managed optimistic concurrency token และเพิ่มทุก mutation รวมถึง line mutation.
-- Cart ใช้ `MerchantRuntimeDbContext`; query filter และ guarded write จำกัด merchant.
+- Cart ใช้ `CommerceDbContext` ที่ประกาศใน `src/Infrastructure/Persistence/Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs`; query filter และ guarded write จำกัด merchant.
 
 ## Domain
 
@@ -73,9 +73,9 @@ server-side. client ส่ง price, `SaleCode`, `VariantName` หรือ meta
 แต่ละ item คืน `ItemId`, `ProductCode`, `VariantCode`, `VariantName`, `Quantity`, `UnitPrice`, `LineTotal`
 และ typed `Metadata`.
 
-## Order handoff
+## Order handoff (compatibility route)
 
-`POST /api/v1/orders` สร้าง Order จาก Cart โดยตรง ไม่มี checkout endpoint. `OrderCreationCoordinator` lookup
+`POST /api/v1/orders/from-cart` สร้าง Order จาก Cart โดยตรง. `OrderCreationCoordinator` lookup
 document สดและ probe ซ้ำก่อนเปิด transaction. ใน transaction เดียว:
 
 1. reload Cart และตรวจ `Status`, `Version` และ lines
@@ -88,23 +88,23 @@ document สดและ probe ซ้ำก่อนเปิด transaction. �
 
 ## Persistence
 
-`shop.Carts` และ `shop.CartItems` อยู่ใน `MerchantRuntimeDbContext`.
+`shop.Carts` และ `shop.CartItems` อยู่ใน `CommerceDbContext`.
 
 `shop.CartItems` มี `Id`, `CartId`, `MerchantId`, `ProductCode`, `SaleCode`, `VariantCode`, `VariantName`,
 `Quantity`, `UnitPriceAmount`, `UnitPriceCurrency` และ `Metadata` native `json`. มี composite parent boundary
 `(CartId, MerchantId)` และ line `Id` ไม่ generated โดย database.
 
-Current migration chain ถึง `20260811024015_AdminDeliveryRuntimeGrants`; รายการเต็มอยู่ใน
+Current migration chain ถึง `20260911163519_ReviewFixPaymentLinkNotificationIntent`; รายการเต็มอยู่ใน
 [`entity-fields.md`](entity-fields.md).
 
-ไม่มี SQL RLS; isolation ใช้ app query filter, actor context และ sealed write guard.
+ไม่มี SQL RLS; isolation ใช้ app query filter, Account/actor context และ sealed write guard.
 
 ## Source of truth
 
-- `src/Modules/Carts/Carts.Domain/Cart.cs`
-- `src/Modules/Carts/Carts.Domain/Items/Item.cs`
-- `src/Modules/Carts/Carts.Application/GetCart.cs`
-- `src/Modules/Carts/Carts.Application/AddItemToCartCommand.cs`
-- `src/Modules/Carts/Carts.Infrastructure/Items/ItemConfiguration.cs`
-- `src/Hosts/Api/Program.cs`
-- `src/Hosts/Api/Orders/OrderCreationCoordinator.cs`
+- `src/Domain/Modules/Carts.Domain/Cart.cs`
+- `src/Domain/Modules/Carts.Domain/Items/Item.cs`
+- `src/Application/Modules/Carts.Application/GetCart.cs`
+- `src/Application/Modules/Carts.Application/AddItemToCartCommand.cs`
+- `src/Infrastructure/Modules/Carts.Infrastructure/Items/ItemConfiguration.cs`
+- `src/Api/Api/Program.cs`
+- `src/Api/Api/Orders/OrderCreationCoordinator.cs`

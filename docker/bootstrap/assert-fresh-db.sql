@@ -19,8 +19,9 @@ IF ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), N'Collation')), N
 
 IF (SELECT COUNT(*) FROM sys.schemas s
     JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
-    WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'shop', N'txn') AND dp.name = N'dbo') <> 6
-    SET @fail += N'application schemas must be six and owned by dbo; ';
+    WHERE s.name IN (N'access', N'acct', N'admin', N'cfg', N'checkout', N'iam', N'merch', N'oauth', N'shop', N'txn')
+      AND dp.name = N'dbo') <> 10
+    SET @fail += N'application schemas must be ten and owned by dbo; ';
 
 DECLARE @expectedMigrations TABLE (MigrationId nvarchar(150) PRIMARY KEY);
 INSERT INTO @expectedMigrations (MigrationId) VALUES
@@ -54,9 +55,25 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260906143227_PaymentSessionRoutingSnapshot'),
     (N'20260906151900_SharedRoleScope'),
     (N'20260907023022_InboundWebhookPendingMatch'),
-    (N'20260907033444_LegacyVaultExpiryRemediation');
+    (N'20260907033444_LegacyVaultExpiryRemediation'),
+    (N'20260910021908_Task2IdentityAccess'),
+    (N'20260910031005_Task2AccessReferenceGuards'),
+    (N'20260910031241_Task2PlatformRoleScope'),
+    (N'20260910031648_Task2AgentSaleMerchantGuard'),
+    (N'20260910032407_Task2AccountAuthorizationLease'),
+    (N'20260910035334_Task3MerchantMaster'),
+    (N'20260910044722_Task4AgentRegistration'),
+    (N'20260910060757_Task5OrdersLinks'),
+    (N'20260910075921_Task6Transactions'),
+    (N'20260910094927_Task7NotificationRuntime'),
+    (N'20260910101508_Task7WebhookEndpointUniquenessLive'),
+    (N'20260910121500_Task8RuntimeGrants'),
+    (N'20260910124500_Task8CommerceRuntimeGrants'),
+    (N'20260910140000_Task9MigrationReadiness'),
+    (N'20260911160508_ReviewFixOrderVersionedMetadata'),
+    (N'20260911163519_ReviewFixPaymentLinkNotificationIntent');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 31
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 47
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -65,7 +82,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 31
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 31 expected migrations through LegacyVaultExpiryRemediation; ';
+    SET @fail += N'migration history must contain exactly 47 expected migrations through ReviewFixPaymentLinkNotificationIntent; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -136,8 +153,8 @@ DECLARE @nativeJsonCount int = (
     JOIN sys.types ty ON ty.user_type_id = c.user_type_id
     WHERE ty.name = N'json'
 );
-IF @nativeJsonCount <> 5
-    SET @fail += N'exactly five native json columns required; ';
+IF @nativeJsonCount <> 11
+    SET @fail += N'exactly eleven native json columns required; ';
 IF (SELECT COUNT(*)
     FROM sys.columns c
     JOIN sys.tables t ON t.object_id = c.object_id
@@ -146,8 +163,18 @@ IF (SELECT COUNT(*)
     WHERE ty.name = N'json'
       AND CONCAT(s.name, N'.', t.name, N'.', c.name) IN
           (N'admin.ProvisioningOperations.Result', N'merch.UserOutbox.Payload',
-           N'merch.Merchants.Metadata', N'shop.CartItems.Metadata', N'shop.OrderItems.Metadata')) <> 5
+           N'merch.Merchants.Metadata', N'shop.CartItems.Metadata', N'shop.OrderItems.Metadata',
+           N'acct.Agents.Metadata', N'acct.Employees.Metadata',
+           N'acct.AgentRegistrations.ProfileJson', N'acct.AgentRegistrationAttempts.ProfileJson',
+           N'shop.Orders.Metadata', N'shop.OrderItems.RequestMetadata')) <> 11
     SET @fail += N'native json column allowlist mismatch; ';
+
+IF COL_LENGTH(N'shop.Orders', N'Metadata') IS NULL
+   OR COL_LENGTH(N'shop.OrderItems', N'RequestMetadata') IS NULL
+   OR COL_LENGTH(N'shop.Orders', N'NotificationEmail') IS NULL
+   OR COL_LENGTH(N'shop.Orders', N'NotificationPhoneNumber') IS NULL
+   OR COL_LENGTH(N'shop.Orders', N'NotifyOnIssue') IS NULL
+    SET @fail += N'reviewfix Order metadata/notification columns missing; ';
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'shop.Orders')
                AND name = N'IX_Orders_OrderNo' AND is_unique = 1)

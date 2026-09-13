@@ -8,7 +8,7 @@ fail() {
   exit 1
 }
 
-migration_dir=src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations
+migration_dir=src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations
 mapfile -t migration_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*.cs' \
   ! -name '*.Designer.cs' ! -name '*ModelSnapshot.cs' -print | sort)
 mapfile -t designer_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*.Designer.cs' -print | sort)
@@ -45,8 +45,12 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 31 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 47 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
+grep -qE '20260911160508_ReviewFixOrderVersionedMetadata' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion metadata migration head missing"
+grep -qE '20260911163519_ReviewFixPaymentLinkNotificationIntent' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion notification migration head missing"
 grep -qE 'iam\.Permissions expected 25 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"
 grep -qE 'iam\.RolePermissions expected 36 rows' docker/bootstrap/assert-fresh-db.sql \
@@ -87,15 +91,21 @@ assert_tenant_identity_mutation_detected "nullable Email shape" "c.name = N'Emai
 assert_tenant_identity_mutation_detected "state tables" "WorkforceTenantIdentityMigrations"
 assert_tenant_identity_mutation_detected "tuple index" "IX_Users_Provider_TenantId_Subject"
 assert_tenant_identity_mutation_detected "tuple index order" "Provider,TenantId,Subject"
-grep -qE 'exactly five native json columns required' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'exactly eleven native json columns required' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion native JSON check missing"
+grep -qE 'shop\.Orders\.Metadata' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion Orders.Metadata column missing"
+grep -qE 'shop\.OrderItems\.RequestMetadata' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion OrderItems.RequestMetadata column missing"
+grep -qE 'NotificationEmail|NotificationPhoneNumber|NotifyOnIssue' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion notification intent columns missing"
 
 tmp_script="$(mktemp)"
 trap 'rm -f "$tmp_script"' EXIT
 dotnet ef migrations script 0 \
   --context PolDbContext \
-  --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-  --startup-project src/Hosts/Api \
+  --project src/Infrastructure \
+  --startup-project src/Api \
   --output "$tmp_script" >/dev/null
 
 preflight_line="$(grep -nE 'InitialSchema refused non-empty or legacy target database' "$tmp_script" | head -1 | cut -d: -f1)"

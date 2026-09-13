@@ -184,8 +184,8 @@ integration:
       dotnet tool install --global dotnet-ef --version 10.0.8
       export PATH="$PATH:$HOME/.dotnet/tools"
       dotnet ef database update --context PolDbContext \
-        --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-        --startup-project src/Hosts/Api
+        --project src/Infrastructure \
+        --startup-project src/Api
       ./scripts/check-migration-lineage.sh
       sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -b \
         -v DbName="${POL_DB}" \
@@ -208,7 +208,7 @@ package:
     - |
       set -eu
       IMAGE_TAG="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
-      docker build --target final --build-arg HOST_PROJECT=src/Hosts/Api/Api.csproj --build-arg HOST_DLL=Api.dll -t "$CI_REGISTRY_IMAGE/api:$IMAGE_TAG" .
+      docker build --target final --build-arg HOST_PROJECT=src/Api/Api.csproj --build-arg HOST_DLL=Api.dll -t "$CI_REGISTRY_IMAGE/api:$IMAGE_TAG" .
       docker build --target migrate -t "$CI_REGISTRY_IMAGE/migrate:$IMAGE_TAG" .
       for svc in api migrate; do
         docker push "$CI_REGISTRY_IMAGE/$svc:$IMAGE_TAG"

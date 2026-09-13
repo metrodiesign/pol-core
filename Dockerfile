@@ -53,7 +53,7 @@ RUN apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends mssql-tools18 \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/opt/mssql-tools18/bin:/root/.dotnet/tools:${PATH}"
-RUN dotnet build src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj -c Release --no-restore
+RUN dotnet build src/Infrastructure/Infrastructure.csproj -c Release --no-restore
 # DB CA trust for `sqlcmd -N` is installed at RUNTIME by migrate-entrypoint.sh from the mounted
 # db_ca_cert secret — a build-time install can't work because images are built in CI where the
 # operator's CA doesn't exist, and deploy pulls with `--no-build`.

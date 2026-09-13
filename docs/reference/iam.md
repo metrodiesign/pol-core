@@ -1,76 +1,71 @@
-# Iam Module Reference
+# Iam และ Account/Access Reference
 
-> As-built 2026-08-13. Source of truth: `src/Modules/Iam/Iam.Domain/Permissions/Keys.cs`.
+เอกสารนี้รวม IAM catalog ที่ใช้กับ console และ canonical business identity ที่ใช้กับ Order authorization. สองแกนนี้แยกหน้าที่กัน: IAM บอก action permission ส่วน Account/Access บอก actor, merchant visibility และ owner scope.
 
-## Catalog
+## Canonical identity: Employee, Agent, System
 
-Iam เป็น catalog กลางเดียวสำหรับ Platform (Tier 0), Merchant (Tier 1) และ Shared scope. ทุก permission สืบทอด scope
-จาก group; role ฝั่ง Platform/Merchant ถือ key ฝั่งตนรวม Shared ได้, role Shared ถือ Shared เท่านั้น, grant ข้ามฝั่ง
-ถูก reject ทั้ง domain, persistence และ boot parity guard.
+`Accounts.Domain` มี account type 3 ค่า:
 
-Current seed (2026-09-06, migration `SharedRoleScope`):
+| Type | Identity/การใช้งาน | Access anchor |
+|---|---|---|
+| `Employee` | workforce human ของ platform | `access.PlatformAccess` และ Platform/Shared roles |
+| `Agent` | ตัวแทนที่ผูก `MerchantId` และ `SaleId` เดียว | `access.MerchantAccess.DataScope=Self` หรือ scope ที่ policy อนุญาต |
+| `System` | client credentials สำหรับ integration | `acct.SystemClients` + `access.SystemClientScopes` |
 
-| Scope | Groups | Permissions |
-|---|---:|---:|
-| Platform | 5 | 17 |
-| Merchant | 1 | 5 |
-| Shared | 1 | 3 |
-| Total | 7 | 25 |
+`LoginAccount` เก็บ stable tuple `(Provider, TenantId, ExternalUserId)`; email เป็น contact ที่เปลี่ยนได้. Human identity policy รับ Microsoft provider, issuer/tenant/audience, signature, lifetime, state และ nonce ที่ผ่านแล้ว. Employee ใช้ workforce eligibility; Agent registration ใช้ CIAM identity ที่ยังไม่มี approved Account; System ใช้ signed client assertion, key validity และ JTI replay store.
 
-Groups:
+`AccessEvaluator` เป็น shared policy สำหรับทุก protected path:
 
-- Platform: `txn`, `merchant`, `user`, `system`, `merchants.users`
-- Merchant: `roles`
-- Shared: `payment` (`payment.view`, `payment.create`, `payment.redirect`) — สิทธิ์ commerce ที่ Tier 0 และ Tier 1
-  เรียกร่วมกัน; endpoint `dual-console` ทั้ง 15 จุด gate ด้วย key เดียวนี้ไม่ว่า session ระดับใด
+- `Merchant` เห็น merchant scope ทั้งหมด
+- `Self` ใช้ Agent `SaleId` ของตน
+- `Branch` ต้องมี BranchAccess เดียวที่ตรงกับ order owner branch
+- `AssignedBranches` ต้องมี branch อยู่ในชุดที่ assign
+- access/role/branch/sale ทุกตัวต้องอยู่ merchant เดียวกัน; account inactive, merchant mismatch, stale authorization หรือ owner mismatch เป็น deny
 
-Platform keys สำหรับ Admin control plane ได้แก่ `merchants.users.manage`, `merchants.roles.view` และ
-`merchants.roles.manage`. Merchant keys ได้แก่ `users.view`, `users.manage`, `users.roles`, `roles.view`, `roles.manage`.
+Legacy `Admins.Domain.Users.User`/`MerchantUser` ยังคงเป็น console session adapters (`AdminSession`, `MerchantUser` BFF) และไม่ควรใช้แทน business `Account` ใน canonical `/orders` path.
 
-Retired: `txn.manage` (ฝาแฝดฝั่ง admin ของ `payment.create` — ไม่มี endpoint gate เมื่อ payment เป็น Shared),
-catalog product writes, merchant/admin policy groups และทุก policy permission.
+## IAM catalog
 
-## Roles and grants
+`src/Domain/Modules/Iam.Domain/Permissions/Keys.cs` เป็น source ของ key/group vocabulary. Seed ปัจจุบันหลัง `SharedRoleScope` มี 7 groups, 25 keys, 4 roles และ 36 role grants:
 
-| Role | Scope | Grants | Anchor |
-|---|---|---:|---|
-| `platform_admin` | Platform | 20 | yes |
-| `platform_auditor` | Platform | 5 | no |
-| `merchant_manager` | Merchant | 8 | yes |
-| `merchant_staff` | Shared | 3 | no |
+| Scope | Groups | Keys | กลุ่ม |
+|---|---:|---:|---|
+| Platform | 5 | 17 | `txn`, `merchant`, `user`, `system`, `merchants.users` |
+| Merchant | 1 | 5 | `roles` |
+| Shared | 1 | 3 | `payment` |
 
-รวม 36 seed grants. Anchor role ปิดหรือลบไม่ได้. Seed role มี `MerchantId = NULL`; merchant custom role
-ต้องมี owner merchant และ visibility confined ด้วย `RoleVisibility`. Role scope Shared assign ได้ทั้ง
-`admin.RoleAssignments` (Tier 0) และ `merch.RoleAssignments` (Tier 1) และปรากฏใน role list ของทั้งสอง console.
+Shared keys คือ `payment.view`, `payment.create`, `payment.redirect` และ role `merchant_staff` assign ได้ทั้ง Platform/merchant-side assignment. `txn.manage` เป็น legacy key ที่ถูก retire; endpoint commerce ใช้ `payment.*` ร่วมกัน.
 
-## Active-only resolution
+## Roles และการ resolve
 
-Effective permission รวมเฉพาะ:
+Seed roles คือ `platform_admin`, `platform_auditor`, `merchant_manager`, `merchant_staff`. `platform_admin` และ `merchant_manager` เป็น anchors ที่ลบ/ปิดไม่ได้. Seed role มี `MerchantId = NULL`; custom merchant role ต้องมี owner merchant และ visibility ต้องอยู่ merchant เดียวกัน.
 
-- user/assignment ที่ยัง valid
-- role `Active`
-- permission group `Active`
-- permission `Active`
+Effective permissions คำนวณจาก account/session assignments และเฉพาะ role/group/permission ที่ `Active`. Catalog status หรือ role status เปลี่ยนแล้วมีผล request ถัดไป; permission ไม่ถูกเชื่อจาก client claim. Boot parity guard ตรวจ endpoint gate กับ key catalog และ scope ฝั่งที่ถูกต้อง.
 
-การ deactivate catalog itemหรือ roleมีผล request ถัดไป; permission ไม่ถูก cacheใน client claim.
+## Persisted model และ routes
 
-## Persistence and authorization
+| Owner | Tables |
+|---|---|
+| `iam` | `PermissionGroups`, `Permissions`, `Roles`, `RolePermissions`, `ApiClients`, `OneTimeSecretTickets` |
+| `admin` | `RoleAssignments` สำหรับ Platform/Admin console |
+| `merch` | `RoleAssignments` สำหรับ Merchant-user console |
+| `acct`/`access` | `Accounts`, `LoginAccounts`, `Agents`, `Employees`, `SystemClients`, `MerchantAccess`, `PlatformAccess`, branch/role/method grants |
 
-- Tables: `iam.PermissionGroups`, `iam.Permissions`, `iam.Roles`, `iam.RolePermissions`, `iam.ApiClients`,
-  `iam.OneTimeSecretTickets`
-- Assignments: `admin.RoleAssignments`, `merch.RoleAssignments`
-- Runtime principal: `pol_app`
-- `RequirePermission` ตรวจ scope + resolved keys
-- `PermissionParity.Assert` fail boot เมื่อ endpointใช้ unknown/wrong-scope key
-- Admin และ merchant-user auth scheme แยกขาด
+Canonical admin identity/access routes อยู่ใต้ `/api/v1/accounts...`, `/api/v1/accounts/{accountId}/merchant-access...`, `/api/v1/accounts/{accountId}/platform-access...` และ registration routes อยู่ `/api/v1/agent-registration...`/`/api/v1/agent-registrations...`. Legacy catalog routes `/api/v1/admins/permissions`, `/roles` และ merchant-user `/api/v1/merchants/users/permissions`, `/roles` ยังคงสำหรับ console adapters.
 
-## API clients
+Mutation ของ account/access/role ใช้ CSRF, `If-Match` และ `Idempotency-Key` ตาม endpoint metadata; session revoke จะ bump `AuthorizationVersion` และ lease ที่เปิดอยู่ต้อง recheck ก่อน business write.
 
-Admin API client เป็น credential ของ merchant/originator ไม่ใช่ browser session. `ApiClients` เก็บเฉพาะ
-`SecretHash` และ `SecretHint`; secret plaintext อยู่ใน one-time reveal flow เท่านั้น. การ create/update/revoke
-ใช้ `Idempotency-Key` และ `If-Match` ตาม operation และการหมุน secret สร้าง maker-checker approval ก่อน activate.
+## API clients และ assertion security
 
-Routes อยู่ใต้ `/api/v1/api-clients` และใช้ `apikey.manage`; รายละเอียด request/response อยู่ใน
-[`admin-control-plane.md`](admin-control-plane.md).
+Admin API clients เป็น system credentials ไม่ใช่ browser session. `ApiClients` เก็บ secret hash/hint; plaintext เปิดครั้งเดียวผ่าน one-time ticket. Client key policy pin application/key/algorithm/validity; assertion validation ตรวจ active account/client/key, audience, lifetime และ JTI replay.
 
-Migration seed และ integration tests ต้องตรง 25 permissions / 7 groups / 4 roles / 36 grants.
+## Source of truth
+
+- `src/Domain/Modules/Accounts.Domain/AccountModels.cs`
+- `src/Domain/Modules/Accounts.Domain/RegistrationModels.cs`
+- `src/Domain/Modules/Access.Domain/AccessModels.cs`
+- `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs`
+- `src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs`
+- `src/Domain/Modules/Iam.Domain/Permissions/Keys.cs`
+- `src/Application/Modules/Iam.Application/Permissions/PermissionCatalog.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/20260906151900_SharedRoleScope.cs`

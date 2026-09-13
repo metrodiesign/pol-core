@@ -1,43 +1,67 @@
-# Database Connections and Isolation Floor
+# Database Connections และ Isolation Floor
 
-> As-built 2026-08-13. SQL RLS was retired. Current floor is app-layer query filter + sealed write guard.
+เอกสารนี้อธิบาย connection, runtime contexts และ migration safety ของ source ปัจจุบัน. SQL RLS เป็น historical design ที่ถูกแทนที่ด้วย app-layer floor แล้ว.
 
 ## Connections
 
-| Connection | Purpose | Principal |
+| Connection | ใช้ทำอะไร | Principal/ข้อจำกัด |
 |---|---|---|
-| `ConnectionStrings:App` | all API/background runtime work on `VCentralPay` | `pol_app` |
-| `ConnectionStrings:Migrator` / `POL_DESIGN_SQL` | Development/out-of-band migration | `sa` or DDL migrator |
-| `SpDocument:MotorConnectionString` | Motor source | `hippo_app` |
-| `SpDocument:NonMotorConnectionString` | Non-Motor source | `mammoth_app` |
+| `ConnectionStrings:App` | API และ in-process background runtime บน `VCentralPay` | `pol_app`; ไม่มี DDL |
+| `ConnectionStrings:Migrator` / `POL_DESIGN_SQL` | explicit development/operator migration | `sa` หรือ DDL migrator; ไม่ใช่ request runtime |
+| `SpDocument:MotorConnectionString` | upstream Motor document search | sim/source principal เช่น `hippo_app` ตาม environment |
+| `SpDocument:NonMotorConnectionString` | upstream Non-Motor document search | sim/source principal เช่น `mammoth_app` ตาม environment |
 
-Credentials come from environment/file secret manager only. Runtime principal has no DDL. SQL 2025 build must be
-`17.0.4045.5`+ and `VCentralPay` compatibility level 170.
+Runtime secret มาจาก environment/user-secrets/secret manager; ห้าม hardcode หรือ log. SQL Server baseline ที่ local evidence ใช้คือ `17.0.4045.5` และ compatibility level `170`.
 
-## Context ownership
+## Runtime contexts
 
-- `ControlPlaneDbContext`: admin/IAM/cfg; no merchant dimension
-- `MerchantUserDbContext`: merchant identity/session; merchant query filters on owned rows
-- `MerchantRuntimeDbContext`: merchant profile/vault/shop/txn; deny-default merchant filters
-- `PolDbContext`: full migration model only; never runtime registered
+| Context | ขอบเขต |
+|---|---|
+| `ControlPlaneDbContext` | `acct`, `access`, `admin`, `iam`, `oauth`, `cfg`, merchant identity/profile/branch/sale/originator/vault และ `txn` provider/routing/capability/approval-configuration rows |
+| `CommerceDbContext` | `shop`, `checkout` และ `txn` เฉพาะ payment attempts, inbound webhook, idempotency, outbox, Transactions/events และ notification runtime |
+| `PolDbContext` | full relational model สำหรับ migration/snapshot เท่านั้น; API ไม่ register |
 
-All runtime contexts derive guarded base. Read filter requires bound current merchant. Write guard rejects unbound actor,
-empty/mismatched/changed tenant key, forbidden operation and banned bulk/raw bypass.
+ทุก runtime request ใช้ `pol_app` connection เดียวกัน แต่ context แยก ownership และ write floor. Old `MerchantUserDbContext`/`MerchantRuntimeDbContext` names เหลือใน compatibility tests/comments เท่านั้นและไม่ใช่ registered runtime contexts.
 
-## Escape hatches
+## Isolation floor
 
-Cross-merchant operations use named ports with explicit admin accessible set, reason/correlation and architecture allowlist.
-Direct `IgnoreQueryFilters`, raw SQL, `ExecuteUpdate` or `ExecuteDelete` outside allowlist fails tests. Retired policy reader/
-writer escape hatches are absent.
+1. Query filter ใช้ `CurrentMerchant`; unbound actor ได้ `Guid.Empty` และเห็นศูนย์แถว merchant-scoped.
+2. Merchant-user order/payment reads ตรวจ `InitiatingMerchantUserId` ผ่าน Order relationship เพิ่มจาก merchant filter.
+3. Account/Access policy ตรวจ Account active, merchant context, `DataScope`, Agent `SaleId`, Employee BranchAccess หรือ System scope.
+4. `GuardedRuntimeDbContext` และ `IWriteAuthorizer` ตรวจ tenant key immutable-after-insert, operation allowlist, concurrency และ unbound writes ก่อน commit.
+5. Authorization lease ตรวจ `AuthorizationVersion` ใน transaction เดียวกับ sensitive write เพื่อกัน revoke-then-commit.
 
-## Database security objects
+Cross-merchant admin reads ใช้ named port และ explicit accessible set. การเรียก `IgnoreQueryFilters`, raw SQL, `ExecuteUpdate` หรือ `ExecuteDelete` นอก allowlist ถูก architecture tests ปฏิเสธ. ไม่มี `SECURITY POLICY`, `SESSION_CONTEXT`, `EXECUTE AS` bypass procedure หรือ bypass principal เป็น runtime isolation mechanism.
 
-`SecurityObjects` creates raw sequence/table and one-principal grant matrix. No `SECURITY POLICY`, predicate function,
-`SESSION_CONTEXT` isolation, `EXECUTE AS` bypass procedure or bypass principal remains. Security telemetry sends redacted
-denials/reconciliation events to Seq; logs exclude secrets and PII.
+## Schema ownership
 
-## Migration safety
+| Schema | ตัวอย่างข้อมูล |
+|---|---|
+| `acct` | Accounts, Employees, Agents, SystemClients, BFF/registration sessions |
+| `access` | Merchant/Platform access, branch/role/method grants |
+| `admin` | Admin identity, governance, audit, provisioning, control delivery |
+| `iam` | Permission catalog, roles, API clients, secret tickets |
+| `merch` | Merchant master, sales/branches/originators, merchant users, vault |
+| `shop` | Carts, Orders, OrderItems, reveal audit |
+| `checkout` | PaymentLinks, replay pointers |
+| `txn` | Control Plane: PSP connections, routing, payment capability mappings, approval execution. Commerce: PaymentSessions, Transactions/events, inbound webhooks, idempotency, outbox, Notifications |
+| `cfg` | Payment capability catalog |
+| `oauth` | OpenIddict state และ assertion replay |
+| `dbo` | Data Protection keys และ `__EFMigrationsHistory` |
 
-Fresh chain: `InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage`. Preflight rejects non-empty/legacy target before DDL.
-Production wrapper requires exact `host:port/VCentralPay`, explicit approval, backup URI/SHA-256 and rollback evidence.
-Production rollback restores backup; migration Down is non-production proof only.
+Physical mapping ให้ยึด `PolDbContextModelSnapshot.cs` และ EF configurations ที่มี `ToTable(name, schema)` เสมอ.
+
+## Migration safety และ readiness
+
+Migration chain ปัจจุบันมี 47 migrations และจบที่ `20260911163519_ReviewFixPaymentLinkNotificationIntent`. Task 9 เพิ่ม deterministic mapping/conflict report, target-owner backfill, transaction-scoped writer lease, pause/watermark recovery และ forward-safe rollback machinery.
+
+Local migration parity, pending-model, schema drift, fresh scratch database และ static checks ผ่านตาม handoff. หลักฐานนั้นเป็น local machinery; sanitized backup, master identity mapping, live provider evidence และ production authorization ยังขาด จึงยังไม่ cutover-ready.
+
+## Source of truth
+
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/PolDbContext.cs`
+- `src/Infrastructure/Persistence/Persistence.ControlPlane/ControlPlaneDbContext.cs`
+- `src/Infrastructure/Persistence/Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/GuardedRuntimeDbContext.cs`
+- `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/`
+- [`entity-fields.md`](entity-fields.md)

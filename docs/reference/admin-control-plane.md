@@ -1,6 +1,6 @@
 # Admin Control Plane Reference
 
-เอกสารนี้สรุป Admin API ที่มีอยู่จริงใน `pol-core` ณ 2026-08-13. ใช้คู่กับ [admins.md](admins.md) ซึ่งอธิบาย OIDC, session, cookie และ RBAC พื้นฐาน.
+เอกสารนี้สรุป Admin API ที่มีอยู่จริงใน `pol-core` ณ 2026-09-12. ใช้คู่กับ [admins.md](admins.md) ซึ่งอธิบาย OIDC, session, cookie และ RBAC พื้นฐาน. Canonical Account/Access routes แยกจาก legacy Admin/Merchant-user console adapters.
 
 ## Boundary
 
@@ -26,6 +26,17 @@ Admin control plane ใช้ route root `/api/v1` และ `AdminSession` เ�
 
 `GET` บางรายการของ control plane มี `RequireCsrf` ตาม endpoint metadata ปัจจุบัน. ให้ใช้ OpenAPI เป็น contract สุดท้ายของ header, query และ response.
 
+### Canonical merchant configuration
+
+หลัง `platform-restructure-v1` source มี canonical control-plane routes เพิ่มเติมสำหรับ `Branch`, `Sale`, provider account และ payment capability:
+
+- `/api/v1/merchants/{merchantId}/branches...` และ `/sales...` เป็น owner data ที่ใช้ resolve Order owner
+- `/api/v1/merchants/{merchantId}/provider-accounts...` เป็น provider/account vocabulary ที่ pin environment, credential version และ method capability
+- `/api/v1/merchants/{merchantId}/payment-setting-requests...` ใช้ Governance maker-checker ก่อนเปลี่ยน active settings
+- `/api/v1/payments/...` เดิมยังอยู่เป็น compatibility/control surface; ให้ดู endpoint metadata/OpenAPI ว่า resource ใดใช้ `PspConnection` หรือ provider account canonical contract
+
+Business identity/account administration อยู่ที่ `/api/v1/accounts...` และ `/api/v1/accounts/{accountId}/merchant-access...`/`platform-access`; route เหล่านี้ตรวจ `Account` authorization version และ `DataScope` แยกจาก `AdminSession` tier.
+
 ## Merchant users และ Merchant roles
 
 Admin branch อยู่บน route เดียวกับ resource owner แต่ไม่ใช้ `MerchantUserSession`:
@@ -38,18 +49,18 @@ Admin branch อยู่บน route เดียวกับ resource owner �
 
 Invitation ใช้ `MerchantUserInvitation` aggregate เดียวกับ merchant console, hash token, ผูก merchant กับ email และ enqueue delivery ใน owner unit of work. Response ไม่คืน raw invitation token.
 
-## Reporting และ transaction projection
+## Reporting และ transaction evidence
 
 | Route | Permission | พฤติกรรม |
 |---|---|---|
 | `GET /reports/dashboard` | `txn.view` | สรุปยอดตาม currency, transaction count, success/failure/pending และ breakdown ตาม PSP, method, originator |
-| `GET /payments/transactions` | `txn.view` | projection จาก `Order` + `PaymentSession` + lifecycle event, SFS และ mask ข้อมูลลูกค้า |
-| `GET /payments/transactions/{paymentSessionId}` | `txn.view` | detail, order lines, lifecycle, capability flags และ `ETag` |
+| `GET /payments/transactions` | `txn.view` | compatibility projection จาก `Order` + `PaymentSession` + lifecycle evidence, SFS และ mask ข้อมูลลูกค้า |
+| `GET /payments/transactions/{paymentSessionId}` | `txn.view` | compatibility detail, order lines และ lifecycle |
 | `GET /payments/transactions/export` | `txn.export` | CSV จาก query เดียวกัน, ช่วงสูงสุด 31 วัน, ไม่เกิน 100,000 แถวและ 100 MiB |
 | `GET /reports/operations` | `txn.view` | summary ชุดเดียวกับ dashboard; default 7 วัน, สูงสุด 31 วัน |
 | `GET /reports/operations/export` | `txn.export` | CSV ของ totals และ breakdown; ป้องกัน spreadsheet formula injection |
 
-Transaction ไม่ใช่ ledger หรือ aggregate ใหม่. Capability ที่ยังไม่มี owner จริง เช่น `refund`, `capture`, `void` และ `receipt` ถูกคืนเป็น unavailable; backend ไม่จำลอง success.
+Canonical transaction evidence อยู่ที่ `txn.Transactions`/`txn.TransactionEvents` และ routes `/api/v1/transactions`, `/api/v1/transactions/{transactionId}`, `/events`, `/verify`, `/review-notes` ใน `CanonicalCommerceEndpoints`. Admin scope ต้อง resolve parent Order ก่อนอ่าน; verify ใช้ pinned provider context, `If-Match`, idempotency และ append-only review event. นี่เป็น payment attempt evidence ไม่ใช่ settlement ledger. Capability ที่ยังไม่มี owner จริง เช่น `refund`, `capture`, `void` และ `receipt` ถูกคืนเป็น unavailable; backend ไม่จำลอง success.
 
 ## Governance และ audit
 
@@ -89,6 +100,8 @@ Routes ใต้ `/api/v1/webhooks/endpoints`, `/api/v1/webhooks/deliveries`, `/
 
 Inbound PSP callback เป็นคนละ surface: `GET /webhooks/inbound-events` และ `GET /webhooks/inbound-events/{eventId}` ใช้ `audit.view`, คืน fingerprint และ linkage เท่านั้น ไม่คืน raw payload หรือลายเซ็น.
 
+Commerce notification operations อยู่ที่ `/api/v1/notifications`, `/api/v1/notification-deliveries/{deliveryId}`, `/attempts`, `/retries` และ provider receipt `/api/v1/webhooks/notifications/{providerCode}`. Search รองรับ `OrderNo`, `TransactionNo`, `CorrelationId`; retry/review-note เป็น operation ของ notification runtime และไม่เปลี่ยน `Order.PaymentStatus`. Dispatcher ใช้ `LeaseOwner`/`LeaseExpiresAt`; lease ที่หมดอายุ reclaim ได้ แต่ owner เก่าหลัง re-lease เขียนผลไม่ได้. Delivery/attempt rows อยู่ `txn` และ endpoint configuration/secret อยู่ control plane.
+
 ## OpenAPI documents
 
 Development เปิดเอกสาร 4 ชุด:
@@ -104,7 +117,8 @@ Development เปิดเอกสาร 4 ชุด:
 
 ## Source of truth
 
-- Routes: `src/Hosts/Api/ControlPlane/`, `src/Hosts/Api/Governance/`, `src/Hosts/Api/Iam/ApiClientEndpoints.cs`, `src/Hosts/Api/Notifications/`, `src/Hosts/Api/Reporting/`, `src/Hosts/Api/Webhooks/`
-- OpenAPI: `src/Hosts/Api/OpenApiDocuments.cs`, `src/Hosts/Api/AudienceOpenApi.cs`
-- Owners: `src/Modules/Governance/`, `src/Modules/Notifications/`, `src/Modules/Reporting/`, `src/Modules/Iam/ApiClients/`, `src/Modules/Payments/AdminControlPlane/`
+- Routes: `src/Api/Api/ControlPlane/`, `src/Api/Api/Governance/`, `src/Api/Api/Iam/ApiClientEndpoints.cs`, `src/Api/Api/Notifications/`, `src/Api/Api/Reporting/`, `src/Api/Api/Webhooks/`
+- OpenAPI: `src/Api/Api/OpenApiDocuments.cs`, `src/Api/Api/AudienceOpenApi.cs`
+- Owners: `src/Domain/Modules/Governance.Domain/`, `src/Domain/Modules/Notifications.Domain/`, `src/Application/Modules/Reporting.Application/`, `src/Application/Modules/Iam.Application/`, `src/Application/Modules/Payments.Application/`, `src/Application/Modules/Platform.Application/Transactions/`
+- Canonical routes: `src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs`, `src/Api/Api/ControlPlane/CanonicalMerchantConfigurationEndpoints.cs`, `src/Api/Api/ControlPlane/CanonicalProviderConfigurationEndpoints.cs`, `src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs`
 - Persisted schema: [entity-fields.md](entity-fields.md)

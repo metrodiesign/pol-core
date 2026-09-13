@@ -1,15 +1,15 @@
 # Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> As-built 2026-09-02. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
+> As-built 2026-09-12. Source: `src/Api/Api/Admins/*.cs`, `Program.cs` (routes),
 > `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
 > [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (rename map เต็ม).
 >
 > ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console ใช้ **OIDC BFF แบบเดียวกันเป๊ะ** แล้ว
-> (ไม่มี Google id-token Bearer และไม่มี tenant policy) — แต่เป็น **คนละ instance แยกขาด**: prefix
+> (ไม่มี Google id-token Bearer; provider/tenant validation ยังเป็น server-side) — แต่เป็น **คนละ instance แยกขาด**: prefix
 > `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
-> config `MerchantAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
+> config `MerchantAuth:Providers:*`. Browser console ทั้งสอง plane ไม่ใช้ Bearer/`Authorization` header; canonical System integration มี client-assertion/Bearer path แยกใน Account/Access contract.
 >
 > **Microsoft-only OIDC:** ทั้งสอง plane รับเฉพาะ `microsoft` — Admin ใช้ workforce tenant (scheme `AdminMicrosoft`,
 > config `AdminAuth:Providers:Microsoft`), merchant-user ใช้ CIAM tenant (scheme `MerchantUserMicrosoft`, config
@@ -39,7 +39,13 @@ Flow login:
    `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
 5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
 
-ไม่มี id_token ใน browser, ไม่มี GIS script, ไม่มี `Authorization` header.
+ไม่มี id_token ใน browser, ไม่มี GIS script และไม่มี `Authorization` header ใน Admin BFF request.
+
+## Admin session กับ business Account
+
+`AdminSession`/`Admins.Domain.Users.User` เป็น Tier 0 console session สำหรับ control plane. Canonical commerce authorization ใช้ `Accounts.Domain.Account` และ `Access.Domain` แยกต่างหาก: `Employee` มี `PlatformAccess`, `Agent` ผูก Sale/Branch owner, `System` ใช้ client assertion และ scope. `GET /api/v1/accounts...` กับ merchant/platform-access routes จึงไม่ใช่ alias ของ `/api/v1/admins...` และไม่ควรใช้ `AdminId` เป็น `CreatedByAccountId` ใน canonical Order.
+
+Order/transaction support ที่เปิดให้ Admin console ต้องตรวจ `IAdminScope` และ Account/Order parent ตาม endpoint; Admin tier ให้ขอบเขต merchant ส่วน IAM permission/Account Access ให้ action และ business visibility.
 
 Tier 0 ใช้ immutable tuple `Provider=microsoft`, validated tenant `tid` และ canonical directory object `oid`.
 Email เป็น optional non-unique contact อาจ absent, mutable, reused หรือซ้ำกันได้ Runtime ไม่ fallback ไป Email,
@@ -144,7 +150,7 @@ async function bootstrap() {
 }
 ```
 
-Response shape (`AdminMeResponse`, `src/Hosts/Api/Program.cs:2393-2395`):
+Response shape (`AdminMeResponse`, `src/Api/Api/Program.cs`):
 
 ```jsonc
 // Super — เห็นทุก merchant; key `merchants` ถูก omit ทิ้งไปเลย (ไม่ใช่ null)
@@ -175,18 +181,16 @@ nullable (id ที่หา code ไม่เจอ -> `null`).
 > — FE ที่แชร์ renderer ระหว่าง `/me` กับ list/detail ต้อง normalize case เอง (เช่น `.toLowerCase()` ก่อนเทียบ).
 
 > `GET /api/v1/admins/{id}` (detail) ใช้ **DTO ตัวเดียวกันและ JSON key เดียวกัน** (`accessibleMerchants`) โดยตั้งใจ
-> ให้ client แชร์ renderer ตัวเดียวได้ (`AdminDetailResponse`, `Program.cs:2407-2410`) — นอกจากนี้ detail ยังมี
-> `roleCodes` (รวม role ที่ Inactive) และ `position`/`office`/`level`/`division` (แต่ละตัว `{ "id", "code", "name" }`
-> หรือ `null` ถ้าไม่ได้ตั้งค่า):
+> ให้ client แชร์ renderer ตัวเดียวได้ (`AdminDetailResponse`) — detail คืน `roleCodes` และ version ของ Admin session
+> model. Org reference fields `position`/`office`/`level`/`division` เป็น historical surface ที่ถูก retire; employee
+> profile ปัจจุบันอ่านจาก HR mirror ตาม identity adapter ไม่ได้อยู่ใน Admin API DTO.
 >
 > ```jsonc
 > {
 >   "adminId": "…", "email": "b@x.com", "tier": "scoped", "status": "active",
 >   "createdAt": "…", "subjectBound": true,
 >   "accessibleMerchants": { "isUnrestricted": false, "merchants": [ { "id": "…", "code": "acme" } ] },
->   "roleCodes": ["platform_auditor"],
->   "position": { "id": "…", "code": "sales_rep", "name": "Sales Representative" },
->   "office": null, "level": null, "division": null
+>   "roleCodes": ["platform_auditor"]
 > }
 > ```
 
@@ -211,13 +215,13 @@ Scoped ยิงโดน 403.
 
 > **Auth rate limiting**: `GET /auth/{provider}/login` (เท่านั้น — endpoint อื่นในตารางนี้ไม่มี) ผ่าน sliding
 > window ต่อ source IP: 20 request / 60 วินาที (6 segments, ไม่ queue เกิน limit -> 429 ทันที) นโยบายชื่อ
-> `admin-auth` (`src/Hosts/Api/Admins/AuthRateLimiting.cs`, ผูกที่ `Program.cs:1011`) กันสแปม login/probe callback
+> `admin-auth` (`src/Api/Api/Admins/AuthRateLimiting.cs`, ผูกที่ `Program.cs`) กันสแปม login/probe callback
 > จาก IP เดียว ไม่กระทบการ login ปกติที่ไม่ถี่.
 >
 > **สองเส้นทาง merchant provisioning อยู่นอก prefix `/api/v1/admins`** (`hierarchical-naming` task 8): map ตรงบน
 > `/api/v1/merchants` แล้ว re-attach control เองทีละ endpoint (`CsrfFilter` + policy `admin` + Super tier บน POST)
 > แทนการ inherit จาก group — admin CORS policy ผูกให้ผ่าน path table ใน method `IsAdminPlane` ของ
-> `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs:91-98` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
+> `src/Api/BuildingBlocks.Web/CorsExtensions.cs:91-98` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
 > FE ยังยิงผ่าน proxy เดิมได้ แต่ rewrite rule ต้องครอบ `/api/v1/merchants` ด้วย ไม่ใช่แค่ `/api/v1/admins` (ดู
 > [Proxy](#proxy--same-origin-บังคับ)).
 
@@ -226,18 +230,14 @@ Scoped ยิงโดน 403.
 reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle/session ops gate ด้วย `Tier.Super`.
 กติกา: role ที่ให้ `user.roles` ควร grant `user.view` ด้วย ให้ operator เห็น directory ก่อน assign role.
 
-`POST /api/v1/admins` (invite, ตารางบน) รับ body `{ "objectId": "…", "identityApprovalReference": "…",
-"email"?, "positionId"?, "officeId"?, "levelId"?, "divisionId"? }` — `objectId` และ approval reference เป็น
-required; Email และ 4 profile FK เป็น optional Account ถูก bind กับ persisted workforce tenant + objectId ตั้งแต่
-สร้างและ first login resolve internal `AdminId` เดิมด้วย exact tuple.
+`POST /api/v1/admins` (invite, ตารางบน) รับ body `{ "objectId": "…", "identityApprovalReference": "…", "email"? }` — `objectId` และ approval reference เป็น required; Email เป็น optional contact. Employee HR profile ใช้ identity adapter/HR mirror ไม่ใช่ org-reference FK ใน Admin schema.
 
 | Method | Path | Gate | CSRF | Success | Note |
 |---|---|---|---|---|---|
 | GET | `/api/v1/admins` | `user.view` | — | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
-| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive), profile FKs (ดู JSON ด้านบน); unknown -> 404 |
+| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive) และ version; unknown -> 404 |
 | GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | — | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/tier` | **Super** | ต้อง | 200 | body `{ "tier": "super"\|"scoped" }` (response `tier` เป็น PascalCase — ดู quirk ด้านบน); เปลี่ยน tier ตัวเอง -> 403; idempotent ถ้า tier ตรงกับปัจจุบัน; tier ไม่รู้จัก -> 400; unknown -> 404 |
-| PUT | `/api/v1/admins/{id}/profile` | `user.manage` | ต้อง | 204 | body `{ "positionId"?, "officeId"?, "levelId"?, "divisionId"? }` (Guid, full-replace — `null` = ล้างค่า); FK ไม่รู้จัก/ไม่ active -> 400; unknown admin -> 404 |
 | POST | `/api/v1/admins/{id}/reactivate` | **Super** | ต้อง | 204 | คืน Active + revoke session ทั้งหมดของ target (fresh-login); idempotent; unknown -> 404 |
 | GET | `/api/v1/admins/{id}/sessions` | **Super** | — | 200 | sessions (ไม่มี token material) + `isLive`; unknown -> 404 |
 | DELETE | `/api/v1/admins/{id}/sessions/{sessionId}` | **Super** | ต้อง | 204 | revoke ทั้ง rotation family; unknown/ไม่ใช่เจ้าของ -> 404; idempotent |
@@ -347,7 +347,7 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 
 ## ห้าม
 
-- เลิกใช้ GIS SDK / id-token / `Authorization: Bearer` (ของเก่า)
+- เลิกใช้ GIS SDK / id-token / `Authorization: Bearer` ใน Admin browser flow; System identity path มี contract แยกใน [`iam.md`](iam.md)
 - อย่าอ่าน/เก็บ session cookie เอง (httpOnly)
 - อย่าเรียก API ข้าม origin ตรง — ต้องผ่าน proxy (ดู [Proxy](#proxy--same-origin-บังคับ))
 
@@ -382,24 +382,25 @@ FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'inc
 
 ## Source of truth
 
-ไฟล์ทั้งหมดย้ายเข้าโฟลเดอร์ `src/Hosts/Api/Admins/` แล้ว (ตัดคำนำหน้า `Admin` ออกจากชื่อไฟล์ — prefix ซ้ำกับ
+ไฟล์ auth/session ของ Admin อยู่ใน `src/Api/Api/Admins/` แล้ว (ตัดคำนำหน้า `Admin` ออกจากชื่อไฟล์ — prefix ซ้ำกับ
 โฟลเดอร์):
 
-- OIDC login + callback (challenge/establish session): `src/Hosts/Api/Admins/OidcAuthentication.cs`,
-  `src/Hosts/Api/Admins/LoginService.cs`
-- session auth + rotation/reuse/revocation: `src/Hosts/Api/Admins/SessionAuthenticationHandler.cs`,
-  `src/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
-- cookies (session + CSRF): `src/Hosts/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Hosts/Api/Admins/CsrfFilter.cs`
-- auth rate limiting: `src/Hosts/Api/Admins/AuthRateLimiting.cs`
-- routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Hosts/Api/Program.cs`
-- top-level admin control routes: `src/Hosts/Api/ControlPlane/AdminControlEndpoints.cs`,
-  `src/Hosts/Api/ControlPlane/AdminMerchantIdentityEndpoints.cs`
-- governance/approval/audit: `src/Hosts/Api/Governance/GovernanceEndpoints.cs`
-- API clients/secrets: `src/Hosts/Api/Iam/ApiClientEndpoints.cs`
-- webhook/notification delivery: `src/Hosts/Api/Notifications/DeliveryEndpoints.cs`,
-  `src/Hosts/Api/Webhooks/InboundWebhookEndpoints.cs`
-- reporting/transaction projection: `src/Hosts/Api/Reporting/AdminReportingEndpoints.cs`
-- OpenAPI audience documents: `src/Hosts/Api/OpenApiDocuments.cs`
-- CORS split + path-based policy selection: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
-- tier enum: `src/Modules/Admins/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
-- accessible-merchants value object: `src/Modules/Admins/Admins.Application/Users/AccessibleMerchants.cs`
+- OIDC login + callback (challenge/establish session): `src/Api/Api/Admins/OidcAuthentication.cs`,
+  `src/Api/Api/Admins/LoginService.cs`
+- session auth + rotation/reuse/revocation: `src/Api/Api/Admins/SessionAuthenticationHandler.cs`,
+  `src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
+- cookies (session + CSRF): `src/Api/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Api/Api/Admins/CsrfFilter.cs`
+- auth rate limiting: `src/Api/Api/Admins/AuthRateLimiting.cs`
+- routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Api/Api/Program.cs`
+- top-level admin control routes: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs`,
+  `src/Api/Api/ControlPlane/AdminMerchantIdentityEndpoints.cs`
+- governance/approval/audit: `src/Api/Api/Governance/GovernanceEndpoints.cs`
+- API clients/secrets: `src/Api/Api/Iam/ApiClientEndpoints.cs`
+- webhook/notification delivery: `src/Api/Api/Notifications/DeliveryEndpoints.cs`,
+  `src/Api/Api/Webhooks/InboundWebhookEndpoints.cs`
+- reporting/transaction projection: `src/Api/Api/Reporting/AdminReportingEndpoints.cs`
+- OpenAPI audience documents: `src/Api/Api/OpenApiDocuments.cs`
+- CORS split + path-based policy selection: `src/Api/BuildingBlocks.Web/CorsExtensions.cs`
+- tier enum: `src/Domain/Modules/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
+- accessible-merchants value object: `src/Application/Modules/Admins.Application/Users/AccessibleMerchants.cs`
+- canonical business identity/access: `src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs`, `src/Domain/Modules/Access.Domain/AccessModels.cs`

@@ -1,6 +1,6 @@
 # Merchants Module Reference
 
-> As-built 2026-08-13. Covers merchant profile, merchant-user OIDC BFF, registration/KYC, commerce actor binding
+> As-built 2026-09-12. Covers merchant profile, merchant-user OIDC BFF, registration/KYC, Account/Access actor binding
 > และ Admin control plane ที่จัดการ merchant identity, originator และ PSP/routing.
 
 ## Identity and session
@@ -13,6 +13,18 @@
 - unknown/not-configured provider `404`; absent/expired session `401`; permission denial `403`
 
 Frontend never supplies merchant ID or SaleCode for commerce operations.
+
+## Account/Access boundary
+
+ตัวตนของ Merchant-user console (`merch.Users`, `MerchantUserMicrosoft`, `__Host-mch_session`) เป็น adapter สำหรับ browser/session. การอนุญาตทางธุรกิจใช้ `acct.Accounts` และ `access.MerchantAccess`:
+
+- `Agent` ผูกกับ `MerchantId` และ `SaleId` เดียว; owner resolution ดึง Sale/Branch จาก server state
+- `Employee` ใช้ `PlatformAccess` และ Platform/Shared IAM roles ได้
+- `System` ใช้ `acct.SystemClients` และ `access.SystemClientScopes`
+- `DataScope` มี `Merchant`, `Self`, `Branch` และ `AssignedBranches`; ไม่มี access row คือไม่มี merchant visibility
+- `AuthorizationVersion` และ authorization lease ใน transaction เดียวกันทำให้ revoke ก่อน commit ถูกปฏิเสธแบบ fail closed
+
+ดู canonical identity routes ที่ [`iam.md`](iam.md). อย่าใช้ตัวตนจาก session `Admin`/`MerchantUser` แทน business `Account`.
 
 ## Registration and KYC
 
@@ -137,8 +149,7 @@ Merchant user can:
 - create/read/redirect Payment session under IAM permissions
 - read/cancel own Orders and resend summary — own = Orders this user initiated (`InitiatingMerchantUserId`); the runtime query filter hides every other agent's Orders in the same merchant (actor model 2026-09-06)
 
-No Checkout or policy route exists. Full cutover mapping:
-`.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`.
+`Checkouts` มี route PaymentLink/capability ปัจจุบัน (`/api/v1/checkout/access`, `/summary`, `/confirm`, `/status`); ไม่มี persisted legacy `CheckoutSession` aggregate และไม่มี policy issuance route. Cart compatibility mapping อยู่ใน `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`.
 
 Production single-host deployment persists local staged/final photos in named volume
 `merchant-user-photos:/app/merchant-user-photos`. A shared object-store adapter is still required for
@@ -146,9 +157,9 @@ horizontal or multi-host deployment.
 
 ## Persistence boundaries
 
-- Merchant identity/session/invitation/outbox: `MerchantUserDbContext`
-- Merchant profile/vault/originator/Carts/Orders/Payments: `MerchantRuntimeDbContext`
-- Admin control-plane operation records: `ControlPlaneDbContext`, `MerchantUserDbContext` หรือ `MerchantRuntimeDbContext`
+- Account/Access, merchant profile/branch/sale/originator, vault, provider/routing/capability configuration, merchant identity/session/invitation/outbox และ admin control-plane rows: `ControlPlaneDbContext`
+- Carts/Orders/PaymentLinks/Transactions/Notifications และ commerce outbox: `CommerceDbContext`
+- `PolDbContext` เป็น migration owner เท่านั้น; old `MerchantUserDbContext`/`MerchantRuntimeDbContext` names ไม่ถูก register
   ตาม aggregate ที่ถูกแก้
 - global query filters deny unbound/wrong merchant
 - sealed write guard rechecks tenant key and operation authority

@@ -20,7 +20,7 @@ ciphertext ของ secret ไม่ถูกแตะ.
   ซึ่งไม่มีผลกับ SQL ที่ DBA รันเอง.
 - keyring build ครั้งเดียวตอน boot (Singleton). เปลี่ยน key/ไฟล์ secret = **ต้อง restart process** (ไม่มี hot reload).
 - ถ้าไฟล์ secret หาย/ว่าง/ผิดตอน boot: `Api` (host เดียวของระบบ) resolve `VaultKeyring` ตอน start
-  (`src/Hosts/Api/Program.cs` — `app.Services.GetRequiredService<VaultKeyring>()`) -> factory throw ->
+  (`src/Api/Api/Program.cs` — `app.Services.GetRequiredService<VaultKeyring>()`) -> factory throw ->
   host crash-loop (fail-fast) ทันที ไม่รอให้ไปพังตอน reveal ครั้งแรก. `/health/ready` มี
   `VaultReadinessCheck` ซ้ำอีกชั้น (active key ต้องเป็น 32 ไบต์) — gate การ deploy ที่
   `/health/ready` = healthy เสมอ ไม่ใช่แค่ "process ขึ้น". mount secret ให้พร้อมก่อน start.

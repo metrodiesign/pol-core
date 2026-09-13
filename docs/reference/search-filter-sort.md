@@ -1,11 +1,11 @@
 # Search / Filter / Sort (SFS) Reference
 
-> As-built 2026-08-13. SFS เป็น shared query contract สำหรับ endpoint ที่ประกาศใช้เท่านั้น; Products และ
+> As-built 2026-09-12. SFS เป็น shared query contract สำหรับ endpoint ที่ประกาศใช้เท่านั้น; Products และ
 > master-data CRUD ใช้ typed surface ของตนเอง.
 
 ## Generic contract
 
-Parser อยู่ที่ `src/Hosts/Api/SfsQueryParser.cs` และแปลง query string เป็น shared value types ใน
+Parser อยู่ที่ `src/Api/Api/SfsQueryParser.cs` และแปลง query string เป็น shared value types ใน
 `BuildingBlocks.Application`.
 
 | Parameter | รูปแบบ | กฎ |
@@ -64,12 +64,16 @@ dynamic. ค่า filter ถูก parse เป็น type ของ field แ�
 - search: `email`
 - authorization: policy `admin` + permission `user.view`
 
+### Canonical Account directory
+
+`GET /api/v1/accounts` ใช้ SFS สำหรับ business `Account` directory ภายใต้ Admin scope. Field allowlist ของ account/identity ถูกประกาศใน `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/` และ endpoint ไม่คืน token/secret. Account detail ใช้ `ETag` จาก `AuthorizationVersion`; update/revoke session ใช้ `If-Match` หรือ idempotency ตาม operation.
+
 ### Admin roles
 
 `GET /api/v1/admins/roles` ใช้ generic SFS. Role implementation รองรับ whitelist:
 
 - filters: `status`, `code`, `name`, `description`
-- operators ต่างกันตาม field; ตรวจที่ `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs`
+- operators ต่างกันตาม field; ตรวจที่ `src/Infrastructure/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs`
 - sort/search ใช้ whitelist ใน implementation เดียวกัน
 
 ### Merchant order list
@@ -107,6 +111,10 @@ GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD69000
 
 Dashboard และ operations report ใช้ `from`, `to`, `merchantId` แบบ typed query; ไม่ใช่ generic `filters`/`sort`.
 
+### Canonical transaction support
+
+`GET /api/v1/transactions` ใช้ `page`, `limit`, `status`, `merchantId` และบังคับเลือก merchant ให้สอดคล้องกับ Admin accessible scope. Detail/events/verify/review-note resolve parent Order และใช้ transaction version/idempotency. `GET /api/v1/notifications` และ delivery attempts ใช้ search แบบ typed (`orderNo`, `transactionNo`, `correlationId`) ตาม `Notifications.Application` contract ไม่ใช่ generic SFS ทุก field.
+
 ## Security and query cost
 
 - whitelist field/operator ก่อนสร้าง predicate
@@ -120,15 +128,15 @@ Dashboard และ operations report ใช้ `from`, `to`, `merchantId` แ�
 
 | Concern | Path |
 |---|---|
-| Query parser | `src/Hosts/Api/SfsQueryParser.cs` |
-| Filter value | `src/BuildingBlocks/BuildingBlocks.Application/FilterOption.cs` |
-| Filter operators | `src/BuildingBlocks/BuildingBlocks.Application/FilterOperator.cs` |
-| Sort value/direction | `src/BuildingBlocks/BuildingBlocks.Application/SortOption.cs`, `SortDirection.cs` |
-| Search value | `src/BuildingBlocks/BuildingBlocks.Application/SearchOption.cs` |
-| Admin whitelist | `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` |
-| Role whitelist | `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` |
-| Products typed filters | `src/Modules/Products/Products.Application/ListProducts.cs` |
-| API route composition | `src/Hosts/Api/Program.cs` |
+| Query parser | `src/Api/Api/SfsQueryParser.cs` |
+| Filter value | `src/Application/BuildingBlocks.Application/FilterOption.cs` |
+| Filter operators | `src/Application/BuildingBlocks.Application/FilterOperator.cs` |
+| Sort value/direction | `src/Application/BuildingBlocks.Application/SortOption.cs`, `SortDirection.cs` |
+| Search value | `src/Application/BuildingBlocks.Application/SearchOption.cs` |
+| Admin whitelist | `src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` |
+| Role whitelist | `src/Infrastructure/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` |
+| Products typed filters | `src/Application/Modules/Products.Application/ListProducts.cs` |
+| API route composition | `src/Api/Api/Program.cs` |
 
 ## Explicitly not current
 
