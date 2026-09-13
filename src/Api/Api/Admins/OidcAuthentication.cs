@@ -150,19 +150,33 @@ internal static class OidcAuthentication
                     if (string.IsNullOrEmpty(accessToken))
                         throw new EmployeeProfileException(EmployeeProfileException.Unavailable);
                     var reader = context.HttpContext.RequestServices.GetRequiredService<MicrosoftGraphEmployeeIdReader>();
-                    var raw = await reader.ReadAsync(
+                    var profile = await reader.ReadAsync(
                         accessToken, context.HttpContext.TraceIdentifier, context.HttpContext.RequestAborted);
-                    claims = EmployeeIdPolicy.TryNormalize(raw, out var employeeId) switch
+                    claims = EmployeeIdPolicy.TryNormalize(profile.EmployeeId, out var employeeId) switch
                     {
                         EmployeeIdCheck.Ok => claims with { EmployeeId = employeeId },
                         EmployeeIdCheck.Missing =>
                             throw new EmployeeProfileException(EmployeeProfileException.Missing),
                         _ => throw new EmployeeProfileException(EmployeeProfileException.Invalid),
                     };
+                    // Contact fallback: the id_token email claim wins; only when it was absent/malformed do we adopt
+                    // the Graph mail/userPrincipalName (still optional — a bad value normalises away to null).
+                    if (claims.Email is null && AdminContactEmail.TryNormalize(profile.Email, out var graphEmail))
+                        claims = claims with { Email = graphEmail };
                 }
                 catch (EmployeeProfileException failure)
                 {
                     context.Fail(failure);
+                    return;
+                }
+
+                // Deliverable-contact guard: a workforce identity must resolve to a real email (id_token OR Graph).
+                // The invariant is that every tenant identity has a mailbox, so this never fires in practice; if it
+                // does, an assumption broke — deny the login loudly instead of provisioning a null-email admin.
+                if (claims.Email is null)
+                {
+                    MicrosoftOidcFailureClassifier.MarkEmailUnavailable(context.HttpContext);
+                    context.Fail(new MicrosoftWorkforcePolicyException());
                     return;
                 }
 

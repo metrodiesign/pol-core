@@ -57,6 +57,12 @@ internal static class MicrosoftOidcFailureClassifier
 {
     internal const string PolicyFailureItemKey = "admin.microsoft.workforce-policy-failure";
     internal const string EmployeeProfileUnavailableItemKey = "admin.microsoft.employee-profile-unavailable";
+    internal const string EmailUnavailableItemKey = "admin.microsoft.workforce-email-unavailable";
+
+    /// <summary>Browser reason when no deliverable contact email could be resolved from the id_token or Graph.
+    /// In a workforce tenant where every identity has a mailbox this never fires; when it does, an assumption broke
+    /// (missing mailbox, misconfigured optional claims) and the login is denied loudly rather than storing a null.</summary>
+    internal const string EmailUnavailable = "workforce-email-unavailable";
 
     public static void MarkPolicyFailure(HttpContext httpContext) =>
         httpContext.Items[PolicyFailureItemKey] = true;
@@ -64,11 +70,16 @@ internal static class MicrosoftOidcFailureClassifier
     public static void MarkEmployeeProfileUnavailable(HttpContext httpContext) =>
         httpContext.Items[EmployeeProfileUnavailableItemKey] = true;
 
+    public static void MarkEmailUnavailable(HttpContext httpContext) =>
+        httpContext.Items[EmailUnavailableItemKey] = true;
+
     public static string BrowserReason(HttpContext httpContext, Exception? failure) =>
         Find<EmployeeProfileException>(failure)?.Reason
         ?? (IsEmployeeProfileUnavailable(httpContext)
             ? EmployeeProfileException.Unavailable
-            : IsPolicyFailure(httpContext, failure) ? "workforce-access-denied" : "auth-failed");
+            : IsEmailUnavailable(httpContext)
+                ? EmailUnavailable
+                : IsPolicyFailure(httpContext, failure) ? "workforce-access-denied" : "auth-failed");
 
     private static T? Find<T>(Exception? exception)
         where T : Exception
@@ -81,6 +92,9 @@ internal static class MicrosoftOidcFailureClassifier
 
     private static bool IsEmployeeProfileUnavailable(HttpContext httpContext) =>
         httpContext.Items.TryGetValue(EmployeeProfileUnavailableItemKey, out var marker) && marker is true;
+
+    private static bool IsEmailUnavailable(HttpContext httpContext) =>
+        httpContext.Items.TryGetValue(EmailUnavailableItemKey, out var marker) && marker is true;
 
     private static bool IsPolicyFailure(HttpContext httpContext, Exception? failure) =>
         httpContext.Items.TryGetValue(PolicyFailureItemKey, out var marker) && marker is true

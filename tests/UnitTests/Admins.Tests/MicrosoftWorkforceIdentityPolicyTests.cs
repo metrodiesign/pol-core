@@ -41,12 +41,25 @@ public sealed class AdminContactEmailTests
 {
     [Theory]
     [InlineData(" User@Example.COM ", "User@Example.COM")]
-    [InlineData("not-an-email", "not-an-email")]
-    public void Normalize_trims_and_preserves_contact_value_without_domain_or_identity_rules(
-        string input, string expected)
+    [InlineData("a@sub.example.co.th", "a@sub.example.co.th")]
+    public void Normalize_trims_a_well_formed_address_and_preserves_case(string input, string expected)
     {
         Assert.True(AdminContactEmail.TryNormalize(input, out var actual));
         Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("not-an-email")]            // no @
+    [InlineData("user@localhost")]          // no domain suffix
+    [InlineData("user@example")]            // no TLD
+    [InlineData("user@example.c")]          // 1-char TLD
+    [InlineData("user@example.123")]        // non-letter TLD
+    [InlineData("user@example.com.")]       // trailing dot
+    [InlineData("Display <user@example.com>")] // display-name form
+    public void Malformed_address_or_bad_domain_suffix_is_absent(string input)
+    {
+        Assert.False(AdminContactEmail.TryNormalize(input, out var actual));
+        Assert.Null(actual);
     }
 
     [Theory]
