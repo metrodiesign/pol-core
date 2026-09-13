@@ -39,7 +39,7 @@ public sealed class PlatformUserSfsTests
     [Fact]
     public void Unknown_field_is_silently_dropped()
     {
-        var filtered = Accounts(Scoped("a@x", T0), Scoped("b@x", T0))
+        var filtered = Accounts(Scoped("a@x.co", T0), Scoped("b@x.co", T0))
             .ApplyFilters([new FilterOption("subject", FilterOperator.Equals, J("\"x\""))]).ToList();
         Assert.Equal(2, filtered.Count);
     }
@@ -48,19 +48,19 @@ public sealed class PlatformUserSfsTests
     public void Wrong_case_field_is_silently_dropped_and_logged_without_value()
     {
         var log = new CapturingLogger();
-        var filtered = Accounts(Scoped("a@x", T0))
+        var filtered = Accounts(Scoped("a@x.co", T0))
             .ApplyFilters([new FilterOption("Email", FilterOperator.Equals, J("\"a@x\""))], log).ToList();
 
         Assert.Single(filtered);   // "Email" != "email" under Ordinal -> treated as absent (REQ-1.8)
         Assert.Contains(log.Messages, m => m.Contains("Email"));
-        Assert.DoesNotContain(log.Messages, m => m.Contains("a@x"));   // value is NEVER logged
+        Assert.DoesNotContain(log.Messages, m => m.Contains("a@x.co"));   // value is NEVER logged
     }
 
     [Fact]
     public void Operator_not_allowed_on_tier_is_dropped()
     {
         // tier allows only eq/in; a Like on tier is dropped, not applied.
-        var filtered = Accounts(Super("a@x", T0), Scoped("b@x", T0))
+        var filtered = Accounts(Super("a@x.co", T0), Scoped("b@x.co", T0))
             .ApplyFilters([new FilterOption("tier", FilterOperator.Like, J("\"super\""))]).ToList();
         Assert.Equal(2, filtered.Count);
     }
@@ -69,16 +69,16 @@ public sealed class PlatformUserSfsTests
     public void Multiple_filters_AND_combine()
     {
         var filtered = Accounts(
-                Super("keep@x", T0),
-                Scoped("keep2@x", T0),
-                Super("other@x", T0))
+                Super("keep@x.co", T0),
+                Scoped("keep2@x.co", T0),
+                Super("other@x.co", T0))
             .ApplyFilters([
                 new FilterOption("tier", FilterOperator.Equals, J("\"super\"")),
-                new FilterOption("email", FilterOperator.Equals, J("\"keep@x\"")),
+                new FilterOption("email", FilterOperator.Equals, J("\"keep@x.co\"")),
             ]).ToList();
 
         Assert.Single(filtered);
-        Assert.Equal("keep@x", filtered[0].Email);
+        Assert.Equal("keep@x.co", filtered[0].Email);
     }
 
     [Theory]
@@ -86,7 +86,7 @@ public sealed class PlatformUserSfsTests
     [InlineData("scoped", Tier.Scoped)]
     public void Tier_filter_parses_lowercase_wire_value(string wire, Tier expected)
     {
-        var kept = Accounts(Super("s@x", T0), Scoped("c@x", T0))
+        var kept = Accounts(Super("s@x.co", T0), Scoped("c@x.co", T0))
             .ApplyFilters([new FilterOption("tier", FilterOperator.Equals, J($"\"{wire}\""))]).ToList();
         Assert.Single(kept);
         Assert.Equal(expected, kept[0].Tier);
@@ -95,12 +95,12 @@ public sealed class PlatformUserSfsTests
     [Fact]
     public void Status_filter_parses_lowercase_wire_value()
     {
-        var suspended = Scoped("b@x", T0);
+        var suspended = Scoped("b@x.co", T0);
         suspended.Suspend(Guid.NewGuid());
-        var kept = Accounts(Scoped("a@x", T0), suspended)
+        var kept = Accounts(Scoped("a@x.co", T0), suspended)
             .ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("\"suspended\""))]).ToList();
         Assert.Single(kept);
-        Assert.Equal("b@x", kept[0].Email);
+        Assert.Equal("b@x.co", kept[0].Email);
     }
 
     // ===== coercion guard + strict parse -> 400 (REQ-1.7) =====
@@ -109,7 +109,7 @@ public sealed class PlatformUserSfsTests
     {
         // tier expects a lowercase string token; a JSON number must be a 400 (ArgumentException), raised eagerly.
         Assert.Throws<ArgumentException>(() =>
-            Accounts(Scoped("a@x", T0)).ApplyFilters([new FilterOption("tier", FilterOperator.Equals, J("5"))]));
+            Accounts(Scoped("a@x.co", T0)).ApplyFilters([new FilterOption("tier", FilterOperator.Equals, J("5"))]));
     }
 
     [Theory]
@@ -118,7 +118,7 @@ public sealed class PlatformUserSfsTests
     public void Out_of_domain_enum_token_throws_ArgumentException(string field, string valueJson)
     {
         Assert.Throws<ArgumentException>(() =>
-            Accounts(Scoped("a@x", T0)).ApplyFilters([new FilterOption(field, FilterOperator.Equals, J(valueJson))]));
+            Accounts(Scoped("a@x.co", T0)).ApplyFilters([new FilterOption(field, FilterOperator.Equals, J(valueJson))]));
     }
 
     // ===== sort: default + explicit + id closes the chain (REQ-1.3) =====
@@ -126,17 +126,17 @@ public sealed class PlatformUserSfsTests
     public void Default_sort_is_created_at_descending()
     {
         var sorted = Accounts(
-                Scoped("a@x", T0), Scoped("c@x", T0.AddDays(2)), Scoped("b@x", T0.AddDays(1)))
+                Scoped("a@x.co", T0), Scoped("c@x.co", T0.AddDays(2)), Scoped("b@x.co", T0.AddDays(1)))
             .ApplySort([]).Select(a => a.Email).ToList();
-        Assert.Equal(new[] { "c@x", "b@x", "a@x" }, sorted);   // newest first (REQ-1.3 default)
+        Assert.Equal(new[] { "c@x.co", "b@x.co", "a@x.co" }, sorted);   // newest first (REQ-1.3 default)
     }
 
     [Fact]
     public void Explicit_email_sort_ascending()
     {
-        var sorted = Accounts(Scoped("c@x", T0), Scoped("a@x", T0), Scoped("b@x", T0))
+        var sorted = Accounts(Scoped("c@x.co", T0), Scoped("a@x.co", T0), Scoped("b@x.co", T0))
             .ApplySort([new SortOption("email")]).Select(a => a.Email).ToList();
-        Assert.Equal(new[] { "a@x", "b@x", "c@x" }, sorted);
+        Assert.Equal(new[] { "a@x.co", "b@x.co", "c@x.co" }, sorted);
     }
 
     [Fact]
@@ -146,38 +146,38 @@ public sealed class PlatformUserSfsTests
         // closes the chain once at the end, rather than being appended after every key (which would let the
         // unique id preempt email). F3.
         var sorted = Accounts(
-                Scoped("b@x", T0), Scoped("a@x", T0), Scoped("z@x", T0.AddDays(1)))
+                Scoped("b@x.co", T0), Scoped("a@x.co", T0), Scoped("z@x.co", T0.AddDays(1)))
             .ApplySort([new SortOption("createdAt"), new SortOption("email")])
             .Select(a => a.Email).ToList();
         // createdAt asc groups the two T0 rows first, email breaks their tie (a before b), then the T0+1 row.
-        Assert.Equal(new[] { "a@x", "b@x", "z@x" }, sorted);
+        Assert.Equal(new[] { "a@x.co", "b@x.co", "z@x.co" }, sorted);
     }
 
     [Fact]
     public void Unknown_sort_field_falls_back_to_default()
     {
-        var sorted = Accounts(Scoped("a@x", T0), Scoped("b@x", T0.AddDays(1)))
+        var sorted = Accounts(Scoped("a@x.co", T0), Scoped("b@x.co", T0.AddDays(1)))
             .ApplySort([new SortOption("bogus")]).Select(a => a.Email).ToList();
-        Assert.Equal(new[] { "b@x", "a@x" }, sorted);   // newest first
+        Assert.Equal(new[] { "b@x.co", "a@x.co" }, sorted);   // newest first
     }
 
     // ===== relational (SQLite): LIKE escape on email search =====
     [Fact]
     public async Task Search_escapes_percent_so_it_matches_literally()
     {
-        using var db = NewDb(Scoped("50%@x", T0), Scoped("500@x", T0));
+        using var db = NewDb(Scoped("50%@x.co", T0), Scoped("500@x.co", T0));
         var hits = await db.Accounts.ApplySearch(new SearchOption("50%", ["email"])).Select(a => a.Email).ToListAsync();
-        Assert.Equal(new[] { "50%@x" }, hits);   // unescaped, "%" would also match "500@x"
+        Assert.Equal(new[] { "50%@x.co" }, hits);   // unescaped, "%" would also match "500@x.co"
     }
 
     [Fact]
     public async Task Filter_contains_escapes_wildcards()
     {
-        using var db = NewDb(Scoped("a_b@x", T0), Scoped("axb@x", T0));
+        using var db = NewDb(Scoped("a_b@x.co", T0), Scoped("axb@x.co", T0));
         var hits = await db.Accounts
             .ApplyFilters([new FilterOption("email", FilterOperator.Contains, J("\"a_b\""))])
             .Select(a => a.Email).ToListAsync();
-        Assert.Equal(new[] { "a_b@x" }, hits);
+        Assert.Equal(new[] { "a_b@x.co" }, hits);
     }
 
     // ---- SQLite standalone context (maps only User) ----

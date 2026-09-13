@@ -33,7 +33,7 @@ public sealed class PlatformUserQueryTests
     {
         var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var super = User.SelfProvision("google", "sub-1", "super@x", T0);
+        var super = User.SelfProvision("google", "sub-1", "super@x.co", T0);
         accounts.Add(super);
 
         var active = MakeRole("ops", RoleStatus.Active, "txn.view");
@@ -55,7 +55,7 @@ public sealed class PlatformUserQueryTests
     public async Task GetAdminById_scoped_carries_assigned_merchant_set_and_unbound_flag()
     {
         var accounts = new FakePlatformUserRepository();
-        var scoped = User.CreateScoped("scoped@x", T0);   // subject unbound (pending invite)
+        var scoped = User.CreateScoped("scoped@x.co", T0);   // subject unbound (pending invite)
         accounts.Add(scoped);
         var merchant = Guid.NewGuid();
         accounts.AddAssignment(MerchantAccess.Create(scoped.Id, merchant, Actor, T0));
@@ -83,7 +83,7 @@ public sealed class PlatformUserQueryTests
     {
         var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var admin = User.SelfProvision("google", "sub-2", "a@x", T0);
+        var admin = User.SelfProvision("google", "sub-2", "a@x.co", T0);
         accounts.Add(admin);
 
         // Active role grants keys in NON-sorted order; an Inactive role's key must NOT appear.
@@ -104,7 +104,7 @@ public sealed class PlatformUserQueryTests
     {
         var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var admin = User.SelfProvision("google", "sub-3", "s@x", T0);
+        var admin = User.SelfProvision("google", "sub-3", "s@x.co", T0);
         admin.Suspend(Actor);                              // suspension blocks sign-in, not role grants
         accounts.Add(admin);
         var active = MakeRole("ops", RoleStatus.Active, "txn.view");

@@ -8,7 +8,7 @@ namespace Admins.Application.Users;
 /// <summary>Creates an approved, pre-bound Microsoft Scoped Admin under the persisted tenant pin.</summary>
 public sealed record CreateScopedCommand(
     Guid ObjectId,
-    string? Email,
+    string Email,
     string IdentityApprovalReference,
     Guid ActingAdminId,
     string CorrelationId) : ICommand<CreateScopedResult>;
@@ -47,9 +47,11 @@ public sealed class CreateScopedHandler : ICommandHandler<CreateScopedCommand, C
         if (string.IsNullOrEmpty(approvalReference) || approvalReference.Length > ApprovalReferenceMaxLength)
             throw new ArgumentException("A valid identity approval reference is required.", nameof(command));
         ArgumentException.ThrowIfNullOrWhiteSpace(command.CorrelationId);
-        var email = AdminContactEmail.TryNormalize(command.Email, out var normalizedEmail)
-            ? normalizedEmail
-            : null;
+        // A pre-bound admin is created by a Super who supplies the address from the verified Entra export, so email
+        // is a required deliverable contact here (unlike JIT, where the token may omit it and the column stays null).
+        if (!AdminContactEmail.TryNormalize(command.Email, out var normalizedEmail) || normalizedEmail is null)
+            throw new ArgumentException("A valid contact email is required.", nameof(command));
+        var email = normalizedEmail;
 
         return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {

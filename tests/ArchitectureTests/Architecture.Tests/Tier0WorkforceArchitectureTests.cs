@@ -57,8 +57,10 @@ public sealed partial class Tier0WorkforceArchitectureTests
             route, StringComparison.Ordinal);
         Assert.DoesNotContain("BindInvited", route, StringComparison.Ordinal);
         Assert.DoesNotContain("Email is required", route, StringComparison.Ordinal);
+        // Pre-bound create now requires a deliverable contact email (Super supplies it from the Entra export);
+        // the identity tuple stays email-independent, and the READ contract (AdminMeResponse) keeps email nullable.
         Assert.Contains(
-            "Guid ObjectId, string IdentityApprovalReference, string? Email = null", program,
+            "Guid ObjectId, string IdentityApprovalReference, string Email", program,
             StringComparison.Ordinal);
         Assert.Contains("Guid AdminId, string? Email", program, StringComparison.Ordinal);
         Assert.Contains("GetRequiredTenantIdAsync", handler, StringComparison.Ordinal);
