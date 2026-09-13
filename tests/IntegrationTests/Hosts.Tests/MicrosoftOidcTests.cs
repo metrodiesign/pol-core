@@ -117,12 +117,19 @@ public sealed class MicrosoftOidcTests
     }
 
     [Fact]
-    public void A_single_trimmed_email_claim_has_no_domain_or_address_shape_gate()
+    public void A_single_email_claim_is_kept_only_when_it_passes_the_address_shape_gate()
     {
+        // A well-formed address is trimmed and kept (case preserved).
+        Assert.True(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
+            Principal(("tid", Tid), ("oid", Oid), ("email", "  User@Example.com  ")),
+            Guid.Parse(Tid), out var wellFormed));
+        Assert.Equal("User@Example.com", wellFormed.Email);
+
+        // A malformed address (no domain suffix) is dropped to null WITHOUT invalidating the identity tuple.
         Assert.True(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
             Principal(("tid", Tid), ("oid", Oid), ("email", "  contact-label  ")),
-            Guid.Parse(Tid), out var claims));
-        Assert.Equal("contact-label", claims.Email);
+            Guid.Parse(Tid), out var malformed));
+        Assert.Null(malformed.Email);
     }
 
     [Theory]

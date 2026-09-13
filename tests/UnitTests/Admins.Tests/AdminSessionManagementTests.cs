@@ -40,7 +40,7 @@ public sealed class PlatformUserSessionManagementTests
         var now = new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc);
         var accounts = new FakePlatformUserRepository();
         var sessions = new FakePlatformUserSessionStore();
-        var admin = User.SelfProvision("google", "sub", "a@x", now);
+        var admin = User.SelfProvision("google", "sub", "a@x.co", now);
         accounts.Add(admin);
         sessions.Add(MakeSession(admin.Id, now));                 // live (issued now)
         sessions.Add(MakeSession(admin.Id, now.AddHours(-10)));   // absolute-expired (now-10h + 8h < now) -> not live
@@ -60,7 +60,7 @@ public sealed class PlatformUserSessionManagementTests
     public async Task ListSessions_real_admin_with_no_sessions_is_empty_not_null()
     {
         var accounts = new FakePlatformUserRepository();
-        var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var admin = User.CreateScoped("a@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         var views = await new ListSessionsHandler(accounts, new FakePlatformUserSessionStore(),
             new TestClock(new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc)))
@@ -95,7 +95,7 @@ public sealed class PlatformUserSessionManagementTests
     public async Task Revoke_unknown_session_throws_NotFound()
     {
         var (h, accounts, _, _, _) = NewHandler();
-        var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var admin = User.CreateScoped("a@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         await Assert.ThrowsAsync<NotFoundException>(() =>
             h.Handle(new RevokeSessionCommand(
@@ -106,8 +106,8 @@ public sealed class PlatformUserSessionManagementTests
     public async Task Revoke_session_owned_by_another_admin_throws_NotFound()
     {
         var (h, accounts, sessions, _, _) = NewHandler();
-        var routeAdmin = User.CreateScoped("route@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
-        var otherAdmin = User.CreateScoped("other@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var routeAdmin = User.CreateScoped("route@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var otherAdmin = User.CreateScoped("other@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(routeAdmin);
         accounts.Add(otherAdmin);
         var foreign = MakeSession(otherAdmin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
@@ -124,7 +124,7 @@ public sealed class PlatformUserSessionManagementTests
     public async Task Revoke_revokes_whole_family_audits_and_surfaces_familyId()
     {
         var (h, accounts, sessions, audit, operations) = NewHandler();
-        var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var admin = User.CreateScoped("a@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         var session = MakeSession(admin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         sessions.Add(session);
@@ -149,7 +149,7 @@ public sealed class PlatformUserSessionManagementTests
     public async Task Revoke_is_idempotent_across_repeated_calls()
     {
         var (h, accounts, sessions, audit, _) = NewHandler();
-        var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var admin = User.CreateScoped("a@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         var session = MakeSession(admin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         sessions.Add(session);
@@ -165,7 +165,7 @@ public sealed class PlatformUserSessionManagementTests
     public async Task Revoke_rejects_reusing_a_key_for_a_different_session()
     {
         var (h, accounts, sessions, _, _) = NewHandler();
-        var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var admin = User.CreateScoped("a@x.co", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         var first = MakeSession(admin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         var second = MakeSession(admin.Id, new DateTime(2026, 7, 6, 1, 0, 0, DateTimeKind.Utc));

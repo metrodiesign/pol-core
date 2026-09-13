@@ -143,14 +143,15 @@ Super Admin สร้าง invite ผ่าน `POST /api/v1/admins` พร้�
 {
   "objectId": "<verified-entra-object-guid>",
   "identityApprovalReference": "<non-sensitive-reference>",
-  "email": "<optional-contact>"
+  "email": "<contact-email>"
 }
 ```
 
 - `objectId` ต้องมาจาก verified Entra export ของ persisted tenant
 - `identityApprovalReference` ต้อง non-empty, trimmed และไม่เกิน 128 characters; ถูกเก็บเป็น correlation ของ
   `create-scoped` audit
-- Email optional และไม่ unique Invalid/blank/overlength contact ถูก normalize เป็น `NULL` โดยไม่ block valid tuple
+- Email **บังคับ** ที่ endpoint นี้ (deliverable contact); blank/overlength/invalid ถูก reject เป็น `400` แต่ Email ยัง
+  ไม่ unique จึงซ้ำกันได้ (email-optional/`NULL` ใช้กับ JIT login path เท่านั้น)
 - account ถูก persist ด้วย final tuple ตั้งแต่สร้าง First login resolve `AdminId` เดิมโดย exact tuple
 - ไม่มี Microsoft invite ที่รอ bind ด้วย Email และไม่มี identity-mutation endpoint ภายหลัง
 

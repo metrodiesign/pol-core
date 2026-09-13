@@ -28,14 +28,14 @@ public sealed class CreateScopedMicrosoftAdminTests
         var unitOfWork = new FakeUnitOfWork();
 
         var result = await Handler(admins, audit, tenant, unitOfWork).Handle(
-            Command(email: "  Contact-Label  ", approvalReference: "  entra-export-42  "), default);
+            Command(email: "  Contact@Example.com  ", approvalReference: "  entra-export-42  "), default);
 
         var account = Assert.Single(admins.Accounts);
         Assert.Equal(result.AdminId, account.Id);
         Assert.Equal(User.MicrosoftProvider, account.Provider);
         Assert.Equal(TenantId, account.TenantId);
         Assert.Equal(ObjectId.ToString("D"), account.Subject);
-        Assert.Equal("Contact-Label", account.Email);
+        Assert.Equal("Contact@Example.com", account.Email);
         Assert.Equal(Tier.Scoped, account.Tier);
         Assert.Equal(UserStatus.Active, account.Status);
         Assert.Equal(1, account.Version);
@@ -57,12 +57,40 @@ public sealed class CreateScopedMicrosoftAdminTests
     }
 
     [Theory]
-    [InlineData(null, null)]
-    [InlineData("", null)]
-    [InlineData("   ", null)]
-    [InlineData("  duplicate@example.com  ", "duplicate@example.com")]
-    public async Task Optional_contact_is_normalized_without_becoming_an_identity_or_uniqueness_gate(
-        string? suppliedEmail, string? expectedEmail)
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Blank_or_missing_contact_email_is_rejected_before_any_write(string? suppliedEmail)
+    {
+        var admins = new FakePlatformUserRepository();
+        var audit = new FakePlatformUserAuditWriter();
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await Handler(
+            admins, audit, new FakeWorkforceTenantBindingStore(TenantId), new FakeUnitOfWork())
+            .Handle(Command(email: suppliedEmail), default));
+
+        Assert.Empty(admins.Accounts);
+        Assert.Empty(audit.Appended);
+    }
+
+    [Fact]
+    public async Task Overlength_contact_email_is_rejected_before_any_write()
+    {
+        var admins = new FakePlatformUserRepository();
+        var audit = new FakePlatformUserAuditWriter();
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await Handler(
+            admins, audit, new FakeWorkforceTenantBindingStore(TenantId), new FakeUnitOfWork())
+            .Handle(Command(email: new string('x', AdminContactEmail.MaxLength + 1)), default));
+
+        Assert.Empty(admins.Accounts);
+        Assert.Empty(audit.Appended);
+    }
+
+    // Email is a required contact here, but it is still NOT an identity or uniqueness gate: two accounts may share
+    // one address, and no email lookup runs.
+    [Fact]
+    public async Task Valid_contact_email_is_stored_and_may_duplicate_without_becoming_a_uniqueness_gate()
     {
         var admins = new FakePlatformUserRepository();
         admins.Add(User.CreateScopedMicrosoft(TenantId, Guid.NewGuid(), "duplicate@example.com", Now));
@@ -70,26 +98,13 @@ public sealed class CreateScopedMicrosoftAdminTests
 
         var result = await Handler(
             admins, audit, new FakeWorkforceTenantBindingStore(TenantId), new FakeUnitOfWork())
-            .Handle(Command(email: suppliedEmail), default);
+            .Handle(Command(email: "  duplicate@example.com  "), default);
 
         var created = Assert.Single(admins.Accounts, account => account.Id == result.AdminId);
-        Assert.Equal(expectedEmail, created.Email);
+        Assert.Equal("duplicate@example.com", created.Email);
         Assert.Equal(ObjectId.ToString("D"), created.Subject);
         Assert.Equal(0, admins.EmailLookupCalls);
         Assert.Equal(2, admins.Accounts.Count);
-    }
-
-    [Fact]
-    public async Task Overlength_contact_is_stored_as_null_without_blocking_the_verified_tuple()
-    {
-        var admins = new FakePlatformUserRepository();
-
-        var result = await Handler(
-            admins, new FakePlatformUserAuditWriter(),
-            new FakeWorkforceTenantBindingStore(TenantId), new FakeUnitOfWork())
-            .Handle(Command(email: new string('x', AdminContactEmail.MaxLength + 1)), default);
-
-        Assert.Null(Assert.Single(admins.Accounts, account => account.Id == result.AdminId).Email);
     }
 
     [Theory]
@@ -236,7 +251,9 @@ public sealed class CreateScopedMicrosoftAdminTests
         Guid? objectId = null,
         string? email = "contact@example.com",
         string approvalReference = "entra-export-42") =>
-        new(objectId ?? ObjectId, email, approvalReference, ActorId, "http-correlation");
+        // email/approvalReference are passed through as-is (null-forgiving) so the handler's own validation
+        // is what rejects the invalid cases, matching real dispatch.
+        new(objectId ?? ObjectId, email!, approvalReference, ActorId, "http-correlation");
 
     private sealed class NoRecoveryReader : IAdminIdentityRecoveryReader
     {

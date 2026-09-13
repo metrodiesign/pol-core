@@ -3276,7 +3276,7 @@ api.MapPost("/admins", async (
     .WithTags("ผู้ดูแลระบบ")
     .WithName("CreateScopedAdmin")
     .WithSummary("สร้าง Scoped Microsoft admin แบบ pre-bound")
-    .WithDescription("เฉพาะ Super ใช้ ObjectId จาก Entra export ที่ตรวจสอบแล้วและ approval reference; อีเมลเป็นข้อมูลติดต่อที่ไม่บังคับ")
+    .WithDescription("เฉพาะ Super ใช้ ObjectId จาก Entra export ที่ตรวจสอบแล้ว, approval reference และอีเมลติดต่อ (บังคับ) -> อีเมลว่าง/ผิดรูปแบบ 400")
     .Produces<CreateScopedResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -4373,7 +4373,7 @@ internal static class ProvisioningGuards
 // Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
 // the host sets them from the resolved IAdminScope + the authenticated request.
 internal sealed record CreateAdminRequest(
-    Guid ObjectId, string IdentityApprovalReference, string? Email = null);
+    Guid ObjectId, string IdentityApprovalReference, string Email);
 internal sealed record AssignMerchantRequest(Guid MerchantId);
 internal sealed record ChangeAdminTierRequest(string Tier);
 

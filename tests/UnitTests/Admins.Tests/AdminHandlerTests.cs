@@ -331,6 +331,23 @@ public sealed class AdminHandlerTests
         Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreateScoped_rejects_a_missing_contact_email(string email)
+    {
+        var tenant = new FakeWorkforceTenantBindingStore();
+        var admins = new FakePlatformUserRepository();
+        var handler = new CreateScopedHandler(
+            admins, new FakePlatformUserAuditWriter(), tenant, new FakeUnitOfWork(), new FixedClock());
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await handler.Handle(new CreateScopedCommand(
+                Guid.NewGuid(), email, "approval-1", Guid.NewGuid(), "corr"), default));
+
+        Assert.Empty(admins.Accounts);
+    }
+
     // ---- AssignMerchant ----
 
     [Fact]

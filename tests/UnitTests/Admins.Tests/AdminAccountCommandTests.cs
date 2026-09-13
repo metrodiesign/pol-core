@@ -19,7 +19,7 @@ public sealed class PlatformUserCommandTests
     [Fact]
     public void Reactivate_sets_status_active()
     {
-        var a = User.CreateScoped("x@x", T0);
+        var a = User.CreateScoped("x@x.co", T0);
         a.Suspend(Actor);
         Assert.Equal(UserStatus.Suspended, a.Status);
         a.Reactivate();
@@ -29,7 +29,7 @@ public sealed class PlatformUserCommandTests
     [Fact]
     public void Reactivate_on_active_account_is_idempotent()
     {
-        var a = User.CreateScoped("x@x", T0);   // Active from creation
+        var a = User.CreateScoped("x@x.co", T0);   // Active from creation
         a.Reactivate();
         Assert.Equal(UserStatus.Active, a.Status);
     }
@@ -57,7 +57,7 @@ public sealed class PlatformUserCommandTests
     public async Task Reactivate_suspended_activates_revokes_sessions_and_audits()
     {
         var (h, accounts, sessions, audit) = NewHandler();
-        var target = User.CreateScoped("t@x", T0);
+        var target = User.CreateScoped("t@x.co", T0);
         target.Suspend(Actor);
         accounts.Add(target);
 
@@ -75,7 +75,7 @@ public sealed class PlatformUserCommandTests
     public async Task Reactivate_already_active_does_not_revoke_but_still_audits()
     {
         var (h, accounts, sessions, audit) = NewHandler();
-        var target = User.CreateScoped("t@x", T0);   // already Active
+        var target = User.CreateScoped("t@x.co", T0);   // already Active
         accounts.Add(target);
 
         await h.Handle(new ReactivateCommand(target.Id, Actor, "corr", target.Version), default);
