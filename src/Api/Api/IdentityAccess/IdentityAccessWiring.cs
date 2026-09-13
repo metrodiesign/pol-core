@@ -184,6 +184,7 @@ internal sealed class IdentityBffLoginService(
     RegistrationSessionService registrationSessions,
     IIdentityAccessQuery identities,
     BffSessionManager bff,
+    OpenIddictRefreshTokenRotator refreshTokens,
     IOptions<IdentityAccessOptions> options)
 {
     public async Task CompleteAsync(TicketReceivedContext context, IdentityLoginKind kind)
@@ -203,11 +204,17 @@ internal sealed class IdentityBffLoginService(
                 context.HttpContext.RequestAborted);
             var account = await identities.FindAccountAsync(result.AccountId, context.HttpContext.RequestAborted)
                 ?? throw new InvalidOperationException("JIT account was not persisted.");
+            // The ticket carries platform tokens, not Entra's: refresh rotates and logout revokes this OpenIddict
+            // reference token (design API-011). Entra's access/refresh tokens are not needed after the callback.
+            var refreshToken = await refreshTokens.IssueAsync(
+                account.Id,
+                DateTimeOffset.UtcNow.AddMinutes(settings.BffSessionMinutes),
+                context.HttpContext.RequestAborted);
             var issue = await bff.CreateAsync(
                 account,
                 clientId: null,
-                properties.GetTokenValue("access_token"),
-                properties.GetTokenValue("refresh_token"),
+                accessToken: null,
+                refreshToken,
                 merchantId: null,
                 properties.RedirectUri ?? "/",
                 context.HttpContext.RequestAborted);
