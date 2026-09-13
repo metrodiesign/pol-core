@@ -40,6 +40,9 @@ internal sealed class BffSessionManager(
     private readonly IDataProtector _protector =
         dataProtection.CreateProtector("pol.identity-access.bff.ticket.v1");
 
+    /// <summary>Expiry a ticket issued now would get: an absolute lifetime, never slid on use.</summary>
+    public DateTime NextExpiresAt() => clock.UtcNow.AddMinutes(options.Value.BffSessionMinutes);
+
     public async Task<BffSessionIssue> CreateAsync(
         Account account,
         string? clientId,

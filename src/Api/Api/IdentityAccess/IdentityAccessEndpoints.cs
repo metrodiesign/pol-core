@@ -548,7 +548,7 @@ internal static class IdentityAccessEndpoints
         var refreshToken = current.ProtectedTicket.RefreshToken;
         if (rotator is not null)
         {
-            refreshToken = await rotator.RotateAsync(refreshToken, cancellationToken);
+            refreshToken = await rotator.RotateAsync(refreshToken, manager.NextExpiresAt(), cancellationToken);
             if (refreshToken is null)
                 return Results.Unauthorized();
         }
