@@ -350,7 +350,7 @@ Physical schema ใช้ `acct`, `access`, `merch`, `ord`, `checkout`, `txn`, `
 
 | Entity ที่ไม่ได้ขยายใน ERD | Field set บังคับ |
 |---|---|
-| `BffSessionTicket` | `TicketKeyHash`, Account/Client IDs, protected authentication ticket, issued/expires/revoked timestamps; ไม่มี raw-token column |
+| `BffSessionTicket` | retired 2026-09-14 (ดู Deviation ในหัวข้อ BFF): employee login ใช้ OpenIddict authorization + reference refresh token แทน ไม่มีตารางนี้แล้ว |
 | `PlatformAccessRole` | PlatformAccess/Role IDs; Role ต้องเป็น Platform และ target ต้องเป็น Employee |
 | `SystemClientScope` | SystemClient ID + registered scope code; เป็น source สำหรับ scope ที่ OAuth token ออกได้ |
 | `MerchantAccessMethod` | MerchantAccess ID + verified method code; intersect กับ SystemClient scope/capability |
