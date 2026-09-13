@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Access.Domain;
 using Accounts.Application;
 using Accounts.Domain;
 using BuildingBlocks.Application;
@@ -168,6 +169,7 @@ internal sealed class BffSessionAuthenticationHandler : AuthenticationHandler<Au
     private readonly IIdentityAccessQuery _identities;
     private readonly BffSessionManager _manager;
     private readonly IClock _clock;
+    private readonly Api.Admins.AdminScope _adminScope;
 
     public BffSessionAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -176,13 +178,15 @@ internal sealed class BffSessionAuthenticationHandler : AuthenticationHandler<Au
         IBffSessionStore sessions,
         IIdentityAccessQuery identities,
         BffSessionManager manager,
-        IClock clock)
+        IClock clock,
+        Api.Admins.AdminScope adminScope)
         : base(options, logger, encoder)
     {
         _sessions = sessions;
         _identities = identities;
         _manager = manager;
         _clock = clock;
+        _adminScope = adminScope;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -213,6 +217,13 @@ internal sealed class BffSessionAuthenticationHandler : AuthenticationHandler<Au
 
         Context.Features.Set(new BffSessionContext(ticket, payload));
 
+        // Admin-console route (policy "admin" selected this scheme because only the BFF cookie is present): the
+        // route's handlers read IAdminScope, so bind it from the account's authorization snapshot. Identity-* and
+        // order routes never set the Admin audience and stay unbound (their write floor is the unbound path).
+        if (Context.Features.Get<Api.Iam.SelectedConsoleAudience>()?.Value == Api.Iam.ConsoleAudience.Admin
+            && !await TryBindAdminScopeAsync(account))
+            return AuthenticateResult.Fail("Admin console requires an employee account.");
+
         var identity = new ClaimsIdentity(SchemeName);
         identity.AddClaim(new Claim("sub", account.Id.ToString("D")));
         identity.AddClaim(new Claim("account_type", account.AccountType.ToString().ToUpperInvariant()));
@@ -224,5 +235,35 @@ internal sealed class BffSessionAuthenticationHandler : AuthenticationHandler<Au
         if (payload.MerchantId is { } merchantId)
             identity.AddClaim(new Claim("merchant_id", merchantId.ToString("D")));
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
+    }
+
+    /// <summary>Materializes the legacy admin <c>Resolution</c> from the employee account: AdminId = AccountId,
+    /// permissions = the platform-role permission set, and platform access = the old Super tier (unrestricted
+    /// merchant reach); an employee without platform access is Scoped to its active MerchantAccess set.</summary>
+    private async Task<bool> TryBindAdminScopeAsync(Account account)
+    {
+        if (account.AccountType != AccountType.Employee)
+            return false;
+        var snapshot = await _identities.ResolveAuthorizationAsync(
+            account.Id, merchantId: null, clientId: null, Context.RequestAborted);
+        if (snapshot is null)
+            return false;
+        var accessible = snapshot.HasPlatformAccess
+            ? global::Admins.Application.Users.AccessibleMerchants.All
+            : global::Admins.Application.Users.AccessibleMerchants.Of(
+                (await _identities.ListMerchantAccessAsync(account.Id, Context.RequestAborted))
+                    .Where(x => x.Status == AccessStatus.Active)
+                    .Select(x => x.MerchantId)
+                    .ToHashSet());
+        _adminScope.Set(new global::Admins.Application.Users.Resolution(
+            account.Id,
+            await _identities.FindLoginEmailAsync(account.Id, Context.RequestAborted),
+            snapshot.HasPlatformAccess ? global::Admins.Domain.Users.Tier.Super : global::Admins.Domain.Users.Tier.Scoped,
+            accessible)
+        {
+            Permissions = snapshot.Permissions,
+            AuthorizationVersion = account.AuthorizationVersion,
+        });
+        return true;
     }
 }

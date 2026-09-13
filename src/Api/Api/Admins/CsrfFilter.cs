@@ -22,7 +22,12 @@ internal sealed class CsrfFilter : IEndpointFilter
         var http = context.HttpContext;
         if (!SafeMethods.Contains(http.Request.Method))
         {
-            var cookie = http.Request.Cookies[SessionCookies.CsrfCookieName];
+            // Same double-submit contract for both admin-console sessions: adm_csrf with the legacy admin cookie,
+            // pol_csrf when the request is authenticated by the employee BFF cookie alone.
+            var csrfCookieName = Api.Iam.ConsoleSessionAuthentication.UsesBffSession(http.Request.Cookies)
+                ? Api.IdentityAccess.BffSessionManager.CsrfCookieName
+                : SessionCookies.CsrfCookieName;
+            var cookie = http.Request.Cookies[csrfCookieName];
             var header = http.Request.Headers[HeaderName].ToString();
             if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(header) || !FixedTimeEquals(cookie, header))
                 return Results.Problem(
