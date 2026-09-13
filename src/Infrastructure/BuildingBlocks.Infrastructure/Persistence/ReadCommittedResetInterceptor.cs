@@ -65,9 +65,15 @@ public sealed class ReadCommittedResetInterceptor : IDbTransactionInterceptor, I
         return result;
     }
 
+    private const string SqlServerProvider = "Microsoft.EntityFrameworkCore.SqlServer";
+
     private void Mark(DbContext? context, DbTransaction transaction)
     {
-        if (context is null || transaction.IsolationLevel is IsolationLevel.ReadCommitted or IsolationLevel.Unspecified)
+        // SQL Server only: the leak is a SqlClient pooling behaviour and the reset statement is T-SQL (SQLite,
+        // used by the in-memory architecture tests, rejects it).
+        if (context is null
+            || transaction.IsolationLevel is IsolationLevel.ReadCommitted or IsolationLevel.Unspecified
+            || !string.Equals(context.Database.ProviderName, SqlServerProvider, StringComparison.Ordinal))
             return;
         _dirty.AddOrUpdate(context, Instance);
     }
