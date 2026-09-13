@@ -71,9 +71,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260910124500_Task8CommerceRuntimeGrants'),
     (N'20260910140000_Task9MigrationReadiness'),
     (N'20260911160508_ReviewFixOrderVersionedMetadata'),
-    (N'20260911163519_ReviewFixPaymentLinkNotificationIntent');
+    (N'20260911163519_ReviewFixPaymentLinkNotificationIntent'),
+    (N'20260913174013_RetireBffSessionTickets');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 47
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 48
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -82,7 +83,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 47
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 47 expected migrations through ReviewFixPaymentLinkNotificationIntent; ';
+    SET @fail += N'migration history must contain exactly 48 expected migrations through RetireBffSessionTickets; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

@@ -45,12 +45,14 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 47 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 48 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
 grep -qE '20260911160508_ReviewFixOrderVersionedMetadata' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion metadata migration head missing"
 grep -qE '20260911163519_ReviewFixPaymentLinkNotificationIntent' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion notification migration head missing"
+grep -qE '20260913174013_RetireBffSessionTickets' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion BFF retirement migration head missing"
 grep -qE 'iam\.Permissions expected 25 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"
 grep -qE 'iam\.RolePermissions expected 36 rows' docker/bootstrap/assert-fresh-db.sql \
