@@ -129,16 +129,20 @@ Orders → Paid. จบ ไม่มี issuance.
   explicit version check) — Architecture.Tests ห้าม handler อื่นส่ง cross-merchant query ตรง + leak/bypass test =
   compensating control ชั้นสอง
 - Credential vault — **envelope encryption (per-merchant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
-- Identity — **ทั้ง 2 console ใช้ server-side OIDC BFF** ของตัวเอง (Authorization Code + PKCE, confidential client),
-  คนละ scheme/cookie/DP-purpose แยกขาด — ไม่มี id-token Bearer เหลือแล้ว (เดิม tenant SPA ใช้ Bearer audience `tenant`,
+- Identity — Admin console ใช้ **platform JWT (Bearer)**: SPA เป็น OpenIddict public client (`pol-admin`) เริ่มที่ `/oauth/authorize`
+  (Authorization Code + PKCE) API challenge Microsoft workforce ผ่าน scheme `IdentityWorkforceMicrosoft` (confidential client ฝั่ง API)
+  แล้วออก access JWT + refresh token; route `admin`/`dual-console` bind `IAdminScope` ผ่าน scheme `PlatformToken` (ตรวจ account Active +
+  `authz_version` ทุก request) **ไม่มี admin cookie/CSRF แล้ว (retire 2026-09-14)**. Merchant-user console ยังเป็น **server-side OIDC BFF**
+  (Authorization Code + PKCE, confidential client, cookie) — ไม่มี id-token Bearer เหลือแล้ว (เดิม tenant SPA ใช้ Bearer audience `tenant`,
   ถอดพร้อม policy `tenant` ทั้งก้อน). **provider split**: Admin รับเฉพาะ tenant-pinned Microsoft workforce และ JIT
   eligible identity เป็น Active/Scoped/roleless; Admin Google/allowlist bootstrap ถูก retire. Merchant-user รับเฉพาะ
   Microsoft Entra ID (CIAM) เช่นกัน — **Google ถูก retire ทั้งระบบ 2026-09-05**: ไม่ register scheme, boot guard reject
   provider ที่ไม่ใช่ Microsoft และ endpoint `POST /api/v1/merchants/auth/invitations/start` (google-only) ถูกลบ.
-  ทั้งสองใช้ provider-scoped login/callback (`/api/v1/{admins|merchants}/auth/{provider}/login|callback`,
-  provider ไม่รู้จัก/ไม่ได้ config -> 404). Admin: scheme `AdminMicrosoft`, opaque session
-  cookie `__Host-adm_session` (เก็บแค่ SHA-256 hash), rotation + reuse-detection + instant revoke, CSRF double-submit,
-  RBAC resolve สดต่อ request (**retire id-token-as-bearer audience 2026-06-24**). Merchant-user: scheme
+  Merchant-user ใช้ provider-scoped login/callback (`/api/v1/merchants/auth/{provider}/login|callback`, provider ไม่รู้จัก/ไม่ได้
+  config -> 404); Admin ไม่มี login route แล้ว เหลือเฉพาะ Entra callback `/api/v1/admins/auth/microsoft/callback` (sign in cookie
+  `pol_login` อายุ 2 นาทีแล้วกลับ `/oauth/authorize`). Admin cookie stack เดิม (scheme + opaque session cookie + CSRF
+  double-submit) ถูก retire 2026-09-14 (ตาราง `admin.Sessions` drop); RBAC ยัง resolve สดต่อ request (**retire id-token-as-bearer
+  audience 2026-06-24**). Merchant-user: scheme
   `MerchantUserMicrosoft` (เดิม `ProducerGoogle`), cookie `__Host-mch_session` + csrf `mch_csrf`
   (เดิม `__Host-prd_session`/`prd_csrf`), กลไกเดียวกัน, policy `merchant-user`
   **single-scheme** (เดิม dual-scheme `producer` = ProducerSession OR tenant Bearer). actor = **`MerchantUser`** (เดิม
@@ -148,9 +152,9 @@ Orders → Paid. จบ ไม่มี issuance.
   [rf1-schema-reset design.md](../specs/rf1-schema-reset/design.md#data-models--interfaces)) + permission key
   `merchant_user.approve`/`.reject` (เดิม `producer.*`). register ยัง anonymous ticket-gated (signed Data Protection
   token) → admin approve/reject เหมือนเดิม. **module Identity ถูกลบ 2026-06-23 → rebuild เป็น Producer 2026-06-28 → รวมกับ
-  Tenant เป็น Merchants module เดียว (rf1, 2026-07-12).** คงเหลือ **`PlatformUser`\*** (เดิม `AdminAccount`\*) + BFF
-  session tables (`PlatformUserSessions`/`PlatformAuthAudits`/`PlatformUserAudits`, เดิม
-  `AdminSessions`/`AdminAuthAudits`/`AdminAccountAudits`) + `DataProtectionKeys` = control-plane (`ControlPlaneDbContext`,
+  Tenant เป็น Merchants module เดียว (rf1, 2026-07-12).** คงเหลือ **`PlatformUser`\*** (เดิม `AdminAccount`\*) +
+  `PlatformAuthAudits`/`PlatformUserAudits` (เดิม `AdminAuthAudits`/`AdminAccountAudits`; `AdminAuthAudits` เป็น archive ไม่มี writer แล้ว —
+  ตาราง session `admin.Sessions` ถูก drop 2026-09-14) + `DataProtectionKeys` = control-plane (`ControlPlaneDbContext`,
   ไม่มี query filter) ใน **Admin module**, schema `admin`; MerchantUser identity/session/RBAC ตารางข้างต้นอยู่ schema
   `merch` — **คนละ schema กันแล้ว** (เดิมทั้งคู่ schema เดียว `producer` ก่อน rf1). schema ยังไม่ใช่เส้นแบ่งของ floor (หลัง
   rls-to-query-filter ยิ่งชัดกว่าเดิม — ไม่มี DB policy ให้ผูกกับ schema เลย): floor บังคับตาม **`DbContext` cluster** —

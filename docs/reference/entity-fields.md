@@ -42,6 +42,8 @@ Migration `20260808161508_OneBasedPersistedEnumStorage` (`OneBasedPersistedEnumS
 
 ### `admin.AuthAudits`
 
+Archive ของ admin cookie login เดิม: ไม่มี writer หลัง 2026-09-14 (legacy admin cookie stack และ `admin.Sessions` ถูก retire ด้วย migration `20260914051532_RetireAdminSessions`) คงตารางไว้อ่านย้อนหลังเท่านั้น
+
 | Field | SQL type | Null | ความหมาย |
 |---|---|---|---|
 | `Id` | `uniqueidentifier` | NN, PK | audit row id |
@@ -84,23 +86,6 @@ Migration `20260808161508_OneBasedPersistedEnumStorage` (`OneBasedPersistedEnumS
 | `RoleId` | `uniqueidentifier` | NN, FK | อ้าง `iam.Roles.Id` |
 | `AssignedById` | `uniqueidentifier` | NN | ผู้มอบ role |
 | `AssignedAt` | `datetime2` | NN | เวลามอบ role |
-
-### `admin.Sessions`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | session id |
-| `FamilyId` | `uniqueidentifier` | NN | session family สำหรับ revoke ทั้งชุด |
-| `TokenHash` | `varbinary(32)` | NN | SHA-256 hash; ไม่เก็บ raw token |
-| `AdminUserId` | `uniqueidentifier` | NN | owner admin |
-| `Status` | `int` | NN | `Active=1`, `Superseded=2`, `Revoked=3` |
-| `IssuedAt` | `datetime2` | NN | เวลาออก session |
-| `IdleExpiresAt` | `datetime2` | NN | idle expiry |
-| `AbsoluteExpiresAt` | `datetime2` | NN | absolute expiry |
-| `SupersededAt` | `datetime2` | NULL | เวลาที่ถูกแทนที่ |
-| `SupersededBySessionId` | `uniqueidentifier` | NULL | session ใหม่ที่แทนที่ |
-| `IpAddress` | `nvarchar(45)` | NULL | client IP |
-| `UserAgent` | `nvarchar(256)` | NULL | client user agent |
 
 ### `admin.UserAudits`
 
@@ -1289,7 +1274,6 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `admin.MerchantAccess` | `IX_MerchantAccess_AdminUserId_MerchantId` | `(AdminUserId, MerchantId)` unique |
 | `admin.ProvisioningOperations` | `UX_ProvisioningOperations_Key` | `OperationKey` unique |
 | `admin.RoleAssignments` | `IX_RoleAssignments_AdminUserId_RoleId` | `(AdminUserId, RoleId)` unique |
-| `admin.Sessions` | `IX_Sessions_TokenHash` | `TokenHash` unique |
 | `admin.Users` | `IX_Users_Email` | `Email` unique |
 | `admin.Users` | `IX_Users_Subject` | `Subject` unique, filter `Subject IS NOT NULL` |
 | `iam.RolePermissions` | `IX_RolePermissions_RoleId_PermissionKey` | `(RoleId, PermissionKey)` unique |
@@ -1341,7 +1325,6 @@ Non-unique lookup indexes:
 |---|---|
 | `admin.AuthAudits` | `IX_AuthAudits_AdminUserId` |
 | `admin.RoleAssignments` | `IX_RoleAssignments_RoleId` |
-| `admin.Sessions` | `IX_Sessions_AbsoluteExpiresAt`, `IX_Sessions_AdminUserId`, `IX_Sessions_FamilyId` |
 | `admin.Users` | employee identity/profile indexes from current Admin configuration |
 | `iam.Permissions` | `IX_Permissions_GroupKey` |
 | `iam.RolePermissions` | `IX_RolePermissions_PermissionKey` |

@@ -134,7 +134,7 @@ Email rename or reuse never transfers authorization because Email is not an iden
 
 | Tier | Compose variables | Mounted secret file | Public callback |
 |---|---|---|---|
-| Tier 0 Admin | `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY` | `secrets/admin_entra_client_secret` | `https://<api-origin>/api/v1/admins/auth/microsoft/callback` |
+| Tier 0 Admin | `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY`, `ADMIN_ENTRA_TENANT_ID` (map เข้า `IdentityAccess__Workforce*`) | `secrets/admin_entra_client_secret` (entrypoint export เป็น `IdentityAccess__Workforce__ClientSecret`) | `https://<api-origin>/api/v1/admins/auth/microsoft/callback` |
 | Tier 1 Merchant | `MERCHANT_ENTRA_CLIENT_ID`, `MERCHANT_ENTRA_AUTHORITY` | `secrets/merchant_entra_client_secret` | `https://<api-origin>/api/v1/merchants/auth/microsoft/callback` |
 
 Authority rules:
@@ -185,12 +185,16 @@ OIDC creates callback URLs from the browser-facing request. The reverse proxy mu
 - preserve `Set-Cookie` and callback `Cookie` headers without rewriting their security attributes;
 - never trust wildcard proxy CIDRs such as `0.0.0.0/0` or `::/0`.
 
-The employee platform login (OpenIddict authorization code + PKCE, the admin SPA's JWT) reuses the Admin Entra app:
-`docker-compose.prod.yml` maps `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY`, the `admin_entra_client_secret`
-file secret and `ADMIN_FRONTEND_ORIGIN` into `IdentityAccess__Workforce*`, and needs one extra value,
-`ADMIN_ENTRA_TENANT_ID` (the workforce tenant GUID inside the authority). The SPA redirect URI
-`<ADMIN_FRONTEND_ORIGIN>/auth/callback` is registered with the OpenIddict public client at boot; the Entra app must
-still allow the API's own callback `/api/v1/admins/auth/microsoft/callback` on the public API origin.
+The employee platform login (OpenIddict authorization code + PKCE, the admin SPA's JWT) is the only admin console
+credential since 2026-09-14: there is no admin cookie login, no `AdminAuth__*` section and no `admin-auth` rate limiter.
+`docker-compose.prod.yml` maps `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY`, `ADMIN_ENTRA_TENANT_ID` (the workforce
+tenant GUID inside the authority), the `admin_entra_client_secret` file secret and `ADMIN_FRONTEND_ORIGIN` straight into
+`IdentityAccess__Workforce*`; the entrypoint exports the secret file only as `IdentityAccess__Workforce__ClientSecret`.
+`ProvisioningGuards.RequireWorkforceAdminProvider` refuses to boot in Production unless ClientId, ClientSecret, the fixed
+CallbackPath and a tenant-pinned public-cloud Authority are set and `IdentityAccess__WorkforceTenantId` equals the
+authority tenant. The SPA redirect URI `<ADMIN_FRONTEND_ORIGIN>/auth/callback` is registered with the OpenIddict public
+client at boot; the Entra app must still allow the API's own callback `/api/v1/admins/auth/microsoft/callback` on the
+public API origin.
 
 `OAUTH_ISSUER` must be this API's public origin (no path, no trailing slash): OpenIddict stamps it into every
 authorization code and access token and rejects one presented on a different host, so an unpinned issuer breaks the
@@ -260,13 +264,14 @@ Tier 1 must prove the complete lifecycle, not only the Entra consent page:
 
 Tier 0 staging must prove:
 
-1. Start at `/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
+1. Start from the admin SPA sign-in (it redirects to `/oauth/authorize` with PKCE; the API challenges Entra itself).
 2. Login with an email-less synthetic identity whose exact `tid`/`oid` is in the pinned workforce tenant.
-3. Verify malformed/duplicate claims and tenant/issuer mismatch are rejected before Graph, DB resolution or session write.
+3. Verify malformed/duplicate claims and tenant/issuer mismatch are rejected before DB resolution or the `pol_login` sign-in.
 4. Verify exact existing resolution, roleless JIT and a pre-bound invite; two tuples may share one optional Email.
-5. Verify dashboard redirect, admin session and permission-scoped `/api/v1/admins/me` response.
+5. Verify the SPA receives the code at `<ADMIN_FRONTEND_ORIGIN>/auth/callback`, exchanges it at `POST /oauth/token`, and a
+   Bearer call to `/api/v1/admins/me` returns the permission-scoped response (no admin cookie is set).
 
-Capture only status, fixed browser reason, correlation ID and timestamp. Do not capture claims or Graph response body.
+Capture only status, fixed browser reason, correlation ID and timestamp. Do not capture claims or tokens.
 
 Capture status, `Location`, correlation ID, Entra error code and timestamp only. Redact query tickets, authorization code,
 state, nonce, cookies, ID token, OTP and client secret.

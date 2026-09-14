@@ -18,14 +18,6 @@
     "DevMerchantId": "00000000-0000-0000-0000-000000000001"
   },
   "AdminSession": {
-    "DefaultReturnPath": "/dashboard",
-    "ReturnUrlAllowlist": [
-      "/",
-      "/main",
-      "/dashboard",
-      "/tenants",
-      "/scalar"
-    ],
     "WebAppBaseUrl": "https://localhost:3001",
     "ScalarBaseUrl": "https://localhost:5001"
   },
