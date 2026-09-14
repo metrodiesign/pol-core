@@ -23,7 +23,8 @@
         "IdentityAccess__WorkforceTenantId": "05ab044e-e2c5-47dc-bbfb-fd7ea077fa71",
         "IdentityAccess__WorkforceAudience": "ca9110ac-2be1-49ea-a7ee-badb792db8ce",
         "IdentityAccess__WorkforceWebAppBaseUrl": "https://localhost:3001",
-        "IdentityAccess__RefreshTokenMinutes": "1440"
+        "IdentityAccess__RefreshTokenMinutes": "1440",
+        "OAuth__Issuer": "https://localhost:5001"
       }
     }
   }
