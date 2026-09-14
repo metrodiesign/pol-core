@@ -229,6 +229,7 @@ package:
         MERCHANT_USER_FRONTEND_ORIGIN=https://ci.example.com \
         ADMIN_FRONTEND_ORIGIN=https://ci-admin.example.com \
         PSP_PUBLIC_BASE_URL=https://ci-api.example.com \
+        OAUTH_ISSUER=https://ci-api.example.com \
         PSP_TWOCTWOP_FRONTEND_RETURN_URL=https://ci.example.com/return \
         PSP_OMISE_RETURN_URI=https://ci.example.com/return \
         REGISTRY_IMAGE="$CI_REGISTRY_IMAGE" IMAGE_TAG="$IMAGE_TAG"

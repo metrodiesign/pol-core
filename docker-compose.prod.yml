@@ -119,6 +119,11 @@ services:
       MerchantSession__DefaultReturnPath: /dashboard
       MerchantSession__ReturnUrlAllowlist__1: /dashboard
       ForwardedHeaders__KnownNetworks__0: ${FORWARDED_HEADERS_KNOWN_NETWORK:?set trusted proxy CIDR in .env}
+      # OpenIddict issuer = this API's public origin (no path, no trailing slash). Without a pinned value the
+      # issuer is derived from each request's forwarded host, so an authorization code or access token minted
+      # for a request that reached the API on one host is rejected (invalid_grant / 401) by a request that
+      # arrived through the admin SPA proxy on another. Usually the same origin as PSP_PUBLIC_BASE_URL.
+      OAuth__Issuer: ${OAUTH_ISSUER:?set OAUTH_ISSUER (public API origin) in .env}
       MerchantUser__Invitation__Smtp__Host: ${MERCHANT_INVITATION_SMTP_HOST:?set SMTP host in .env}
       MerchantUser__Invitation__Smtp__Port: ${MERCHANT_INVITATION_SMTP_PORT:-587}
       MerchantUser__Invitation__Smtp__EnableSsl: ${MERCHANT_INVITATION_SMTP_ENABLE_SSL:-true}

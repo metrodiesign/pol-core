@@ -169,6 +169,7 @@ jobs:
           MERCHANT_USER_FRONTEND_ORIGIN: https://ci.example.com
           ADMIN_FRONTEND_ORIGIN: https://ci-admin.example.com
           FORWARDED_HEADERS_KNOWN_NETWORK: 172.18.0.0/16
+          OAUTH_ISSUER: https://ci-api.example.com
           MERCHANT_INVITATION_SMTP_HOST: smtp.example.internal
           MERCHANT_INVITATION_SMTP_FROM: no-reply@example.com
           MERCHANT_INVITATION_SMTP_USERNAME: ci-placeholder
