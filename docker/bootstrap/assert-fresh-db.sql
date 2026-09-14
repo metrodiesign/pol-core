@@ -171,18 +171,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                     AND p.major_id = OBJECT_ID(N'merch.RegistrationNotices') AND p.permission_name = N'INSERT' AND p.state = N'G')
    OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                   WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'SELECT' AND p.state = N'G')
+                    AND p.major_id = OBJECT_ID(N'admin.UserAudits') AND p.permission_name = N'SELECT' AND p.state = N'G')
    OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                   WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'INSERT' AND p.state = N'G')
-   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
-                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations')
-                    AND p.permission_name = N'SELECT' AND p.state = N'G')
-   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
-                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantIdentitySnapshot')
-                    AND p.permission_name = N'SELECT' AND p.state = N'G')
+                    AND p.major_id = OBJECT_ID(N'admin.UserAudits') AND p.permission_name = N'INSERT' AND p.state = N'G')
     SET @fail += N'pol_app required grant matrix incomplete; ';
 IF EXISTS (SELECT 1 FROM sys.database_permissions p
            WHERE p.grantee_principal_id = USER_ID(N'pol_app')
@@ -191,9 +183,9 @@ IF EXISTS (SELECT 1 FROM sys.database_permissions p
     SET @fail += N'append-only vault audit grants widened; ';
 IF EXISTS (SELECT 1 FROM sys.database_permissions p
            WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-             AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings')
+             AND p.major_id = OBJECT_ID(N'admin.UserAudits')
              AND p.permission_name IN (N'UPDATE', N'DELETE') AND p.state IN (N'G', N'W'))
-    SET @fail += N'workforce tenant binding grants widened; ';
+    SET @fail += N'admin user audit grants widened; ';
 
 IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 7
     SET @fail += N'iam.PermissionGroups expected 7 rows; ';
