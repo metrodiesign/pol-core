@@ -2391,18 +2391,14 @@ api.MapPost("/merchants", async (
     HttpContext http,
     IMediator mediator,
     IAdminScope adminScope,
-    IUserRepository adminUsers,
     CancellationToken ct) =>
 {
     // Merchant metadata binds through an explicit allowlist contract; non-secret PSP config still rides
     // alongside "psp"/"secrets" and is captured via JsonExtensionData (reference 2.4).
     var t = body.Merchant ?? throw new ArgumentException("The 'merchant' object is required.");
 
-    // The caller's CURRENT AuthorizationVersion, read fresh right before dispatch (task 8.5.4) — this IS the
+    // The caller's AuthorizationVersion as verified by the platform token handler on this request — the
     // "pinned at the request boundary" snapshot the provisioning UoW re-verifies in-transaction under lock.
-    var caller = await adminUsers.GetByIdAsync(adminScope.Current.AdminId, ct)
-        ?? throw new InvalidOperationException("The authenticated admin no longer exists.");
-
     var command = new ProvisionMerchantCommand(
         new MerchantSpec(t.Code, t.Name, t.Note, t.Country, t.Currency,
             t.EnabledChannels ?? [], new MerchantMetadata(t.Branding, t.Routing, t.Session, t.Timezone, t.Locale)),
@@ -2418,7 +2414,7 @@ api.MapPost("/merchants", async (
         $"admin:{adminScope.Current.AdminId:D}",
         http.TraceIdentifier,
         adminScope.Current.AdminId,
-        caller.AuthorizationVersion);
+        adminScope.Current.AuthorizationVersion);
 
     var result = await mediator.Send(command, ct);
     return Results.Created($"/api/v1/merchants/{t.Code}", result);

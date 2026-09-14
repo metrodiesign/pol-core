@@ -7,6 +7,7 @@ using BuildingBlocks.Infrastructure.Outbox;
 using BuildingBlocks.Infrastructure.Provisioning;
 using BuildingBlocks.Infrastructure.Vault;
 using Merchants.Domain;
+using Payments.Domain.Capabilities;
 using Payments.Domain.Psp;
 using Persistence.MerchantUsers.Outbox;
 using MerchantEntity = Merchants.Domain.Merchant;
@@ -106,6 +107,8 @@ public sealed class WriteAuthorizersTests
     [Theory]
     [InlineData(typeof(MerchantEntity), WriteOperation.Insert)]
     [InlineData(typeof(Connection), WriteOperation.Insert)]
+    [InlineData(typeof(MerchantProviderAccountMethod), WriteOperation.Insert)]
+    [InlineData(typeof(MerchantPaymentMethod), WriteOperation.Insert)]
     [InlineData(typeof(VaultSecretBlob), WriteOperation.Insert)]
     [InlineData(typeof(ProvisioningAudit), WriteOperation.Insert)]
     [InlineData(typeof(ProvisioningOperation), WriteOperation.Update)]

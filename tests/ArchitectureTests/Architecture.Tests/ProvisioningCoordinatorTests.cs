@@ -1,5 +1,6 @@
 using System.Data.Common;
-using Admins.Domain.Users;
+using Access.Domain;
+using Accounts.Domain;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.Data.Sqlite;
@@ -70,25 +71,22 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
         new(OpenConnectionAsync, ControlPlaneFactory, MerchantRuntimeFactory, TestKeyring,
             new FixedClock(DateTime.UtcNow), NoOpSecurityTelemetry.Instance, maxAttempts, checkpoint);
 
-    private async Task<Guid> SeedAdminAsync(Tier tier, UserStatus status)
+    private async Task<Guid> SeedAdminAsync(bool platformAccess, bool suspended)
     {
         await using var connection = await OpenConnectionAsync(CancellationToken.None);
         await using var db = ControlPlaneFactory(connection);
 
-        var admin = tier == Tier.Super
-            ? User.SelfProvision("google", $"sub-{Guid.NewGuid():N}", $"{Guid.NewGuid():N}@example.com", DateTime.UtcNow)
-            : User.CreateScoped($"{Guid.NewGuid():N}@example.com", DateTime.UtcNow);
-        db.Users.Add(admin);
+        var now = DateTime.UtcNow;
+        var account = Account.Create(AccountType.Employee, $"admin-{Guid.NewGuid():N}", now);
+        if (suspended)
+            account.Suspend(now);
+        db.Accounts.Add(account);
+        db.Employees.Add(Employee.Create(account.Id, $"E-{account.Id:N}"[..16], "OPS"));
+        if (platformAccess)
+            db.PlatformAccess.Add(PlatformAccess.Create(account.Id));
         await db.SaveChangesAsync();
 
-        if (status == UserStatus.Suspended)
-        {
-            admin.Suspend(Guid.NewGuid()); // a different acting admin -> self-suspend guard doesn't fire
-            db.Users.Update(admin);
-            await db.SaveChangesAsync();
-        }
-
-        return admin.Id;
+        return account.Id;
     }
 
     private static ProvisionSpec Spec(string code = "vprivilege", string name = "Test Co") => new(
@@ -129,7 +127,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task Successful_provisioning_creates_the_exact_entity_set_across_both_contexts()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         var result = await NewCoordinator().ProvisionAsync(Spec(), callerId, expectedAuthorizationVersion: 0, "op-1", CancellationToken.None);
 
         Assert.NotEqual(Guid.Empty, result.MerchantId);
@@ -157,7 +155,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_failpoint_after_the_control_plane_save_rolls_back_the_whole_transaction_atomically()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         var coordinator = NewCoordinator(checkpoint: (point, _) =>
             point == ProvisioningCheckpoint.AfterControlPlaneSave
                 ? throw new InvalidOperationException("injected failpoint")
@@ -173,7 +171,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_failpoint_after_the_merchant_runtime_save_rolls_back_the_whole_transaction_atomically()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         var coordinator = NewCoordinator(checkpoint: (point, _) =>
             point == ProvisioningCheckpoint.AfterMerchantRuntimeSave
                 ? throw new InvalidOperationException("injected failpoint")
@@ -190,7 +188,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_suspended_caller_is_rejected()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Suspended);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: true);
 
         await Assert.ThrowsAsync<WriteGuardException>(
             () => NewCoordinator().ProvisionAsync(Spec(), callerId, expectedAuthorizationVersion: 1, "op-2", CancellationToken.None));
@@ -201,7 +199,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_scoped_non_super_caller_is_rejected()
     {
-        var callerId = await SeedAdminAsync(Tier.Scoped, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: false, suspended: false);
 
         await Assert.ThrowsAsync<WriteGuardException>(
             () => NewCoordinator().ProvisionAsync(Spec(), callerId, expectedAuthorizationVersion: 0, "op-3", CancellationToken.None));
@@ -212,7 +210,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_stale_authorization_version_is_rejected()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active); // AuthorizationVersion is 0
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false); // AuthorizationVersion is 0
 
         await Assert.ThrowsAsync<WriteGuardException>(
             () => NewCoordinator().ProvisionAsync(Spec(), callerId, expectedAuthorizationVersion: 99, "op-4", CancellationToken.None));
@@ -223,7 +221,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_replay_with_the_same_key_and_payload_returns_the_exact_stored_result_without_double_provisioning()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         var spec = Spec();
 
         var first = await NewCoordinator().ProvisionAsync(spec, callerId, 0, "op-5", CancellationToken.None);
@@ -237,7 +235,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_replay_with_the_same_key_but_a_different_payload_is_rejected()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         await NewCoordinator().ProvisionAsync(Spec(name: "Original"), callerId, 0, "op-6", CancellationToken.None);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
@@ -249,8 +247,8 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task A_replay_by_a_different_caller_with_the_same_key_is_rejected()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
-        var otherCallerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
+        var otherCallerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         var spec = Spec();
         await NewCoordinator().ProvisionAsync(spec, callerId, 0, "op-7", CancellationToken.None);
 
@@ -263,7 +261,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     [Fact]
     public async Task Concurrent_attempts_on_the_same_key_produce_exactly_one_winner_and_the_loser_replays_the_stored_result()
     {
-        var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
+        var callerId = await SeedAdminAsync(platformAccess: true, suspended: false);
         var spec = Spec();
 
         var results = await Task.WhenAll(

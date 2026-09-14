@@ -122,6 +122,11 @@ internal static class CanonicalAccessEndpoints
         IIdentityAccessAdminStore store, IAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork, CancellationToken ct)
     {
+        // An admin locking their own account out is never the intent; another admin has to do it.
+        if (accountId == scope.Current.AdminId && body.Status == AccountStatus.Suspended)
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden,
+                title: "An admin cannot suspend their own account.");
+
         var key = IdempotencyKeys.Require(http);
         (AccountAdminView Value, bool Replayed) result;
         try

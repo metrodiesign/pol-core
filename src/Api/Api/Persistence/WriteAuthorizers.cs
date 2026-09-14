@@ -277,6 +277,8 @@ internal sealed class ProvisioningSuperWriteAuthorizer : IWriteAuthorizer
     [
         (typeof(MerchantEntity), WriteOperation.Insert),
         (typeof(Connection), WriteOperation.Insert),
+        (typeof(MerchantProviderAccountMethod), WriteOperation.Insert),
+        (typeof(MerchantPaymentMethod), WriteOperation.Insert),
         (typeof(VaultSecretBlob), WriteOperation.Insert),
         (typeof(ProvisioningAudit), WriteOperation.Insert),
         (typeof(ProvisioningOperation), WriteOperation.Update),
