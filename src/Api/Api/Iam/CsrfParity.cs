@@ -47,14 +47,10 @@ internal sealed class AudienceCsrfFilter : IEndpointFilter
 
     public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
+        // A Bearer identity (employee, agent, SYSTEM) is not cookie-authenticated, so CSRF does not apply.
         if (IdentityPermissionAuthorization.IsIdentityOrderRoute(context.HttpContext)
             && IdentityPermissionAuthorization.IsIdentityRequest(context.HttpContext))
-        {
-            return context.HttpContext.Request.Headers.Authorization.ToString()
-                .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? next(context)
-                : new Api.IdentityAccess.BffCsrfFilter().InvokeAsync(context, next);
-        }
+            return next(context);
 
         return context.HttpContext.Features.Get<SelectedConsoleAudience>()?.Value switch
         {

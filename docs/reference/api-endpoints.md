@@ -8,7 +8,7 @@
 
 | รายการ | จำนวน |
 | --- | ---: |
-| Explicit mapped operations (`MapGet`/`MapPost`/`MapPut`/`MapPatch`/`MapDelete`) | **274** |
+| Explicit mapped operations (`MapGet`/`MapPost`/`MapPut`/`MapPatch`/`MapDelete`) | **270** |
 | GET | 134 |
 | POST | 88 |
 | PUT | 31 |
@@ -17,13 +17,13 @@
 | Development infrastructure templates (`MapOpenApi`/`MapScalarApiReference`) | **2** |
 | OIDC middleware callback defaults (แยกจาก explicit map) | **2** |
 
-`MapOpenApi` และ `MapScalarApiReference` ถูกแสดงในส่วน infrastructure แยกต่างหาก เพราะ framework สร้าง route template ให้; callback ของ OIDC ที่ middleware จัดการเองก็แยกไว้ท้ายเอกสารและไม่ถูกรวมใน 274 operations.
+`MapOpenApi` และ `MapScalarApiReference` ถูกแสดงในส่วน infrastructure แยกต่างหาก เพราะ framework สร้าง route template ให้; callback ของ OIDC ที่ middleware จัดการเองก็แยกไว้ท้ายเอกสารและไม่ถูกรวมใน 270 operations.
 
 ประเภท `Canonical` และ `Compatibility` ใช้เมื่อ source หรือเอกสารอ้างสถานะนั้นโดยตรง; `Current` หมายถึง surface ที่ใช้งานอยู่แต่ source ไม่ได้ประกาศว่าเป็น alias หรือ canonical owner.
 
-Policy และ permission ในตารางใช้ชื่อ wire จริง: `admin`, `merchant-user`, `identity-platform`, `identity-bff`, `dual-console` และ `admin-or-identity-order` เป็น policy จาก [ConsoleSessionAuthentication.cs](../../src/Api/Api/Iam/ConsoleSessionAuthentication.cs) และ identity wiring และ BFF CSRF behavior จาก [BffCsrfFilter.cs](../../src/Api/Api/IdentityAccess/BffCsrfFilter.cs); ค่า permission เช่น `payment.create` และ `merchant.view` มาจาก [Keys.cs](../../src/Domain/Modules/Iam.Domain/Permissions/Keys.cs). `identity: order.read|order.write|checkout.write` ระบุ system scope ของ identity-order guard.
+Policy และ permission ในตารางใช้ชื่อ wire จริง: `admin`, `merchant-user`, `identity-platform`, `dual-console` และ `admin-or-identity-order` เป็น policy จาก [ConsoleSessionAuthentication.cs](../../src/Api/Api/Iam/ConsoleSessionAuthentication.cs) และ identity wiring; caller ของ `identity-platform` คือ platform JWT ใน `Authorization: Bearer` (employee ได้จาก authorization code + PKCE ที่ `/oauth/authorize` + `/oauth/token`, SYSTEM จาก client_credentials) จึงไม่มี cookie/CSRF; Bearer บน route `admin` ผูก `IAdminScope` ผ่าน [PlatformTokenAuthentication.cs](../../src/Api/Api/IdentityAccess/PlatformTokenAuthentication.cs) (scheme `PlatformToken` ห่อ OpenIddict validation และตรวจสถานะบัญชี/authorization version ทุก request); ค่า permission เช่น `payment.create` และ `merchant.view` มาจาก [Keys.cs](../../src/Domain/Modules/Iam.Domain/Permissions/Keys.cs). `identity: order.read|order.write|checkout.write` ระบุ system scope ของ identity-order guard.
 
-## Identity และ OAuth — 49 endpoints
+## Identity และ OAuth — 45 endpoints
 
 | Method | fullPath | ประเภท | หน้าที่ | caller / auth policy | source |
 | --- | --- | --- | --- | --- | --- |
@@ -50,16 +50,12 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 | GET | `/api/v1/auth/agents/callback` | Identity | รับ agent OIDC callback | สาธารณะ · OIDC/OAuth entry point (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | GET | `/api/v1/auth/agents/login` | Identity | เริ่ม OIDC login สำหรับตัวแทนหรือผู้ใช้ร้านค้า | สาธารณะ · OIDC/OAuth entry point (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | GET | `/api/v1/auth/employees/callback` | Identity | รับ workforce OIDC callback | สาธารณะ · OIDC/OAuth entry point (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| GET | `/api/v1/auth/employees/login` | Identity | เริ่ม OIDC login สำหรับพนักงานภายใน | สาธารณะ · OIDC/OAuth entry point (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| POST | `/api/v1/auth/logout` | Identity | ออกจาก identity BFF session | policy `identity-bff` · CSRF filter | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| POST | `/api/v1/auth/merchant-context` | Identity | เลือก merchant context ของ identity session | policy `identity-bff` · CSRF filter | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| GET | `/api/v1/auth/session` | Identity | อ่าน identity BFF session ปัจจุบัน | policy `identity-platform` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| POST | `/api/v1/auth/session/refresh` | Identity | ต่ออายุ identity BFF session (ticket ใหม่อายุเต็ม `IdentityAccess:BffSessionMinutes` default 480 นาที dev 1440; ticket เป็น absolute ไม่ slide เอง ต้องเรียก refresh ขณะ ticket ยัง live เท่านั้น ticket หมดอายุหรือ version stale ตอบ 401 ที่ชั้น auth) | policy `identity-bff` · CSRF filter | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
+| POST | `/api/v1/auth/logout` | Identity | ออกจากระบบ: เพิกถอน OpenIddict authorization ของ token ปัจจุบัน ทำให้ access และ refresh token ของ login นั้นใช้ต่อไม่ได้ทันที | policy `identity-platform` · ต้อง Bearer | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | GET | `/api/v1/me` | Identity | อ่าน account context ของ caller ปัจจุบัน | policy `identity-platform` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | GET | `/api/v1/me/access` | Identity | อ่าน authorization context และสิทธิ์ของ caller | policy `identity-platform` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | GET | `/api/v1/me/merchants` | Identity | รายการ merchant access ของ account ปัจจุบัน | policy `identity-platform` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| GET | `/api/v1/me/sessions` | Identity | รายการ BFF sessions ของบัญชีตนเอง | policy `identity-platform` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| DELETE | `/api/v1/me/sessions/{sessionId:guid}` | Identity | เพิกถอน BFF session ที่เลือก | policy `identity-bff` · CSRF filter | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
+| GET | `/api/v1/me/sessions` | Identity | รายการ login sessions (OpenIddict authorization หนึ่งรายการต่อ login) ของบัญชีตนเอง | policy `identity-platform` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
+| DELETE | `/api/v1/me/sessions/{sessionId}` | Identity | เพิกถอน login session ที่เลือก (token ทุกใบของ login นั้นใช้ต่อไม่ได้) | policy `identity-platform` · ต้อง Bearer | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | GET | `/api/v1/permissions` | Identity | อ่าน permission catalog | policy `admin` · permission `user.roles` | [CanonicalAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs) |
 | GET | `/api/v1/roles` | Identity | ค้นหา Platform roles | policy `admin` · permission `user.roles` | [CanonicalAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs) |
 | POST | `/api/v1/roles` | Identity | สร้าง Platform role | policy `admin` · permission `user.roles` · CSRF filter | [CanonicalAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/CanonicalAccessEndpoints.cs) |
@@ -73,9 +69,9 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 | GET | `/api/v1/system-clients/{clientId:guid}/keys` | Identity | รายการ public keys ของ SYSTEM client | policy `admin` · permission `user.manage` | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | POST | `/api/v1/system-clients/{clientId:guid}/keys` | Identity | ลงทะเบียน SYSTEM public key | policy `admin` · permission `user.manage` · CSRF filter | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | DELETE | `/api/v1/system-clients/{clientId:guid}/keys/{keyId:guid}` | Identity | เพิกถอน SYSTEM public key | policy `admin` · permission `user.manage` · CSRF filter | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| GET | `/oauth/authorize` | Identity | เริ่ม OAuth authorization code flow | OpenIddict public endpoint · ตรวจ redirect URI, state และ PKCE (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
+| GET | `/oauth/authorize` | Identity | เริ่ม login ของ workforce SPA (authorization code + PKCE); ไม่มี login cookie จะ challenge Entra แล้วกลับมาที่ request เดิม | OpenIddict public endpoint · ตรวจ registered redirect URI, state และ PKCE (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 | POST | `/oauth/revoke` | Identity | เพิกถอน OAuth token | OpenIddict public endpoint · ตรวจ client ownership และ token reference (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
-| POST | `/oauth/token` | Identity | ออก OAuth token | OpenIddict public endpoint · ตรวจ registered client และ grant type (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
+| POST | `/oauth/token` | Identity | ออก OAuth token: `authorization_code`+PKCE และ `refresh_token` ของ workforce SPA (access JWT อายุ `IdentityAccess:AccessTokenMinutes` 15 นาที + opaque refresh token อายุ `IdentityAccess:RefreshTokenMinutes` 480 นาที dev 1440 ออกใหม่อายุเต็มทุกครั้งที่ refresh; refresh รับ `merchant_id` เพื่อออก token ใน merchant context) และ `client_credentials` ของ SYSTEM | OpenIddict public endpoint · ตรวจ registered client และ grant type (metadata `AllowAnonymous`) | [IdentityAccessEndpoints.cs](../../src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs) |
 
 ## Commerce, checkout และ orders — 27 endpoints
 
@@ -374,7 +370,7 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 
 ## OpenAPI และ Scalar (development only) — 2 route templates
 
-สองรายการนี้ถูก map เฉพาะเมื่อ `app.Environment.IsDevelopment()` เป็นจริง; ใช้ named audience documents จาก `OpenApiDocuments` และไม่อยู่ในยอด explicit 274 operations.
+สองรายการนี้ถูก map เฉพาะเมื่อ `app.Environment.IsDevelopment()` เป็นจริง; ใช้ named audience documents จาก `OpenApiDocuments` และไม่อยู่ในยอด explicit 270 operations.
 
 | Method | fullPath | ประเภท | หน้าที่ | caller / auth policy | source |
 | --- | --- | --- | --- | --- | --- |

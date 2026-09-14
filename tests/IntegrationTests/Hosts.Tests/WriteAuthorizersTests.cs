@@ -176,26 +176,18 @@ public sealed class WriteAuthorizersTests
         Assert.False(unbound.CanWrite(entity, op, Guid.Empty));
     }
 
-    // Bugfix: the IdentityAccess BFF cookie scheme never binds IAdminScope (that is the legacy admin.Users
-    // session), so logout/refresh/merchant-context (ticket revoke or rotate) and repeat login (LoginAccount
-    // observe) all run unbound. Only Insert was allowlisted, so the first real employee logout on dev hit
-    // "Write to BffSessionTicket (Update) was denied" -> 500 and the session could never be ended.
+    // The OIDC callback runs before any admin scope exists: a repeat login observes the provider's current
+    // email/display name on the existing LoginAccount, and the OpenIddict token/authorization rows of the
+    // employee login are written unbound as well.
     [Theory]
-    [InlineData(typeof(Accounts.Domain.BffSessionTicket), WriteOperation.Update)] // logout revoke / refresh rotate
-    [InlineData(typeof(Accounts.Domain.LoginAccount), WriteOperation.Update)]     // repeat login observes email/name
-    public void Control_plane_admin_unbound_allows_the_bff_session_lifecycle_writes(Type entity, WriteOperation op)
+    [InlineData(typeof(Accounts.Domain.LoginAccount), WriteOperation.Update)]
+    [InlineData(typeof(OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken), WriteOperation.Insert)]
+    [InlineData(typeof(OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization), WriteOperation.Update)]
+    public void Control_plane_admin_unbound_allows_the_employee_login_lifecycle_writes(Type entity, WriteOperation op)
     {
         var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
 
         Assert.True(unbound.CanWrite(entity, op, Guid.Empty));
-    }
-
-    [Fact]
-    public void Control_plane_admin_unbound_still_denies_deleting_bff_session_tickets()
-    {
-        var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
-
-        Assert.False(unbound.CanWrite(typeof(Accounts.Domain.BffSessionTicket), WriteOperation.Delete, Guid.Empty));
     }
 
     [Fact]

@@ -85,7 +85,6 @@ public static class ControlPlanePersistenceRegistration
         services.AddScoped<IEmployeeJitStore>(sp => sp.GetRequiredService<IdentityAccessStore>());
         services.AddScoped<IRegistrationSessionStore>(sp => sp.GetRequiredService<IdentityAccessStore>());
         services.AddScoped<IAssertionReplayStore>(sp => sp.GetRequiredService<IdentityAccessStore>());
-        services.AddScoped<IBffSessionStore>(sp => sp.GetRequiredService<IdentityAccessStore>());
         services.AddScoped<IRegistrationSessionLookup>(sp => sp.GetRequiredService<IdentityAccessStore>());
         services.AddScoped<IIdentityAccessQuery>(sp => sp.GetRequiredService<IdentityAccessStore>());
         services.AddScoped<IIdentityAccessAdminStore>(sp => sp.GetRequiredService<IdentityAccessStore>());

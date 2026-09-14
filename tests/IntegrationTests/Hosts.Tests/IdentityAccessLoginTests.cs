@@ -47,6 +47,8 @@ file sealed class IdentityAccessLoginFactory : WebApplicationFactory<ApiHost::Pr
         builder.ConfigureServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
+            services.PostConfigure<OpenIddict.Server.AspNetCore.OpenIddictServerAspNetCoreOptions>(
+                options => options.DisableTransportSecurityRequirement = true);
             services.PostConfigure<OpenIdConnectOptions>("IdentityWorkforceMicrosoft", options =>
                 options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
                     new OpenIdConnectConfiguration
@@ -71,6 +73,7 @@ file sealed class IdentityAccessLoginFactory : WebApplicationFactory<ApiHost::Pr
 }
 
 [Trait("Capability", "IdentityAccess")]
+[Trait("Category", "Integration")]
 public sealed class IdentityAccessLoginTests
 {
     [Fact]
@@ -81,9 +84,12 @@ public sealed class IdentityAccessLoginTests
         using var factory = new IdentityAccessLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/auth/employees/login?returnTo=/dashboard");
+        // The SPA starts at /oauth/authorize (code + PKCE); without the login cookie the API parks the request
+        // in the Entra challenge and returns to the same authorize URL after the callback.
+        var authorizeUrl = EmployeeTokenFlow.AuthorizeUrl("login-challenge", $"{IdentityAccessLoginFactory.WebApp}/auth/callback");
+        var response = await client.GetAsync(authorizeUrl);
 
-        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.Found, await response.Content.ReadAsStringAsync());
         var query = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
         Assert.Equal("login.task2.test", response.Headers.Location.Host);
         Assert.Equal("code", query["response_type"]);
@@ -98,7 +104,7 @@ public sealed class IdentityAccessLoginTests
             .Get("IdentityWorkforceMicrosoft");
         var properties = options.StateDataFormat.Unprotect(query["state"]!);
         Assert.NotNull(properties);
-        Assert.Equal("/dashboard", properties!.RedirectUri);
+        Assert.Equal(authorizeUrl, properties!.RedirectUri);
         Assert.Equal("workforce", properties.Items["identity.realm"]);
     }
 
@@ -115,7 +121,9 @@ public sealed class IdentityAccessLoginTests
             AllowAutoRedirect = false,
             BaseAddress = new Uri("https://localhost"),
         });
-        var login = await client.GetAsync("/api/v1/auth/employees/login?returnTo=/dashboard");
+        var login = await client.GetAsync(EmployeeTokenFlow.AuthorizeUrl(
+            "login-challenge", $"{IdentityAccessLoginFactory.WebApp}/auth/callback"));
+        Assert.True(login.StatusCode == HttpStatusCode.Found, await login.Content.ReadAsStringAsync());
         var state = QueryHelpers.ParseQuery(login.Headers.Location!.Query)["state"].ToString();
 
         var callback = await client.PostAsync(
@@ -134,25 +142,4 @@ public sealed class IdentityAccessLoginTests
         Assert.DoesNotContain("provider rejected", callback.Headers.Location.ToString());
     }
 
-    [Fact]
-    [Trait("Requirement", "REQ-2.14")]
-    public void Every_identity_cookie_mutation_route_carries_the_bff_csrf_marker()
-    {
-        using var factory = new IdentityAccessLoginFactory();
-        var endpoints = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .ToArray();
-
-        foreach (var path in new[]
-        {
-            "/api/v1/auth/session/refresh",
-            "/api/v1/auth/merchant-context",
-            "/api/v1/auth/logout",
-        })
-        {
-            var endpoint = Assert.Single(endpoints, item =>
-                string.Equals(item.RoutePattern.RawText, path, StringComparison.Ordinal));
-            Assert.NotNull(endpoint.Metadata.GetMetadata<ApiHost::Api.IdentityAccess.BffCsrfProtected>());
-        }
-    }
 }

@@ -1,8 +1,10 @@
 extern alias ApiHost;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Accounts.Application;
 using Admins.Application;
@@ -85,6 +87,9 @@ class Task8A1SqlFactory : WebApplicationFactory<ApiHost::Program>
                     .RequireAuthenticatedUser()));
             services.RemoveAll<IAdminScope>();
             services.AddScoped<IAdminScope, Task8A1AdminScope>();
+            // The employee token flow (EmployeeTokenFlow) drives OpenIddict over the http test client.
+            services.PostConfigure<OpenIddict.Server.AspNetCore.OpenIddictServerAspNetCoreOptions>(
+                options => options.DisableTransportSecurityRequirement = true);
             foreach (var descriptor in services
                 .Where(x => x.ServiceType == typeof(IHostedService)
                     && x.ImplementationType?.Name is "NotificationDeliveryDispatcher" or "WebhookDeliveryDispatcher")
@@ -201,30 +206,33 @@ public sealed class Task8IdentityAccessA1SqlTests
             Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
             var secondEtag = patched.Headers.ETag!.Tag;
 
-            using var identityScope = factory.Services.CreateScope();
-            var httpAccessor = identityScope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
-            httpAccessor.HttpContext = new DefaultHttpContext();
-            var identities = identityScope.ServiceProvider.GetRequiredService<IIdentityAccessQuery>();
-            var sessionManager = identityScope.ServiceProvider.GetRequiredService<ApiIdentity.BffSessionManager>();
-            var account = await identities.FindAccountAsync(accountId, default);
-            Assert.NotNull(account);
-            var session = await sessionManager.CreateAsync(account!, null, null, null, null, "/", default);
-            httpAccessor.HttpContext = null;
+            // /me/sessions is a human (employee) surface: a SYSTEM account never logs in through the SPA flow.
+            var sessionAccountId = Guid.CreateVersion7();
+            await using (var seedEmployee = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConn))
+            {
+                await Integration.Tests.IntegrationDb.ExecAsync(seedEmployee, """
+                    INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Task8 A1 sessions employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    """, ("@account", sessionAccountId));
+            }
+            using var browser = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            var tokens = await EmployeeTokenFlow.LoginAsync(browser, factory.Services, sessionAccountId);
+            string sessionId;
             using (var sessionList = new HttpRequestMessage(HttpMethod.Get, "/api/v1/me/sessions"))
             {
-                sessionList.Headers.Add("Cookie", $"{ApiIdentity.BffSessionManager.SessionCookieNameDevHttp}={session.SessionToken}");
+                sessionList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
                 using var listed = await client.SendAsync(sessionList);
                 Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
-                Assert.Contains(session.Ticket.Id.ToString("D"), await listed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+                using var listedJson = JsonDocument.Parse(await listed.Content.ReadAsStringAsync());
+                sessionId = listedJson.RootElement.EnumerateArray()
+                    .Single(x => x.GetProperty("live").GetBoolean())
+                    .GetProperty("sessionId").GetString()!;
             }
 
-            using (var sessionRevoke = new HttpRequestMessage(HttpMethod.Delete,
-                       $"/api/v1/me/sessions/{session.Ticket.Id:D}"))
+            using (var sessionRevoke = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/sessions/{sessionId}"))
             {
-                sessionRevoke.Headers.Add("Cookie",
-                    $"{ApiIdentity.BffSessionManager.SessionCookieNameDevHttp}={session.SessionToken}; "
-                    + $"{ApiIdentity.BffSessionManager.CsrfCookieName}={session.CsrfToken}");
-                sessionRevoke.Headers.Add(ApiIdentity.BffSessionManager.HeaderName, session.CsrfToken);
+                sessionRevoke.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
                 sessionRevoke.Headers.Add("Idempotency-Key", $"session-revoke-{runTag}");
                 using var revokedSession = await client.SendAsync(sessionRevoke);
                 Assert.Equal(HttpStatusCode.NoContent, revokedSession.StatusCode);

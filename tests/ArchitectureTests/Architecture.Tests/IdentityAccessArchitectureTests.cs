@@ -26,7 +26,6 @@ public sealed class IdentityAccessArchitectureTests
         var login = db.Model.FindEntityType(typeof(LoginAccount))!;
         var access = db.Model.FindEntityType(typeof(Access.Domain.MerchantAccess))!;
         var replay = db.Model.FindEntityType(typeof(AssertionReplay))!;
-        var bff = db.Model.FindEntityType(typeof(BffSessionTicket))!;
         var role = db.Model.FindEntityType(typeof(Access.Domain.AccessRole))!;
         var branch = db.Model.FindEntityType(typeof(Access.Domain.BranchAccess))!;
         var platform = db.Model.FindEntityType(typeof(Access.Domain.PlatformAccess))!;
@@ -36,7 +35,7 @@ public sealed class IdentityAccessArchitectureTests
         Assert.Equal(SchemaNames.Acct, login.GetSchema());
         Assert.Equal(SchemaNames.Access, access.GetSchema());
         Assert.Equal(SchemaNames.OAuth, replay.GetSchema());
-        Assert.Equal(SchemaNames.Acct, bff.GetSchema());
+        Assert.Null(db.Model.FindEntityType("Accounts.Domain.BffSessionTicket"));
         Assert.Single(db.Model.GetEntityTypes(), entity => entity.ClrType == typeof(Account));
         Assert.Contains(login.GetIndexes(), index =>
             index.IsUnique && index.Properties.Select(property => property.Name)

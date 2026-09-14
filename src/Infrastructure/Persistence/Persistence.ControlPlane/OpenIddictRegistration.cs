@@ -36,7 +36,12 @@ public static class OpenIddictRegistration
                 .AllowClientCredentialsFlow()
                 .AllowRefreshTokenFlow()
                 .RequireProofKeyForCodeExchange()
+                // Default for SYSTEM client_credentials tokens; employee principals set their own lifetimes.
                 .SetAccessTokenLifetime(TimeSpan.FromMinutes(5))
+                // Employee refresh tokens are opaque reference ids (the DB row is the session); a redeemed one
+                // presented again revokes the whole chain.
+                .UseReferenceRefreshTokens()
+                .SetRefreshTokenReuseLeeway(TimeSpan.Zero)
                 .UseAspNetCore()
                 .EnableAuthorizationEndpointPassthrough()
                 .EnableTokenEndpointPassthrough();
@@ -72,6 +77,9 @@ public static class OpenIddictRegistration
             options.UseAspNetCore();
             options.AddAudiences(SystemClientScopeRegistry.ApiAudience);
             options.EnableTokenEntryValidation();
+            // One authorization row per employee login: revoking it (logout, /me/sessions, admin revoke-all)
+            // rejects its access tokens on the next request, not at their expiry.
+            options.EnableAuthorizationEntryValidation();
         });
 
         return services;

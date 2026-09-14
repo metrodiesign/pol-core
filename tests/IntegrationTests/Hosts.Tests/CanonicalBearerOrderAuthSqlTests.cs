@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -23,11 +24,11 @@ namespace Hosts.Tests;
 [Collection("ApiOperationsSql")]
 [Trait("Category", "Integration")]
 [Trait("Capability", "ApiOperations")]
-public sealed class CanonicalBffOrderAuthSqlTests
+public sealed class CanonicalBearerOrderAuthSqlTests
 {
     [Fact]
     [Trait("Requirement", "REQ-3")]
-    public async Task Production_bff_session_requires_matching_csrf_for_canonical_order_create()
+    public async Task Production_bearer_token_creates_a_canonical_order_and_read_still_needs_its_own_permission()
     {
         var database = $"PolPr253Bff{Guid.NewGuid():N}";
         await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
@@ -64,68 +65,27 @@ public sealed class CanonicalBffOrderAuthSqlTests
             {
                 AllowAutoRedirect = false,
             });
-            using var sessionScope = factory.Services.CreateScope();
-            var httpAccessor = sessionScope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
-            httpAccessor.HttpContext = new DefaultHttpContext();
-            var identities = sessionScope.ServiceProvider.GetRequiredService<Accounts.Application.IIdentityAccessQuery>();
-            var account = await identities.FindAccountAsync(accountId, default)
-                ?? throw new InvalidOperationException("Seeded BFF account was not found.");
-            var bff = sessionScope.ServiceProvider.GetRequiredService<ApiHost::Api.IdentityAccess.BffSessionManager>();
-            var issue = await bff.CreateAsync(account, null, null, null, merchantId, "/api/v1/orders", default);
-            httpAccessor.HttpContext = null;
+            var login = await EmployeeTokenFlow.LoginAsync(client, factory.Services, accountId);
+            var scoped = await EmployeeTokenFlow.RefreshAsync(client, login.RefreshToken, merchantId);
 
-            using var missing = Request(merchantId, issue.SessionToken, issue.CsrfToken, null);
-            using var missingResponse = await client.SendAsync(missing);
-            Assert.Equal(HttpStatusCode.Forbidden, missingResponse.StatusCode);
+            // No Bearer = no identity: the canonical route never falls back to a cookie audience.
+            using var anonymous = Request(merchantId, null);
+            using var anonymousResponse = await client.SendAsync(anonymous);
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
 
-            using var invalid = Request(merchantId, issue.SessionToken, issue.CsrfToken, "wrong");
-            using var invalidResponse = await client.SendAsync(invalid);
-            Assert.Equal(HttpStatusCode.Forbidden, invalidResponse.StatusCode);
-
-            using var valid = Request(merchantId, issue.SessionToken, issue.CsrfToken, issue.CsrfToken);
+            using var valid = Request(merchantId, scoped.AccessToken);
             using var validResponse = await client.SendAsync(valid);
             var validBody = await validResponse.Content.ReadAsStringAsync();
             Assert.True(validResponse.StatusCode == HttpStatusCode.Created, validBody);
             using var validJson = JsonDocument.Parse(validBody);
-            var orderId = validJson.RootElement.GetProperty("order").GetProperty("orderId").GetGuid();
-            var orderVersion = validJson.RootElement.GetProperty("order").GetProperty("version").GetInt64();
+            Assert.NotEqual(Guid.Empty, validJson.RootElement.GetProperty("order").GetProperty("orderId").GetGuid());
 
-            var sessionCookie = ApiHost::Api.IdentityAccess.BffSessionManager.SessionCookieNameDevHttp;
-            var csrfCookie = ApiHost::Api.IdentityAccess.BffSessionManager.CsrfCookieName;
-            var cookies = $"{sessionCookie}={issue.SessionToken}; {csrfCookie}={issue.CsrfToken}";
+            var bearer = new AuthenticationHeaderValue("Bearer", scoped.AccessToken);
             using var list = new HttpRequestMessage(
                 HttpMethod.Get, $"/api/v1/orders?merchantId={merchantId:D}");
-            list.Headers.Add("Cookie", cookies);
+            list.Headers.Authorization = bearer;
             using var listResponse = await client.SendAsync(list);
             Assert.Equal(HttpStatusCode.Forbidden, listResponse.StatusCode);
-
-            await using var before = await Integration.Tests.IntegrationDb.OpenAsync(
-                Integration.Tests.IntegrationDb.SaConnFor(database));
-            var beforeSummary = await Integration.Tests.IntegrationDb.ScalarAsync(before,
-                "SELECT SummaryToken FROM shop.Orders WHERE Id=@order;", ("@order", orderId));
-            var beforeOutbox = Convert.ToInt32(await Integration.Tests.IntegrationDb.ScalarAsync(before,
-                "SELECT COUNT(*) FROM txn.OutboxMessages WHERE MerchantId=@merchant;", ("@merchant", merchantId)));
-
-            using var legacy = new HttpRequestMessage(
-                HttpMethod.Post, $"/api/v1/orders/{orderId:D}/summary/resend?merchantId={merchantId:D}")
-            {
-                Content = JsonContent.Create(new { }),
-            };
-            legacy.Headers.Add("Cookie", cookies);
-            legacy.Headers.Add("If-Match", $"\"v{orderVersion}\"");
-            legacy.Headers.Add("Idempotency-Key", "bff-legacy-resend");
-            using var legacyResponse = await client.SendAsync(legacy);
-            Assert.True(legacyResponse.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-                await legacyResponse.Content.ReadAsStringAsync());
-
-            await using var after = await Integration.Tests.IntegrationDb.OpenAsync(
-                Integration.Tests.IntegrationDb.SaConnFor(database));
-            Assert.Equal(orderVersion, Convert.ToInt64(await Integration.Tests.IntegrationDb.ScalarAsync(after,
-                "SELECT Version FROM shop.Orders WHERE Id=@order;", ("@order", orderId))));
-            Assert.Equal(beforeSummary?.ToString(), (await Integration.Tests.IntegrationDb.ScalarAsync(after,
-                "SELECT SummaryToken FROM shop.Orders WHERE Id=@order;", ("@order", orderId)))?.ToString());
-            Assert.Equal(beforeOutbox, Convert.ToInt32(await Integration.Tests.IntegrationDb.ScalarAsync(after,
-                "SELECT COUNT(*) FROM txn.OutboxMessages WHERE MerchantId=@merchant;", ("@merchant", merchantId))));
         }
         finally
         {
@@ -136,7 +96,7 @@ public sealed class CanonicalBffOrderAuthSqlTests
     [Fact]
     [Trait("Requirement", "REQ-4.6")]
     [Trait("Requirement", "REQ-10.2")]
-    public async Task Role_deactivation_bumps_assigned_account_and_stales_old_bff_before_new_read_is_forbidden()
+    public async Task Role_deactivation_bumps_assigned_account_and_stales_old_token_before_refreshed_read_is_forbidden()
     {
         var database = $"PolPr253Role{Guid.NewGuid():N}";
         await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
@@ -176,18 +136,11 @@ public sealed class CanonicalBffOrderAuthSqlTests
             using var factory = new BffCanonicalFactory(database);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-            using var sessionScope = factory.Services.CreateScope();
-            var httpAccessor = sessionScope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
-            httpAccessor.HttpContext = new DefaultHttpContext();
-            var identities = sessionScope.ServiceProvider.GetRequiredService<Accounts.Application.IIdentityAccessQuery>();
-            var account = await identities.FindAccountAsync(accountId, default)
-                ?? throw new InvalidOperationException("The seeded role account was not found.");
-            var bff = sessionScope.ServiceProvider.GetRequiredService<ApiHost::Api.IdentityAccess.BffSessionManager>();
-            var oldSession = await bff.CreateAsync(account, null, null, null, merchantId, "/api/v1/orders", default);
-            httpAccessor.HttpContext = null;
+            var login = await EmployeeTokenFlow.LoginAsync(client, factory.Services, accountId);
+            var oldSession = await EmployeeTokenFlow.RefreshAsync(client, login.RefreshToken, merchantId);
 
             using var before = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/orders?merchantId={merchantId:D}");
-            before.Headers.Add("Cookie", Cookies(oldSession));
+            before.Headers.Authorization = Bearer(oldSession);
             using var beforeResponse = await client.SendAsync(before);
             Assert.Equal(HttpStatusCode.OK, beforeResponse.StatusCode);
 
@@ -224,22 +177,15 @@ public sealed class CanonicalBffOrderAuthSqlTests
             }
 
             using var stale = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/orders?merchantId={merchantId:D}");
-            stale.Headers.Add("Cookie", Cookies(oldSession));
+            stale.Headers.Authorization = Bearer(oldSession);
             using var staleResponse = await client.SendAsync(stale);
             Assert.Equal(HttpStatusCode.Unauthorized, staleResponse.StatusCode);
 
-            using var freshScope = factory.Services.CreateScope();
-            var freshAccessor = freshScope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
-            freshAccessor.HttpContext = new DefaultHttpContext();
-            var freshIdentity = freshScope.ServiceProvider.GetRequiredService<Accounts.Application.IIdentityAccessQuery>();
-            var freshAccount = await freshIdentity.FindAccountAsync(accountId, default)
-                ?? throw new InvalidOperationException("The updated role account was not found.");
-            var freshBff = freshScope.ServiceProvider.GetRequiredService<ApiHost::Api.IdentityAccess.BffSessionManager>();
-            var freshSession = await freshBff.CreateAsync(freshAccount, null, null, null, merchantId, "/api/v1/orders", default);
-            freshAccessor.HttpContext = null;
+            // Refresh re-syncs the authorization version: the new token is live again but carries no permission.
+            var freshSession = await EmployeeTokenFlow.RefreshAsync(client, oldSession.RefreshToken);
 
             using var denied = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/orders?merchantId={merchantId:D}");
-            denied.Headers.Add("Cookie", Cookies(freshSession));
+            denied.Headers.Authorization = Bearer(freshSession);
             using var deniedResponse = await client.SendAsync(denied);
             Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
         }
@@ -365,18 +311,10 @@ public sealed class CanonicalBffOrderAuthSqlTests
             using var factory = new BffCanonicalFactory(database);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-            async Task<ApiHost::Api.IdentityAccess.BffSessionIssue> IssueAsync(Guid accountId, Guid merchantId)
+            async Task<EmployeeTokenFlow.Tokens> IssueAsync(Guid accountId, Guid merchantId)
             {
-                using var scope = factory.Services.CreateScope();
-                var accessor = scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
-                accessor.HttpContext = new DefaultHttpContext();
-                var identities = scope.ServiceProvider.GetRequiredService<Accounts.Application.IIdentityAccessQuery>();
-                var account = await identities.FindAccountAsync(accountId, default)
-                    ?? throw new InvalidOperationException("The filter account was not found.");
-                var manager = scope.ServiceProvider.GetRequiredService<ApiHost::Api.IdentityAccess.BffSessionManager>();
-                var issue = await manager.CreateAsync(account, null, null, null, merchantId, "/api/v1/orders", default);
-                accessor.HttpContext = null;
-                return issue;
+                var login = await EmployeeTokenFlow.LoginAsync(client, factory.Services, accountId);
+                return await EmployeeTokenFlow.RefreshAsync(client, login.RefreshToken, merchantId);
             }
 
             static IReadOnlySet<Guid> OrderIds(string body) =>
@@ -385,7 +323,7 @@ public sealed class CanonicalBffOrderAuthSqlTests
 
             var sessionA = await IssueAsync(accountA, merchantA);
             using var identityA = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/orders?merchantId={merchantA:D}");
-            identityA.Headers.Add("Cookie", Cookies(sessionA));
+            identityA.Headers.Authorization = Bearer(sessionA);
             using var identityAResponse = await client.SendAsync(identityA);
             Assert.Equal(HttpStatusCode.OK, identityAResponse.StatusCode);
             var identityAIds = OrderIds(await identityAResponse.Content.ReadAsStringAsync());
@@ -395,7 +333,7 @@ public sealed class CanonicalBffOrderAuthSqlTests
 
             using var crossCreatorDetail = new HttpRequestMessage(
                 HttpMethod.Get, $"/api/v1/orders/{orderC:D}?merchantId={merchantA:D}");
-            crossCreatorDetail.Headers.Add("Cookie", Cookies(sessionA));
+            crossCreatorDetail.Headers.Authorization = Bearer(sessionA);
             using var crossCreatorDetailResponse = await client.SendAsync(crossCreatorDetail);
             Assert.Equal(HttpStatusCode.OK, crossCreatorDetailResponse.StatusCode);
 
@@ -408,8 +346,7 @@ public sealed class CanonicalBffOrderAuthSqlTests
                     items = new[] { new { productReference = "cross-creator-patch", quantity = 1 } },
                 }),
             };
-            crossCreatorPatch.Headers.Add("Cookie", Cookies(sessionA));
-            crossCreatorPatch.Headers.Add(ApiHost::Api.IdentityAccess.BffSessionManager.HeaderName, sessionA.CsrfToken);
+            crossCreatorPatch.Headers.Authorization = Bearer(sessionA);
             crossCreatorPatch.Headers.Add("If-Match", "\"v1\"");
             using var crossCreatorPatchResponse = await client.SendAsync(crossCreatorPatch);
             Assert.True(crossCreatorPatchResponse.StatusCode == HttpStatusCode.OK,
@@ -428,14 +365,14 @@ public sealed class CanonicalBffOrderAuthSqlTests
             })
             {
                 using var identityChild = new HttpRequestMessage(HttpMethod.Get, childPath);
-                identityChild.Headers.Add("Cookie", Cookies(sessionA));
+                identityChild.Headers.Authorization = Bearer(sessionA);
                 using var identityChildResponse = await client.SendAsync(identityChild);
                 Assert.Equal(HttpStatusCode.OK, identityChildResponse.StatusCode);
             }
 
             using var crossTenantDetail = new HttpRequestMessage(
                 HttpMethod.Get, $"/api/v1/orders/{orderB:D}?merchantId={merchantA:D}");
-            crossTenantDetail.Headers.Add("Cookie", Cookies(sessionA));
+            crossTenantDetail.Headers.Authorization = Bearer(sessionA);
             using var crossTenantDetailResponse = await client.SendAsync(crossTenantDetail);
             Assert.Equal(HttpStatusCode.NotFound, crossTenantDetailResponse.StatusCode);
 
@@ -477,7 +414,7 @@ public sealed class CanonicalBffOrderAuthSqlTests
 
             var sessionB = await IssueAsync(accountB, merchantB);
             using var identityB = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/orders?merchantId={merchantB:D}");
-            identityB.Headers.Add("Cookie", Cookies(sessionB));
+            identityB.Headers.Authorization = Bearer(sessionB);
             using var identityBResponse = await client.SendAsync(identityB);
             Assert.Equal(HttpStatusCode.OK, identityBResponse.StatusCode);
             Assert.Equal([orderB], OrderIds(await identityBResponse.Content.ReadAsStringAsync()));
@@ -548,12 +485,8 @@ public sealed class CanonicalBffOrderAuthSqlTests
         }
     }
 
-    private static string Cookies(ApiHost::Api.IdentityAccess.BffSessionIssue issue)
-    {
-        var sessionCookie = ApiHost::Api.IdentityAccess.BffSessionManager.SessionCookieNameDevHttp;
-        var csrfCookie = ApiHost::Api.IdentityAccess.BffSessionManager.CsrfCookieName;
-        return $"{sessionCookie}={issue.SessionToken}; {csrfCookie}={issue.CsrfToken}";
-    }
+    private static AuthenticationHeaderValue Bearer(EmployeeTokenFlow.Tokens tokens) =>
+        new("Bearer", tokens.AccessToken);
 
     private static void AddAdminHeaders(HttpRequestMessage request, string key, string? etag = null)
     {
@@ -568,7 +501,7 @@ public sealed class CanonicalBffOrderAuthSqlTests
             request.Headers.Add("If-Match", etag);
     }
 
-    private static HttpRequestMessage Request(Guid merchantId, string session, string csrfCookie, string? csrfHeader)
+    private static HttpRequestMessage Request(Guid merchantId, string? accessToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/orders?merchantId={merchantId:D}")
         {
@@ -593,10 +526,9 @@ public sealed class CanonicalBffOrderAuthSqlTests
                 },
             }),
         };
-        request.Headers.Add("Cookie", $"pol_session={session}; pol_csrf={csrfCookie}");
+        if (accessToken is not null)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Add("Idempotency-Key", $"bff-order-{Guid.NewGuid():N}");
-        if (csrfHeader is not null)
-            request.Headers.Add("X-CSRF-Token", csrfHeader);
         return request;
     }
 }

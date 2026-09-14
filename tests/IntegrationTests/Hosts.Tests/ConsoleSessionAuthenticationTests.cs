@@ -4,7 +4,7 @@ using ApiHost::Api.Iam;
 using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using OpenIddict.Validation.AspNetCore;
+using ApiHost::Api.IdentityAccess;
 
 namespace Hosts.Tests;
 
@@ -88,8 +88,40 @@ public sealed class ConsoleSessionAuthenticationTests
                 new IdentityPermissionAuthorization.IdentityOrderPermissionMarker()),
             "test"));
 
-        Assert.Equal(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme,
+        Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
+    }
+
+    [Fact]
+    public void Admin_policy_with_a_bearer_token_and_no_admin_cookie_selects_identity_platform()
+    {
+        var context = Context("admin");
+        context.Request.Headers.Authorization = "Bearer employee-jwt";
+
+        Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
+            ConsoleSessionAuthentication.SelectScheme(context));
+        Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
+    }
+
+    [Fact]
+    public void Admin_policy_prefers_the_legacy_admin_cookie_over_a_bearer_token()
+    {
+        var context = Context("admin", $"{SessionCookies.SessionCookieNameDevHttp}=admin");
+        context.Request.Headers.Authorization = "Bearer employee-jwt";
+
+        Assert.Equal(SessionAuthenticationHandler.SchemeName,
+            ConsoleSessionAuthentication.SelectScheme(context));
+    }
+
+    [Fact]
+    public void Dual_console_bearer_token_without_merchant_cookie_is_the_admin_audience()
+    {
+        var context = Context("dual-console");
+        context.Request.Headers.Authorization = "Bearer employee-jwt";
+
+        Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
+            ConsoleSessionAuthentication.SelectScheme(context));
+        Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
     }
 
     [Fact]

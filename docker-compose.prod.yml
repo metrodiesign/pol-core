@@ -106,6 +106,19 @@ services:
       AdminAuth__Providers__Microsoft__ClientId: ${ADMIN_ENTRA_CLIENT_ID:?set ADMIN_ENTRA_CLIENT_ID in .env}
       AdminAuth__Providers__Microsoft__Authority: ${ADMIN_ENTRA_AUTHORITY:?set ADMIN_ENTRA_AUTHORITY in .env}
       ADMIN_ENTRA_CLIENT_SECRET_FILE: /run/secrets/admin_entra_client_secret
+      # Employee (workforce) platform login — the OpenIddict code+PKCE flow that issues the admin SPA its JWT.
+      # It authenticates against the SAME Entra app as the admin cookie login above (one client id, authority,
+      # callback path and secret), so the values are reused rather than duplicated in .env; only the tenant id
+      # (the `tid` every workforce token must carry) is new. WorkforceWebAppBaseUrl registers the SPA's
+      # <origin>/auth/callback redirect URI with the OpenIddict public client at boot.
+      IdentityAccess__Workforce__ClientId: ${ADMIN_ENTRA_CLIENT_ID}
+      IdentityAccess__Workforce__Authority: ${ADMIN_ENTRA_AUTHORITY}
+      IdentityAccess__Workforce__CallbackPath: /api/v1/admins/auth/microsoft/callback
+      IDENTITY_ACCESS_WORKFORCE_CLIENT_SECRET_FILE: /run/secrets/admin_entra_client_secret
+      IdentityAccess__WorkforceIssuer: ${ADMIN_ENTRA_AUTHORITY}
+      IdentityAccess__WorkforceTenantId: ${ADMIN_ENTRA_TENANT_ID:?set ADMIN_ENTRA_TENANT_ID in .env}
+      IdentityAccess__WorkforceAudience: ${ADMIN_ENTRA_CLIENT_ID}
+      IdentityAccess__WorkforceWebAppBaseUrl: ${ADMIN_FRONTEND_ORIGIN}
       # Admin Microsoft always requires Graph User.Read employee-profile resolution.
       MerchantAuth__Providers__Microsoft__ClientId: ${MERCHANT_ENTRA_CLIENT_ID:-}
       MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-}
@@ -119,6 +132,11 @@ services:
       MerchantSession__DefaultReturnPath: /dashboard
       MerchantSession__ReturnUrlAllowlist__1: /dashboard
       ForwardedHeaders__KnownNetworks__0: ${FORWARDED_HEADERS_KNOWN_NETWORK:?set trusted proxy CIDR in .env}
+      # OpenIddict issuer = this API's public origin (no path, no trailing slash). Without a pinned value the
+      # issuer is derived from each request's forwarded host, so an authorization code or access token minted
+      # for a request that reached the API on one host is rejected (invalid_grant / 401) by a request that
+      # arrived through the admin SPA proxy on another. Usually the same origin as PSP_PUBLIC_BASE_URL.
+      OAuth__Issuer: ${OAUTH_ISSUER:?set OAUTH_ISSUER (public API origin) in .env}
       MerchantUser__Invitation__Smtp__Host: ${MERCHANT_INVITATION_SMTP_HOST:?set SMTP host in .env}
       MerchantUser__Invitation__Smtp__Port: ${MERCHANT_INVITATION_SMTP_PORT:-587}
       MerchantUser__Invitation__Smtp__EnableSsl: ${MERCHANT_INVITATION_SMTP_ENABLE_SSL:-true}

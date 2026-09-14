@@ -34,8 +34,9 @@ public sealed class ApiOperationsContractTests
         var expected = scope.Where(x => x.Release == "v1").Select(x => Key(x.Method, x.Path)).ToHashSet();
         var deferred = scope.Where(x => x.Release != "v1").Select(x => Key(x.Method, x.Path)).ToHashSet();
 
-        Assert.Equal(111, expected.Count);
-        Assert.Equal(5, deferred.Count);
+        // 4 BFF-session rows (API-006/010/011/012) are retired since the employee JWT flow (2026-09-14).
+        Assert.Equal(107, expected.Count);
+        Assert.Equal(9, deferred.Count);
         var missing = expected.Except(actual.Keys).Order(StringComparer.Ordinal).ToArray();
         var exposedDeferred = deferred.Intersect(actual.Keys).Order(StringComparer.Ordinal).ToArray();
         Console.WriteLine($"API_COMPARATOR expected={expected.Count} actual={actual.Count} overlap={expected.Intersect(actual.Keys).Count()} missing={missing.Length} deferred={exposedDeferred.Length}");

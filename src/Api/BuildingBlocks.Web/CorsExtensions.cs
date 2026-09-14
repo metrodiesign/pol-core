@@ -108,6 +108,11 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
     private static bool IsDualConsole(HttpRequest request)
     {
         var path = request.Path;
+        // OAuth token/revocation: the workforce (admin origin) and agent (merchant origin) SPAs are OpenIddict
+        // public clients that exchange codes and refresh from JavaScript; /oauth/authorize is a top-level
+        // navigation and needs no CORS.
+        if (path.StartsWithSegments("/oauth/token") || path.StartsWithSegments("/oauth/revoke"))
+            return true;
         if (path.StartsWithSegments("/api/v1/reports/reconciliation"))
             return true;
         if (path.StartsWithSegments("/api/v1/carts"))

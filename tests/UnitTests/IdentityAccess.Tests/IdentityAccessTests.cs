@@ -138,23 +138,6 @@ public sealed class IdentityAccessTests
     }
 
     [Fact]
-    [Trait("Requirement", "REQ-2.10")]
-    [Trait("Requirement", "REQ-2.14")]
-    public void Account_and_bff_ticket_kill_switches_invalidate_old_context()
-    {
-        var account = Account.Create(AccountType.Employee, "Employee", Now);
-        var ticket = BffSessionTicket.Create(
-            new byte[32], account.Id, null, "protected", account.AuthorizationVersion,
-            Now, Now.AddHours(1));
-
-        Assert.True(ticket.IsLiveAt(Now.AddMinutes(1), account.AuthorizationVersion));
-        account.Suspend(Now.AddMinutes(2));
-        Assert.False(ticket.IsLiveAt(Now.AddMinutes(3), account.AuthorizationVersion));
-        ticket.Revoke(Now.AddMinutes(3));
-        Assert.False(ticket.IsLiveAt(Now.AddMinutes(4), account.AuthorizationVersion));
-    }
-
-    [Fact]
     [Trait("Requirement", "REQ-3.1")]
     [Trait("Requirement", "REQ-3.2")]
     [Trait("Requirement", "REQ-3.3")]

@@ -6,7 +6,7 @@
 
 | บริบท | ใช้กับ | หลักฐานที่ต้องส่ง |
 |---|---|---|
-| `E` Employee/Admin | Account, access, merchant, provider, order, transaction, notification และ audit ตาม permission | Admin session cookie, `Authorization` policy และ permission ของ operation |
+| `E` Employee/Admin | Account, access, merchant, provider, order, transaction, notification และ audit ตาม permission | platform JWT ใน `Authorization: Bearer` (จาก `/oauth/authorize` + `/oauth/token`), `Authorization` policy และ permission ของ operation; legacy admin session cookie ยังใช้ได้ระหว่าง retire |
 | `A` Agent/Merchant user | Merchant-owned order และ checkout ตาม Merchant scope | Merchant user session cookie; scope มาจาก session ฝั่ง server |
 | `S` SYSTEM client | machine-to-machine ที่เปิดใน inventory | OAuth client authentication และ scope ที่ server ตรวจ |
 | `C` Customer checkout | payment-link access, summary, confirm, status และ verify | payment-link proof/cookie และ checkout CSRF ตาม operation |
@@ -24,7 +24,7 @@
 
 เมื่อ `issueNow=false` ระบบสร้าง `DRAFT` โดยไม่มี `PaymentLink`; caller เดิม replay ด้วย `Idempotency-Key` จะได้ผล Draft snapshot เดิมแม้มีการ PATCH, issue หรือ rotate ภายหลัง. เมื่อ field ถูกละเว้นหรือ `issueNow=true` ระบบ freeze Order และสร้าง PaymentLink แรกใน transaction เดียว. Issued replay คืน raw token ได้เฉพาะจาก protected replay mechanism ที่มี purpose/expiry; ห้ามค้นคืนจาก hash หรือเขียน raw token ลง `AdminOperationRecords`/log.
 
-การเขียน canonical ใช้ `identity-platform`: Employee/Agent ใช้ Account permission `payment.create`, SYSTEM ต้องมี scope `order.write`. Bearer request ไม่ต้องใช้ BFF CSRF; BFF session ต้องส่ง `pol_session`, `pol_csrf` และ `X-CSRF-Token` ที่ตรงกัน รวมถึง origin ที่ตรวจได้. Operations ที่กำหนด `Idempotency-Key` จะ reject intent ใหม่ด้วย `409`; PATCH ใช้ `If-Match` และ Draft-only โดยไม่รับ idempotency header ส่วน issue/rotate ต้องตรง ETag เดิม มิฉะนั้นได้ `412` โดยไม่เขียนซ้ำ.
+การเขียน canonical ใช้ `identity-platform`: Employee/Agent ใช้ Account permission `payment.create`, SYSTEM ต้องมี scope `order.write`. ทุก identity caller ส่ง platform JWT ใน `Authorization: Bearer` จึงไม่มี cookie/CSRF; token ที่ authorization version หรือสถานะบัญชีเปลี่ยนไปแล้วได้ `401` และต้อง refresh (`POST /oauth/token grant_type=refresh_token`) หรือ login ใหม่. Operations ที่กำหนด `Idempotency-Key` จะ reject intent ใหม่ด้วย `409`; PATCH ใช้ `If-Match` และ Draft-only โดยไม่รับ idempotency header ส่วน issue/rotate ต้องตรง ETag เดิม มิฉะนั้นได้ `412` โดยไม่เขียนซ้ำ.
 
 เส้นทางเดิมจาก Cart ยังคงเป็น compatibility route ที่ระบุชัด `POST /api/v1/orders/from-cart` และยังใช้ `CreateOrderFromCartRequest` กับ dual-console auth. Client ใหม่ต้องย้ายไป canonical route; ห้ามใช้ DTO เดียวกันเพื่อเดาความหมายระหว่างสอง workflow.
 

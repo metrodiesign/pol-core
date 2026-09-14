@@ -12,7 +12,17 @@ public sealed class IdentityAccessOptions
     public string AgentAudience { get; set; } = string.Empty;
     public Guid? AgentMerchantId { get; set; }
     public int RegistrationSessionMinutes { get; set; } = 30;
-    public int BffSessionMinutes { get; set; } = 480;
+
+    /// <summary>Lifetime of an employee access JWT. Short: authorization is re-checked from the database on every
+    /// request anyway, and the SPA refreshes before expiry.</summary>
+    public int AccessTokenMinutes { get; set; } = 15;
+
+    /// <summary>Lifetime of an employee refresh token. Every refresh issues a new one with the full lifetime, so a
+    /// session slides while in use and ends this long after the last refresh.</summary>
+    public int RefreshTokenMinutes { get; set; } = 480;
+
+    /// <summary>OpenIddict client_id of the workforce SPA (public client, authorization code + PKCE).</summary>
+    public string WorkforceClientId { get; set; } = "pol-admin";
 
     /// <summary>Origin of the workforce SPA. The OIDC callback lands on the API origin, so a relative returnTo is
     /// made absolute against this (blank = redirect stays on the API origin). Mirrors AdminSession:WebAppBaseUrl.</summary>
@@ -28,8 +38,12 @@ public sealed class IdentityAccessOptions
         ValidateOrigin(AgentWebAppBaseUrl, nameof(AgentWebAppBaseUrl));
         if (RegistrationSessionMinutes <= 0)
             throw new InvalidOperationException("IdentityAccess:RegistrationSessionMinutes must be greater than zero.");
-        if (BffSessionMinutes <= 0)
-            throw new InvalidOperationException("IdentityAccess:BffSessionMinutes must be greater than zero.");
+        if (AccessTokenMinutes <= 0)
+            throw new InvalidOperationException("IdentityAccess:AccessTokenMinutes must be greater than zero.");
+        if (RefreshTokenMinutes <= 0)
+            throw new InvalidOperationException("IdentityAccess:RefreshTokenMinutes must be greater than zero.");
+        if (string.IsNullOrWhiteSpace(WorkforceClientId))
+            throw new InvalidOperationException("IdentityAccess:WorkforceClientId is required.");
     }
 
     private static void ValidateOrigin(string value, string name)
@@ -52,5 +66,3 @@ public sealed class IdentityOidcProviderOptions
 }
 
 internal sealed class IdentityAccessProviders : Dictionary<string, string>;
-
-internal sealed record IdentityAccessAmbiguousAuthentication;

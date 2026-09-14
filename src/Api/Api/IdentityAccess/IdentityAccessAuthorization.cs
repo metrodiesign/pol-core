@@ -29,10 +29,14 @@ internal sealed class IdentityAccessAuthorizationHandler(
             return;
         }
 
-        var clientId = context.User.FindFirstValue("client_id");
-        if (!string.IsNullOrWhiteSpace(clientId))
+        // Every platform JWT carries client_id (RFC 9068: the SPA's public client id on employee tokens too), so
+        // the SYSTEM branch keys on the account type and only then binds the client.
+        var clientId = account.AccountType == AccountType.System ? context.User.FindFirstValue("client_id") : null;
+        if (account.AccountType == AccountType.System)
         {
-            var client = await identities.FindSystemClientAsync(clientId, CancellationToken.None);
+            var client = string.IsNullOrWhiteSpace(clientId)
+                ? null
+                : await identities.FindSystemClientAsync(clientId, CancellationToken.None);
             if (client is null || client.Account.Id != account.Id
                 || client.Account.Status != AccountStatus.Active
                 || client.Client.Status != SystemClientStatus.Active)

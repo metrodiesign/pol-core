@@ -26,12 +26,14 @@ internal static class IdentityRequestAuthorization
             || account.AuthorizationVersion != tokenVersion)
             return null;
 
+        // client_id is on every platform JWT (the SPA's public client id too); SYSTEM is the account type.
         var clientClaim = principal.FindFirstValue("client_id");
-        var isSystem = !string.IsNullOrWhiteSpace(clientClaim);
+        var isSystem = account.AccountType == AccountType.System;
         if (isSystem)
         {
-            var client = await identities.FindSystemClientAsync(clientClaim!, cancellationToken)
-                .ConfigureAwait(false);
+            var client = string.IsNullOrWhiteSpace(clientClaim)
+                ? null
+                : await identities.FindSystemClientAsync(clientClaim, cancellationToken).ConfigureAwait(false);
             if (client is null || client.Account.Id != account.Id
                 || client.Account.Status != AccountStatus.Active
                 || client.Client.Status != SystemClientStatus.Active)

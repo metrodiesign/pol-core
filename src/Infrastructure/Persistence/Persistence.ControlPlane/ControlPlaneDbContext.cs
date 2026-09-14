@@ -134,7 +134,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
     public DbSet<SystemClient> SystemClients => Set<SystemClient>();
     public DbSet<ClientKeyPolicy> ClientKeyPolicies => Set<ClientKeyPolicy>();
     public DbSet<AssertionReplay> AssertionReplays => Set<AssertionReplay>();
-    public DbSet<BffSessionTicket> BffSessionTickets => Set<BffSessionTicket>();
     public DbSet<RegistrationSession> RegistrationSessions => Set<RegistrationSession>();
     public DbSet<AgentRegistration> AgentRegistrations => Set<AgentRegistration>();
     public DbSet<AgentRegistrationAttempt> AgentRegistrationAttempts => Set<AgentRegistrationAttempt>();
@@ -228,7 +227,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.SystemClientConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.ClientKeyPolicyConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.AssertionReplayConfiguration());
-        modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.BffSessionTicketConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.RegistrationSessionConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.AgentRegistrationConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.AgentRegistrationAttemptConfiguration());

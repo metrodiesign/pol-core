@@ -53,15 +53,6 @@ public sealed record PlatformAccessAdminView(
     long Version,
     IReadOnlyList<Guid> RoleIds);
 
-public sealed record BffSessionAdminView(
-    Guid SessionId,
-    Guid AccountId,
-    string? ClientId,
-    DateTime IssuedAt,
-    DateTime ExpiresAt,
-    DateTime? RevokedAt,
-    bool IsLive);
-
 public sealed record AccountAdminUpdate(
     Guid AccountId,
     string DisplayName,
@@ -120,9 +111,6 @@ public interface IIdentityAccessAdminStore
     Task RevokeSessionsAsync(Guid accountId, CancellationToken cancellationToken);
     Task<bool> RevokeSessionsIdempotentAsync(
         Guid actorId, string idempotencyKey, Guid accountId, CancellationToken cancellationToken);
-    Task<IReadOnlyList<BffSessionAdminView>> ListBffSessionsAsync(
-        Guid accountId, CancellationToken cancellationToken);
-    Task RevokeBffSessionAsync(Guid accountId, Guid sessionId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<SystemClientAdminView>> ListSystemClientsAsync(
         Guid? merchantId, CancellationToken cancellationToken);

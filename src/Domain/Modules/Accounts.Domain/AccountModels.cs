@@ -389,57 +389,6 @@ public sealed class AssertionReplay : Entity<Guid>
     }
 }
 
-/// <summary>Server-side BFF ticket. Raw access/refresh tokens only exist inside protected ticket material.</summary>
-public sealed class BffSessionTicket : Entity<Guid>
-{
-    public byte[] TicketKeyHash { get; private set; } = default!;
-    public Guid AccountId { get; private set; }
-    public string? ClientId { get; private set; }
-    public string ProtectedAuthenticationTicket { get; private set; } = default!;
-    public long AuthorizationVersion { get; private set; }
-    public DateTime IssuedAt { get; private set; }
-    public DateTime ExpiresAt { get; private set; }
-    public DateTime? RevokedAt { get; private set; }
-
-    private BffSessionTicket() { }
-
-    private BffSessionTicket(Guid id, byte[] ticketKeyHash, Guid accountId, string? clientId,
-        string protectedAuthenticationTicket, long authorizationVersion, DateTime issuedAt, DateTime expiresAt)
-        : base(id)
-    {
-        RequireHash(ticketKeyHash);
-        if (accountId == Guid.Empty)
-            throw new ArgumentException("AccountId is required.", nameof(accountId));
-        if (expiresAt <= issuedAt)
-            throw new ArgumentException("ExpiresAt must be after IssuedAt.", nameof(expiresAt));
-        ArgumentException.ThrowIfNullOrWhiteSpace(protectedAuthenticationTicket);
-        TicketKeyHash = ticketKeyHash.ToArray();
-        AccountId = accountId;
-        ClientId = string.IsNullOrWhiteSpace(clientId) ? null : clientId.Trim();
-        ProtectedAuthenticationTicket = protectedAuthenticationTicket;
-        AuthorizationVersion = authorizationVersion;
-        IssuedAt = issuedAt;
-        ExpiresAt = expiresAt;
-    }
-
-    public static BffSessionTicket Create(byte[] ticketKeyHash, Guid accountId, string? clientId,
-        string protectedAuthenticationTicket, long authorizationVersion, DateTime issuedAt, DateTime expiresAt) =>
-        new(Guid.CreateVersion7(), ticketKeyHash, accountId, clientId, protectedAuthenticationTicket,
-            authorizationVersion, issuedAt, expiresAt);
-
-    public bool IsLiveAt(DateTime now, long currentAuthorizationVersion) =>
-        RevokedAt is null && now < ExpiresAt && currentAuthorizationVersion == AuthorizationVersion;
-
-    public void Revoke(DateTime now) => RevokedAt ??= now;
-
-    private static void RequireHash(byte[] value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        if (value.Length != 32)
-            throw new ArgumentException("TicketKeyHash must be a 32-byte SHA-256 digest.", nameof(value));
-    }
-}
-
 public enum RegistrationSessionStatus
 {
     Active = 1,

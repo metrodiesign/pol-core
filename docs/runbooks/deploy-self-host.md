@@ -185,6 +185,18 @@ OIDC creates callback URLs from the browser-facing request. The reverse proxy mu
 - preserve `Set-Cookie` and callback `Cookie` headers without rewriting their security attributes;
 - never trust wildcard proxy CIDRs such as `0.0.0.0/0` or `::/0`.
 
+The employee platform login (OpenIddict authorization code + PKCE, the admin SPA's JWT) reuses the Admin Entra app:
+`docker-compose.prod.yml` maps `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY`, the `admin_entra_client_secret`
+file secret and `ADMIN_FRONTEND_ORIGIN` into `IdentityAccess__Workforce*`, and needs one extra value,
+`ADMIN_ENTRA_TENANT_ID` (the workforce tenant GUID inside the authority). The SPA redirect URI
+`<ADMIN_FRONTEND_ORIGIN>/auth/callback` is registered with the OpenIddict public client at boot; the Entra app must
+still allow the API's own callback `/api/v1/admins/auth/microsoft/callback` on the public API origin.
+
+`OAUTH_ISSUER` must be this API's public origin (no path, no trailing slash): OpenIddict stamps it into every
+authorization code and access token and rejects one presented on a different host, so an unpinned issuer breaks the
+employee SPA login (`invalid_grant` on the code exchange, `401` on Bearer calls) whenever `/oauth/authorize` and the
+token/API calls reach the API through different hosts (for example the SPA proxy versus a direct redirect).
+
 Admin and Merchant SPA origins must match `ADMIN_FRONTEND_ORIGIN` and `MERCHANT_USER_FRONTEND_ORIGIN`. Outside
 Development, Data Protection keys must persist in the control-plane DB and be shared by every API instance; otherwise
 correlation cookies and sessions fail across restart/instance boundaries.

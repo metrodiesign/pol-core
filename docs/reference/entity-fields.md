@@ -1045,12 +1045,6 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 **Owner**: `ControlPlaneDbContext`
 **Fields**: `Id` (`Guid`), `ApplicationId` (`string`), `ConsumedAt` (`DateTime`), `ExpiresAt` (`DateTime`), `Jti` (`string`).
 
-### `acct.BffSessionTickets`
-
-**Entity**: `Accounts.Domain.BffSessionTicket`
-**Owner**: `ControlPlaneDbContext`
-**Fields**: `Id` (`Guid`), `AccountId` (`Guid`), `AuthorizationVersion` (`long`), `ClientId` (`string`), `ExpiresAt` (`DateTime`), `IssuedAt` (`DateTime`), `ProtectedAuthenticationTicket` (`string`), `RevokedAt` (`DateTime?`), `TicketKeyHash` (`byte[]`).
-
 ### `acct.ClientKeyPolicies`
 
 **Entity**: `Accounts.Domain.ClientKeyPolicy`
