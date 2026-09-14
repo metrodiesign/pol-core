@@ -31,8 +31,8 @@ sequenceDiagram
 
     Note over U,API: Phase A — validate ก่อนเข้า transaction (pure)
     U->>SPA: กรอกฟอร์ม provision ร้านค้า + PSP connection
-    SPA->>API: POST /api/v1/merchants (Super session, CSRF)
-    Note over API: policy admin + RequirePlatformUserTier(Super) ดู § 0.1, CSRF ดู § 0.3
+    SPA->>API: POST /api/v1/merchants (Super, Authorization Bearer)
+    Note over API: policy admin (Bearer) + RequirePlatformUserTier(Super) ดู § 0.1 (ไม่มี CSRF)
     API->>H: ProvisionMerchantCommand
     H->>H: validate code / PSP / methods / channels
     alt validate ไม่ผ่าน
@@ -48,7 +48,7 @@ sequenceDiagram
             Note over H,PC: Phase B — เขียนใน txn เดียว (Provisioning UoW)
             H->>PC: ProvisionAsync(spec, callerAdminId, expectedAuthorizationVersion, operationKey)
             PC->>DB: BEGIN TX
-            PC->>DB: SELECT caller Tier=Super, Status=Active, AuthorizationVersion=expected (UPDLOCK)
+            PC->>DB: SELECT acct.Accounts Status=Active, AuthorizationVersion=expected + EXISTS access.PlatformAccess active (UPDLOCK)
             alt caller ไม่ผ่าน recheck
                 DB-->>PC: 0 rows
                 PC-->>H: WriteGuardException
@@ -442,7 +442,7 @@ sequenceDiagram
         H-->>API: 400
     else ผ่าน
         H->>DB: mutate + audit RoleCreated/Updated/Deleted, SaveChanges
-        H-->>API: 201 หรือ 200 หรือ 204 (ไม่มี If-Match/ETag ต่างจาก admin § 8.7)
+        H-->>API: 201 หรือ 200 หรือ 204 (ไม่มี If-Match/ETag ต่างจาก § 2.4 Platform role)
     end
 
     Note over U,API: Phase B — set roles ให้ target user

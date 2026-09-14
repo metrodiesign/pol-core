@@ -1,7 +1,7 @@
 # pol-core API — Agent registration (ผู้สมัครและผู้ตรวจ) (Activity Diagrams)
 
 > Source: `docs/reference/api-endpoints.md` section "Identity และ OAuth" บรรทัด L43–L51 และ source ที่อ้างต่อ § (`src/Api/Api/Accounts/AgentRegistrationEndpoints.cs`, `src/Application/Modules/Accounts.Application/Registration.cs`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/AgentRegistrationStore.cs`, `src/Domain/Modules/Accounts.Domain/RegistrationModels.cs`)
-> Scope: 9 endpoints — ฝั่งผู้สมัคร 4 ตัวใต้ `/api/v1/agent-registration` (cookie `pol_registration_session`, AllowAnonymous) และฝั่งผู้ตรวจ 5 ตัวใต้ `/api/v1/agent-registrations` (policy `admin` + RequireCsrf ระดับ group)
+> Scope: 9 endpoints — ฝั่งผู้สมัคร 4 ตัวใต้ `/api/v1/agent-registration` (cookie `pol_registration_session`, AllowAnonymous) และฝั่งผู้ตรวจ 5 ตัวใต้ `/api/v1/agent-registrations` (policy `admin`, Bearer JWT ไม่มี CSRF)
 > Generated: 2026-09-14
 
 | § | Diagram | Endpoints |
@@ -163,7 +163,7 @@ GET list ไม่ใช้ SFS: เลือก merchant จาก query `merch
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchants.users.view ดู § 0.1<br/>RequireCsrf ระดับ group ข้าม GET ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin (Bearer) + permission merchants.users.view ดู § 0.1"]
     AUTHZ --> Q{"query merchantId ส่งมา?"}
     Q -->|yes| SEL["selected = merchantId"]
     Q -->|no| UNR{"scope.Accessible.IsUnrestricted?"}
@@ -198,7 +198,7 @@ GET detail ตรวจ scope ด้วย MerchantId ของ case ที่�
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchants.users.view ดู § 0.1<br/>RequireCsrf ระดับ group ข้าม GET ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin (Bearer) + permission merchants.users.view ดู § 0.1"]
     AUTHZ --> FIND["FindCaseByIdAsync: acct.AgentRegistrations WHERE Id = registrationId"]
     FIND --> OK{"พบ และ scope.Accessible.Allows(registration.MerchantId)?"}
     OK -->|no| R404["404 bare Results.NotFound<br/>(ไม่แยกเหตุ ไม่พบ กับ นอก scope)"]
@@ -231,7 +231,7 @@ approve และ reject เป็น mutate ตรง (ไม่ใช่ maker
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + RequireCsrf (X-CSRF-Token = adm_csrf / pol_csrf) ดู § 0.1 / § 0.3<br/>permission merchants.users.approve (approve) หรือ merchants.users.reject (reject)<br/>IfMatchMutationMarker 200 + IdempotencyMutationMarker ดู § 0.5"]
+    START((●)) --> AUTHZ["policy admin (Bearer, ไม่มี CSRF) ดู § 0.1<br/>permission merchants.users.approve (approve) หรือ merchants.users.reject (reject)<br/>IfMatchMutationMarker 200 + IdempotencyMutationMarker ดู § 0.5"]
     AUTHZ --> FIND{"FindCaseByIdAsync พบ และ<br/>scope.Accessible.Allows(registration.MerchantId)?"}
     FIND -->|no| R404["404 bare Results.NotFound"]
     FIND -->|yes| IDEM{"Idempotency-Key ไม่ว่าง ไม่เกิน 200<br/>ไม่มี control char?"}
@@ -306,7 +306,7 @@ flowchart TD
 | ที่มาของ registration session | cookie `pol_registration_session` ออกโดย agent OIDC callback (theme อื่น) HttpOnly, Path `/`, Secure เมื่อ HTTPS, อายุ `IdentityAccess:RegistrationSessionMinutes`, ออกไม่ได้ถ้า identity เป็น workforce หรือมี approved account แล้ว (`account_already_approved`) — อยู่นอก frame ของ theme นี้ | `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:258-271`, `Accounts.Application/IdentityAccessContracts.cs:97-118` |
 | session live | หา session ด้วย SHA-256 ของค่า cookie, ต้อง Status Active และ now ก่อน ExpiresAt, ไม่มี slide / rotate | `Registration.cs:82-89`, `Accounts.Domain/AccountModels.cs:486` |
 | CSRF ฝั่งผู้สมัคร | PUT / POST ใต้ `/agent-registration` เป็น AllowAnonymous ไม่มี policy จึงไม่มี CSRF filter และ CsrfParity ไม่ตรวจ (ตรวจเฉพาะ endpoint ใต้ policy ที่รู้จัก) | `AgentRegistrationEndpoints.cs:22-31`, § 0.3 |
-| CSRF ฝั่งผู้ตรวจ | `RequireCsrf()` ติดระดับ group `/agent-registrations` จึงมีทุก child รวม GET แต่ filter ข้าม safe method, unsafe (approve / reject) ต้องส่ง `X-CSRF-Token` | `AgentRegistrationEndpoints.cs:33-34`, § 0.3 |
+| CSRF ฝั่งผู้ตรวจ | group `/agent-registrations` เป็น policy `admin` (Bearer JWT) จึงไม่มี CSRF filter — admin double-submit ถูก retire, cross-site แนบ Bearer ไม่ได้ | `AgentRegistrationEndpoints.cs:33-34`, `Iam/CsrfParity.cs:19` |
 | Location ของ 201 | header ชี้ `/api/v1/agent-registration/history/{attemptId}` ซึ่งไม่มี route map ไว้ (มีเฉพาะ `GET /agent-registration/history`) | `AgentRegistrationEndpoints.cs:30-31,91` |
 | ETag ฝั่งผู้ตรวจ | `GET /agent-registrations/{id}` และ `/attempts` ไม่ตั้ง header ETag, client ต้องสร้าง If-Match `"vN"` จาก `version` ใน body ของ RegistrationCaseView | `AgentRegistrationEndpoints.cs:133-150`, `ConcurrencyEtags.cs:16-26` |
 | merchantId ใน § 3.4 | ข้อความ validation บอก "more than one Merchant is accessible" แต่ path ที่ Accessible มี 2 merchant ขึ้นไปโดยไม่ส่ง merchantId ได้ 409 จาก `SingleOrDefault` (InvalidOperationException) ไม่ใช่ 400, 400 เกิดเมื่อ unrestricted (Super) หรือ Accessible ว่าง | `AgentRegistrationEndpoints.cs:121-126` |

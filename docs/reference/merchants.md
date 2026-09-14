@@ -47,7 +47,7 @@ Admin approve/reject uses authorization lease and concurrency checks. Registrati
 
 ## Merchant profile and provisioning
 
-`POST /api/v1/merchants` เป็น provisioning endpoint สำหรับ Super admin. Request ต้องผ่าน admin session, CSRF,
+`POST /api/v1/merchants` เป็น provisioning endpoint สำหรับ Super admin. Request ต้องผ่าน platform token (Bearer) ของ Super admin,
 captive Merchant-code allowlist และส่ง PSP connection อย่างน้อยหนึ่งรายการ.
 
 ```json
@@ -96,8 +96,8 @@ Response คืนเฉพาะ `merchantId`, `pspConnectionId`, PSP code แ�
 |---|---:|
 | Request validation, unknown PSP/method หรือ secret ผิดตำแหน่ง | 400 |
 | Merchant code ซ้ำ หรือ operation key ถูกใช้กับ payload อื่น | 409 |
-| ไม่มี admin session | 401 |
-| CSRF ไม่ผ่าน, admin ไม่ใช่ Super หรือ permission ไม่พอ | 403 |
+| ไม่มี/ไม่ valid platform token (Bearer) | 401 |
+| admin ไม่ใช่ Super หรือ permission ไม่พอ | 403 |
 | Runtime dependency ใช้งานไม่ได้ | 503 |
 
 Baseline synthetic merchant มี disabled PSP connection และไม่มี credential/PII.

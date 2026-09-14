@@ -1,7 +1,7 @@
 # pol-core API — Activity และ Sequence Diagrams ของทุก endpoint
 
 > Source: `docs/reference/api-endpoints.md` ณ 2026-09-14
-> Scope: 278 endpoints ใน 14 themes + cross-cutting
+> Scope: 249 endpoints ใน 14 themes + cross-cutting
 > Generated: 2026-09-14
 
 ---
@@ -23,14 +23,14 @@
 
 | # | Theme | Endpoints | § | Activities | Sequences |
 | --- | --- | --- | --- | --- | --- |
-| 01 | Identity BFF และ OAuth | 18 | 1.1–1.9 | [activities](01-identity-bff-oauth.activities.md) | [sequences](01-identity-bff-oauth.sequences.md) |
+| 01 | Identity platform login และ OAuth | 14 | 1.1–1.5, 1.7–1.9 | [activities](01-identity-bff-oauth.activities.md) | [sequences](01-identity-bff-oauth.sequences.md) |
 | 02 | Canonical access, roles และ SYSTEM clients | 22 | 2.1–2.6 | [activities](02-canonical-access-system-clients.activities.md) | [sequences](02-canonical-access-system-clients.sequences.md) |
 | 03 | Agent registration (ผู้สมัครและผู้ตรวจ) | 9 | 3.1–3.6 | [activities](03-agent-registration.activities.md) | [sequences](03-agent-registration.sequences.md) |
 | 04 | Carts, products และ order lifecycle | 18 | 4.1–4.10 | [activities](04-carts-products-orders.activities.md) | [sequences](04-carts-products-orders.sequences.md) |
 | 05 | Customer checkout, payment sessions และ PSP callbacks | 17 | 5.1–5.10 | [activities](05-customer-checkout-payment-psp.activities.md) | [sequences](05-customer-checkout-payment-psp.sequences.md) |
 | 06 | Canonical commerce และ transactions | 9 | 6.1–6.7 | [activities](06-canonical-commerce-transactions.activities.md) | [sequences](06-canonical-commerce-transactions.sequences.md) |
 | 07 | Canonical control plane (merchant และ provider configuration) | 24 | 7.1–7.6 | [activities](07-canonical-control-plane.activities.md) | [sequences](07-canonical-control-plane.sequences.md) |
-| 08 | Admin accounts, roles, sessions และ admin OIDC | 26 | 8.1–8.9 | [activities](08-admin-accounts-auth.activities.md) | [sequences](08-admin-accounts-auth.sequences.md) |
+| 08 | Admin OIDC callback (บัญชี/role/session ย้ายไป § 1, 2, 3) | 1 | 8.1 | [activities](08-admin-accounts-auth.activities.md) | [sequences](08-admin-accounts-auth.sequences.md) |
 | 09 | Merchant provisioning, merchant users และ merchant OIDC | 25 | 9.1–9.8 | [activities](09-merchant-provision-users-auth.activities.md) | [sequences](09-merchant-provision-users-auth.sequences.md) |
 | 10 | Admin merchant console, merchant roles และ originators | 21 | 10.1–10.10 | [activities](10-admin-merchant-console-originators.activities.md) | [sequences](10-admin-merchant-console-originators.sequences.md) |
 | 11 | Payment capability configuration (methods, providers, PSP connections, routing) | 39 | 11.1–11.10 | [activities](11-payment-capability-config.activities.md) | [sequences](11-payment-capability-config.sequences.md) |
@@ -46,10 +46,10 @@
 
 | § | เรื่อง | สรุป | ลิงก์ |
 | --- | --- | --- | --- |
-| 0.1 | Console session authentication + authorization | อ้าง § 0.1 เมื่อแถว endpoint ใช้ policy admin / merchant-user / dual-console (cookie __Host-adm_session / __Host-mch_session หรือ BFF cookie บน admin console) และมี RequirePermission, RequireAudiencePermission (dual-console admin key / merchant key), RequirePlatformUserTier(Super) หรือ BoundFilter — ครอบ 401 admin_session_required, 401 default, 403 lifecycle code (awaiting-approval / rejected / suspended / unbound), 403 permission, 403 super_required | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
-| 0.2 | Identity BFF / Bearer authentication + identity-order permission | อ้าง § 0.2 เมื่อแถว endpoint ใช้ policy identity-bff / identity-platform / admin-or-identity-order หรือมี (identity: order.read / order.write / checkout.write) — ครอบ UseIdentityAccess 400 ambiguous_authentication_context, BFF ticket absolute expiry + AuthorizationVersion, OpenIddict Bearer, IdentityAccessRequirement 403, RequireOrderIdentityPermission / RequireIdentityPermission (human permission vs system scope, 403 merchant_context_missing), CommerceAuthorizationProof + IActorScope binding | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
-| 0.3 | CSRF double-submit | อ้าง § 0.3 เมื่อแถว endpoint ระบุ CSRF filter หรือ audience CSRF บน unsafe method (RequireCsrf adm_csrf / pol_csrf, RequireUserCsrf mch_csrf, RequireAudienceCsrf / RequireAdminOrIdentityCsrf, BffCsrfFilter pol_csrf + Origin + ticket hash, RequireIdentityPlatformMutation ที่ Bearer ข้าม) — ครอบ 403 csrf_failed และ boot guard CsrfParity | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
-| 0.4 | Rate limiting | อ้าง § 0.4 เมื่อแถว endpoint ระบุ rate limit: customer-payment (checkout*, orders/{token}/pay, payment-status, payment-returns), admin-auth (admins/auth login + logout), merchant-user-auth (merchants/users/register, merchants/auth login + logout), psp-webhook (webhooks/{pspConnectionId}, webhooks/payment-providers/{id}) — 429 + Retry-After ก่อน authentication | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
+| 0.1 | Console session authentication + authorization | อ้าง § 0.1 เมื่อแถว endpoint ใช้ policy admin (Bearer PlatformToken) / merchant-user (cookie __Host-mch_session) / dual-console และมี RequirePermission, RequireAudiencePermission (dual-console admin key / merchant key), RequirePlatformUserTier(Super) หรือ BoundFilter — ครอบ 401 invalid_token (admin Bearer), 401 default (merchant), 403 lifecycle code (awaiting-approval / rejected / suspended / unbound), 403 permission, 403 super_required | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
+| 0.2 | Identity platform (Bearer) authentication + identity-order permission | อ้าง § 0.2 เมื่อแถว endpoint ใช้ policy identity-platform / admin-or-identity-order หรือมี (identity: order.read / order.write / checkout.write) — ครอบ UseIdentityAccess 400 ambiguous_authentication_context, OpenIddict Bearer validation + AuthorizationVersion, IdentityAccessRequirement 403, RequireOrderIdentityPermission / RequireIdentityPermission (human permission vs system scope, 403 merchant_context_missing), CommerceAuthorizationProof + IActorScope binding — ไม่มี BFF cookie แล้ว | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
+| 0.3 | CSRF double-submit | อ้าง § 0.3 เมื่อแถว endpoint (merchant-user cookie) ระบุ CSRF บน unsafe method (RequireUserCsrf mch_csrf, RequireAudienceCsrf ฝั่ง Merchant) — admin เป็น Bearer จึงไม่มี CSRF; RequireIdentityPlatformMutation / RequireAdminOrIdentityMutation ตรวจแค่ว่ามี Bearer (401 bearer_required) — ครอบ 403 Missing or invalid CSRF token และ boot guard CsrfParity | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
+| 0.4 | Rate limiting | อ้าง § 0.4 เมื่อแถว endpoint ระบุ rate limit: customer-payment (checkout*, orders/{token}/pay, payment-status, payment-returns), merchant-user-auth (merchants/users/register, merchants/auth login + logout), psp-webhook (webhooks/{pspConnectionId}, webhooks/payment-providers/{id}) — 429 + Retry-After ก่อน authentication | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
 | 0.5 | ETag / If-Match / Idempotency-Key | อ้าง § 0.5 เมื่อ endpoint มี IfMatchMutationMarker, AdminIfMatchMutationMarker / AdminIdempotencyMutationMarker (บังคับเฉพาะ audience Admin), IdempotencyMutationMarker, GovernanceDecisionMarker หรือ GET detail ที่คืน ETag vN — ครอบ 400 invalid_etag / invalid_idempotency_key, 409 idempotency_key_reused / operation_in_progress / ConcurrencyConflict และ replay response เดิม | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
 | 0.6 | SFS query parsing | อ้าง § 0.6 เมื่อ GET list อ่าน page / limit / filters / sort / search ผ่าน SfsQueryParser (SfsQueryParamsMarker) — clamp paging ไม่ 400, JSON ผิดหรือเกิน cap (50 filters / 200 values / 10 sort keys) เป็น 400 Invalid request, variant products (ParsePaging + productFilters) และ approvals / audits (typed filter, 400 invalid_filter) | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
 | 0.7 | Maker-checker approval | อ้าง § 0.7 เมื่อ endpoint ลงท้าย -requests, -change-requests, activation-requests, secret-rotation-requests (maker: 202 pending + approvalId ผ่าน ControlPlaneOperationExecutor + outbox ApprovalRequested) หรือเป็น /approvals/{approvalId}/approve / reject (checker: If-Match + Idempotency-Key, 400 invalid_request, 403 maker_cannot_decide / merchant_scope_forbidden / underlying_permission_forbidden, 404 not_found, 409 approval_not_pending / target_version_changed, 202 + ETag) และ execution async ผ่าน GovernanceOutboxDispatcher + IApprovalDecisionExecutor + ApprovalExecutionReported | [activities](00-cross-cutting.activities.md) · [sequences](00-cross-cutting.sequences.md) |
@@ -60,7 +60,7 @@
 
 ## Coverage matrix
 
-ทุก endpoint จาก inventory (docs/reference/api-endpoints.md) เรียงตาม theme แล้วตาม path — รวม 278 แถว
+ทุก endpoint จาก inventory (docs/reference/api-endpoints.md) เรียงตาม theme แล้วตาม path — รวม 249 แถว (245 mapped operation + infra 2 + OIDC callback 2)
 
 | Method | fullPath | Theme | § | รูปแบบ |
 | --- | --- | --- | --- | --- |
@@ -69,16 +69,12 @@
 | GET | `/api/v1/auth/agents/callback` | 01 | [1.4](01-identity-bff-oauth.activities.md) | diagram |
 | GET | `/api/v1/auth/agents/login` | 01 | [1.2](01-identity-bff-oauth.activities.md) | composed |
 | GET | `/api/v1/auth/employees/callback` | 01 | [1.3](01-identity-bff-oauth.activities.md) | diagram |
-| GET | `/api/v1/auth/employees/login` | 01 | [1.2](01-identity-bff-oauth.activities.md) | diagram |
 | POST | `/api/v1/auth/logout` | 01 | [1.7](01-identity-bff-oauth.activities.md) | diagram |
-| POST | `/api/v1/auth/merchant-context` | 01 | [1.6](01-identity-bff-oauth.activities.md) | composed |
-| GET | `/api/v1/auth/session` | 01 | [1.5](01-identity-bff-oauth.activities.md) | composed |
-| POST | `/api/v1/auth/session/refresh` | 01 | [1.6](01-identity-bff-oauth.activities.md) | diagram |
 | GET | `/api/v1/me` | 01 | [1.5](01-identity-bff-oauth.activities.md) | diagram |
 | GET | `/api/v1/me/access` | 01 | [1.5](01-identity-bff-oauth.activities.md) | composed |
 | GET | `/api/v1/me/merchants` | 01 | [1.5](01-identity-bff-oauth.activities.md) | composed |
 | GET | `/api/v1/me/sessions` | 01 | [1.5](01-identity-bff-oauth.activities.md) | composed |
-| DELETE | `/api/v1/me/sessions/{sessionId:guid}` | 01 | [1.7](01-identity-bff-oauth.activities.md) | composed |
+| DELETE | `/api/v1/me/sessions/{sessionId}` | 01 | [1.7](01-identity-bff-oauth.activities.md) | composed |
 | GET | `/oauth/authorize` | 01 | [1.9](01-identity-bff-oauth.activities.md) | diagram |
 | POST | `/oauth/revoke` | 01 | [1.9](01-identity-bff-oauth.activities.md) | composed |
 | POST | `/oauth/token` | 01 | [1.8](01-identity-bff-oauth.activities.md) | diagram |
@@ -181,32 +177,7 @@
 | PATCH | `/api/v1/merchants/{merchantId:guid}/sales/{saleId:guid}` | 07 | [7.2](07-canonical-control-plane.activities.md) | composed |
 | GET | `/api/v1/payment-providers` | 07 | [7.1](07-canonical-control-plane.activities.md) | composed |
 | GET | `/api/v1/payment-providers/{providerId:guid}/methods` | 07 | [7.1](07-canonical-control-plane.activities.md) | composed |
-| GET | `/api/v1/admins` | 08 | [8.3](08-admin-accounts-auth.activities.md) | composed |
-| POST | `/api/v1/admins` | 08 | [8.4](08-admin-accounts-auth.activities.md) | diagram |
-| GET | `/api/v1/admins/{id:guid}` | 08 | [8.3](08-admin-accounts-auth.activities.md) | diagram |
-| GET | `/api/v1/admins/{id:guid}/effective-permissions` | 08 | [8.3](08-admin-accounts-auth.activities.md) | composed |
-| POST | `/api/v1/admins/{id:guid}/merchants` | 08 | [8.5](08-admin-accounts-auth.activities.md) | composed |
-| DELETE | `/api/v1/admins/{id:guid}/merchants/{merchantId:guid}` | 08 | [8.5](08-admin-accounts-auth.activities.md) | composed |
-| POST | `/api/v1/admins/{id:guid}/reactivate` | 08 | [8.5](08-admin-accounts-auth.activities.md) | composed |
-| PUT | `/api/v1/admins/{id:guid}/roles` | 08 | [8.5](08-admin-accounts-auth.activities.md) | composed |
-| GET | `/api/v1/admins/{id:guid}/sessions` | 08 | [8.3](08-admin-accounts-auth.activities.md) | composed |
-| DELETE | `/api/v1/admins/{id:guid}/sessions/{sessionId:guid}` | 08 | [8.6](08-admin-accounts-auth.activities.md) | diagram |
-| POST | `/api/v1/admins/{id:guid}/suspend` | 08 | [8.5](08-admin-accounts-auth.activities.md) | composed |
-| POST | `/api/v1/admins/{id:guid}/tier` | 08 | [8.5](08-admin-accounts-auth.activities.md) | diagram |
-| GET | `/api/v1/admins/auth/{provider}/login` | 08 | [8.1](08-admin-accounts-auth.activities.md) | diagram |
-| POST | `/api/v1/admins/auth/logout` | 08 | [8.2](08-admin-accounts-auth.activities.md) | diagram |
-| POST | `/api/v1/admins/auth/logout-all` | 08 | [8.2](08-admin-accounts-auth.activities.md) | diagram |
 | GET | `/api/v1/admins/auth/microsoft/callback` | 08 | [8.1](08-admin-accounts-auth.activities.md) | diagram |
-| GET | `/api/v1/admins/me` | 08 | [8.3](08-admin-accounts-auth.activities.md) | diagram |
-| POST | `/api/v1/admins/merchants/users/{merchantUserId:guid}/approve` | 08 | [8.8](08-admin-accounts-auth.activities.md) | diagram |
-| GET | `/api/v1/admins/merchants/users/{merchantUserId:guid}/registrations` | 08 | [8.9](08-admin-accounts-auth.activities.md) | diagram |
-| POST | `/api/v1/admins/merchants/users/{merchantUserId:guid}/reject` | 08 | [8.8](08-admin-accounts-auth.activities.md) | composed |
-| GET | `/api/v1/admins/permissions` | 08 | [8.3](08-admin-accounts-auth.activities.md) | composed |
-| GET | `/api/v1/admins/roles` | 08 | [8.3](08-admin-accounts-auth.activities.md) | composed |
-| POST | `/api/v1/admins/roles` | 08 | [8.7](08-admin-accounts-auth.activities.md) | diagram |
-| DELETE | `/api/v1/admins/roles/{code}` | 08 | [8.7](08-admin-accounts-auth.activities.md) | diagram |
-| GET | `/api/v1/admins/roles/{code}` | 08 | [8.3](08-admin-accounts-auth.activities.md) | composed |
-| PUT | `/api/v1/admins/roles/{code}` | 08 | [8.7](08-admin-accounts-auth.activities.md) | diagram |
 | POST | `/api/v1/merchants` | 09 | [9.1](09-merchant-provision-users-auth.activities.md) | diagram |
 | GET | `/api/v1/merchants/{code}` | 09 | [9.5](09-merchant-provision-users-auth.activities.md) | composed |
 | GET | `/api/v1/merchants/auth/{provider}/login` | 09 | [9.2](09-merchant-provision-users-auth.activities.md) | diagram |
@@ -351,17 +322,8 @@
 
 | Theme | fullPath | เอกสารบอก | source บอก | อ้างอิง |
 | --- | --- | --- | --- | --- |
-| 04 · Carts, products และ order lifecycle | `/api/v1/orders/{orderId:guid}/payment-links` | policy dual-console (คาดว่ารองรับทั้ง Admin Console และ Merchant Console เหมือน endpoint พี่น้องในกลุ่ม order) | ไม่มี branch IsAdminCommerceRequest เลยในซอร์ส และไม่เรียก actorScope.Begin — Admin Console session (cookie ล้วน ไม่ใช่ identity request ผ่าน Bearer/BFF) ที่เรียก endpoint นี้จะได้ actor.MerchantId throw InvalidOperationException เพราะไม่มี claim merchant_id แล้วตอบ 409 ผ่าน exception handler กลาง ไม่ใช่ผลลัพธ์ปกติของ dual-console | src/Api/Api/Program.cs:1100-1124, src/Api/Api/HttpActorContext.cs:56-58, src/Api/BuildingBlocks.Web/ProblemDetailsExceptionHandler.cs:89-90 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins (POST)` | policy admin · CSRF filter | เพิ่ม RequirePlatformUserTier(Tier.Super) เฉพาะ Super สร้างได้ (403 super_required) | src/Api/Api/Program.cs:3275 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/merchants (POST)` | policy admin | RequirePlatformUserTier(Tier.Super) + IfMatchMutationMarker | src/Api/Api/Program.cs:3402-3403 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/merchants/{merchantId:guid} (DELETE)` | policy admin | RequirePlatformUserTier(Tier.Super) + IfMatchMutationMarker | src/Api/Api/Program.cs:3422-3423 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/suspend (POST)` | policy admin | RequirePlatformUserTier(Tier.Super) + IfMatchMutationMarker | src/Api/Api/Program.cs:3445-3446 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/reactivate (POST)` | policy admin | RequirePlatformUserTier(Tier.Super) + IfMatchMutationMarker | src/Api/Api/Program.cs:3466-3467 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/tier (POST)` | policy admin | RequirePlatformUserTier(Tier.Super) + IfMatchMutationMarker | src/Api/Api/Program.cs:3492-3493 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/sessions (GET)` | policy admin | RequirePlatformUserTier(Tier.Super) | src/Api/Api/Program.cs:3512 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/{id:guid}/sessions/{sessionId:guid} (DELETE)` | policy admin | RequirePlatformUserTier(Tier.Super) + IdempotencyMutationMarker | src/Api/Api/Program.cs:3536-3537 |
-| 08 · Admin accounts, roles, sessions และ admin OIDC | `/api/v1/admins/* (unsafe method ทุกตัวใน group รวม POST /auth/logout ที่ AllowAnonymous)` | ระบุ CSRF filter เฉพาะ POST /api/v1/admins | group api.MapGroup("/admins").RequireCsrf() บังคับ adm_csrf ทุก unsafe method ใต้ /admins (logout, logout-all, approve, reject, roles, merchants, suspend, reactivate, tier, sessions) | src/Api/Api/Program.cs:2418,2451 |
-| 09 · Merchant provisioning, merchant users และ merchant OIDC | `/api/v1/merchants (POST)` | policy admin · CSRF filter | เพิ่ม RequirePlatformUserTier(Tier.Super) เฉพาะ Super provision ได้ | src/Api/Api/Program.cs:2548 |
+| 04 · Carts, products และ order lifecycle | `/api/v1/orders/{orderId:guid}/payment-links` | policy dual-console (คาดว่ารองรับทั้ง Admin Console และ Merchant Console เหมือน endpoint พี่น้องในกลุ่ม order) | ไม่มี branch IsAdminCommerceRequest เลยในซอร์ส และไม่เรียก actorScope.Begin — Admin Console เป็น platform Bearer ที่ไม่มี claim merchant_id เมื่อเรียก endpoint นี้จะได้ actor.MerchantId throw InvalidOperationException แล้วตอบ 409 ผ่าน exception handler กลาง ไม่ใช่ผลลัพธ์ปกติของ dual-console | src/Api/Api/Program.cs:1049-1074, src/Api/Api/HttpActorContext.cs:56-58, src/Api/BuildingBlocks.Web/ProblemDetailsExceptionHandler.cs:89-90 |
+| 09 · Merchant provisioning, merchant users และ merchant OIDC | `/api/v1/merchants (POST)` | policy admin (Bearer, ไม่มี CSRF) | RequirePlatformUserTier(Tier.Super) ที่ boundary + re-verify ใน txn ผ่าน ProvisioningCoordinator.VerifyCallerIsActiveSuper (acct.Accounts + access.PlatformAccess active) | src/Api/Api/Program.cs:2370-2411; ProvisioningCoordinator.cs:223-249 |
 | 11 · Payment capability configuration | `/api/v1/payments/methods, /api/v1/payments/methods/{method}/options` | § 11.4 diagram กลาง + ตาราง flow ประกอบ (ก่อนแก้) วาด lock timeout ของ resolver เป็น 409 code payment_authorization_busy เหมือนกันทั้ง 5 endpoint | 2 endpoint นี้ (policy merchant-user, map ผ่าน PaymentCapabilityEndpoints) ไม่ได้อยู่ใต้ routes ที่ผูก AddEndpointFilter(HandleKnownErrors) ของ AdminControlEndpoints (คนละ call ใน Program.cs) — HandleKnownErrors เป็นจุดเดียวที่แปลง PaymentAuthorizationBusyException (bare Exception) เป็น 409; เมื่อไม่ผ่าน filter นี้ exception ตกไปที่ ProblemDetailsExceptionHandler ซึ่งไม่มี case ให้ จึงกลายเป็น 500 ProblemDetails ทั่วไปไม่มี code — แก้ไดอะแกรมทั้ง 2 ไฟล์แล้วให้ตรงกับพฤติกรรมจริง | src/Api/Api/Program.cs:770,780; src/Api/Api/ControlPlane/AdminControlEndpoints.cs:18,1042-1045; src/Api/Api/Payments/PaymentCapabilityEndpoints.cs:10-12,29,52; src/Application/Modules/Payments.Application/AdminControlPlane/AdminPaymentsControl.cs:18; src/Api/BuildingBlocks.Web/ProblemDetailsExceptionHandler.cs:48-56,71-100; src/Infrastructure/Persistence/Persistence.ControlPlane/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs:294-306; src/Infrastructure/Persistence/Persistence.ControlPlane/Payments/PaymentAuthorizationSqlLockManager.cs:12-13,38-73 |
 
 ---
@@ -375,14 +337,14 @@
 
 ### Tool defect: check-mermaid.mjs กับทุก flowchart (must, ทุก theme, ยังเปิดอยู่ — นอก write scope ของชุดนี้)
 
-ทุกไฟล์ `*.activities.md` (00 ถึง 14, รวม 123 block) FAIL การรัน check-mermaid.mjs ด้วย error เดียวกันทุก block: `purify.addHook is not a function` — ส่วน `*.sequences.md` ทุกไฟล์ผ่าน OK ครบ ยืนยันซ้ำแล้วว่าเป็น environment defect ของ mermaid ที่ `mmdc` bundle มา ตอน parse `flowchart TD` เท่านั้น (reproduce ได้ด้วย flowchart 2-3 บรรทัดที่ syntax ถูกต้อง 100% แล้วยัง FAIL ข้อความเดียวกัน) ไม่ใช่ syntax ผิดของเนื้อหา diagram ไฟล์ไหนเลย
+ทุกไฟล์ `*.activities.md` (00 ถึง 14, ชุดเดิมตอนสร้าง 2026-09-14 มี 123 flowchart block; หลัง retire theme 08 + § 1.6 เมื่อ 2026-09-15 เหลือ 114 block) FAIL การรัน check-mermaid.mjs ด้วย error เดียวกันทุก block: `purify.addHook is not a function` — ส่วน `*.sequences.md` ทุกไฟล์ผ่าน OK ครบ ยืนยันซ้ำแล้วว่าเป็น environment defect ของ mermaid ที่ `mmdc` bundle มา ตอน parse `flowchart TD` เท่านั้น (reproduce ได้ด้วย flowchart 2-3 บรรทัดที่ syntax ถูกต้อง 100% แล้วยัง FAIL ข้อความเดียวกัน) ไม่ใช่ syntax ผิดของเนื้อหา diagram ไฟล์ไหนเลย
 
 **Root cause ที่ยืนยันแล้ว** (ไม่ใช่ปัญหา version mismatch ระหว่าง 2 package): `mermaid` (v11.14.0 ที่ `@mermaid-js/mermaid-cli` bundle มา) ฝัง DOMPurify ทั้งก้อนไว้ในตัวเอง ไม่ได้ resolve จาก npm package `dompurify` แยก — โค้ดที่ฝังมา (`createDOMPurify()`) ถูกเรียกใน lazy chunk ที่โหลดเฉพาะตอน parse `flowchart` โดยไม่มี `window`/`document` (check-mermaid.mjs รันใน plain Node) จึงเข้า branch "ไม่รองรับ" แล้ว return object ที่ยังไม่ถูกผูก `.addHook` เข้าไป (การผูก `.addHook` อยู่คนละจุดกับจุด return) — โค้ด parser ของ flowchart เรียก `purify.addHook(...)` ทันทีตอน parse (เพื่อ sanitize node label ที่มี `<br/>`/HTML) จึง throw; parser ของ `sequenceDiagram` ไม่เดินโค้ด path นี้ตอน parse จึงไม่โดน ข้อสรุป: pin เวอร์ชัน `mermaid`/`dompurify` ให้ตรงกัน **แก้ปัญหานี้ไม่ได้** เพราะไม่มี `dompurify` เป็น dependency แยกให้ pin ต้องฉีด DOM ก่อนเรียก parse แทน
 
 **Evidence เพิ่มเติมที่ทำวันนี้** (ยืนยัน root cause ด้วยการรันจริง 2 วิธี นอกเหนือจาก manual checklist เดิม):
 
-- ฉีด `window`/`document` จาก `jsdom` (`new JSDOM(...)`, ตั้ง `global.window`/`global.document` ก่อน `import` mermaid) แล้วเรียก `mermaid.parse()` ตัวเดียวกับที่ check-mermaid.mjs ใช้ — ได้ `OK` จริงครบ **123/123 block** ในทุกไฟล์ `*.activities.md` ทั้ง 15 ไฟล์ (00–14) ไม่มี FAIL แม้แต่ block เดียว
-- Render จริงผ่าน `mmdc` (headless Chrome ของจริง มี `window`/`document` เต็มรูป) ด้วย markdown-mode (`mmdc -p pptr.json -i <file>.activities.md -o <out>.md`) กับไฟล์ `00-cross-cutting.activities.md` เป็นตัวอย่าง — ได้ SVG ออกมาครบ **9/9 block** ไม่มี error (ยังไม่ได้รันครบทั้ง 15 ไฟล์ด้วยวิธีนี้ เพราะวิธี jsdom ด้านบนครอบคลุมครบแล้วและเร็วกว่า)
+- ฉีด `window`/`document` จาก `jsdom` (`new JSDOM(...)`, ตั้ง `global.window`/`global.document` ก่อน `import` mermaid) แล้วเรียก `mermaid.parse()` ตัวเดียวกับที่ check-mermaid.mjs ใช้ — ได้ `OK` จริงครบทุก block ในทุกไฟล์ `*.activities.md` ทั้ง 15 ไฟล์ (00–14) ไม่มี FAIL แม้แต่ block เดียว (ชุดเดิม 2026-09-14 = **123/123 block**; หลัง retire theme 08 + § 1.6 วัด 2026-09-15 = **114/114 block**)
+- Render จริงผ่าน `mmdc` (headless Chrome ของจริง มี `window`/`document` เต็มรูป) ด้วย markdown-mode (`mmdc -p pptr.json -i <file>.activities.md -o <out>.md`) กับ **ทั้ง 15 ไฟล์** `*.activities.md` — ได้ SVG ออกมาครบ **114/114 block** (2026-09-15) ไม่มี error แม้แต่ไฟล์เดียว (จำนวน SVG ต่อไฟล์ = จำนวน ```mermaid block ต่อไฟล์ทุกไฟล์)
 
 ทั้งสองวิธียืนยันตรงกัน: เนื้อหา diagram ทุกไฟล์ syntax ถูกต้อง 100% ปัญหาอยู่ที่ environment ของ check-mermaid.mjs เพียงอย่างเดียว
 
@@ -395,9 +357,9 @@ global.window = dom.window;
 global.document = dom.window.document;
 ```
 
-ข้อควรระวังตอน apply: ต้อง `npm install jsdom` ในไดเรกทอรีที่ check-mermaid.mjs อยู่ (หรือ global) ก่อน — ตรวจแล้ววันนี้ว่า `jsdom` **ไม่มี** อยู่ใน global node_modules ปัจจุบัน (ทั้งที่ node global lib และใต้ `@mermaid-js/mermaid-cli`) มีแต่ใน scratchpad ของ session ที่ทดสอบเท่านั้น ถ้าไม่อยากเพิ่ม dependency ใหม่ ใช้ทางเลือกที่ไม่ต้องติดตั้งอะไรเพิ่มแทนได้: เปลี่ยนไปใช้ `mmdc` markdown-mode ตรง ๆ (คำสั่งเดียวกับ fallback ที่ skill `diagrams` เอกสารไว้อยู่แล้ว) เป็น gate แทน `check-mermaid.mjs` สำหรับไฟล์ `.activities.md` — วิธีนี้ verify ผ่านจริงแล้วกับไฟล์ 00 ด้านบน
+ข้อควรระวังตอน apply: ต้อง `npm install jsdom` ในไดเรกทอรีที่ check-mermaid.mjs อยู่ (หรือ global) ก่อน — ตรวจแล้ววันนี้ว่า `jsdom` **ไม่มี** อยู่ใน global node_modules ปัจจุบัน (ทั้งที่ node global lib และใต้ `@mermaid-js/mermaid-cli`) มีแต่ใน scratchpad ของ session ที่ทดสอบเท่านั้น ถ้าไม่อยากเพิ่ม dependency ใหม่ ใช้ทางเลือกที่ไม่ต้องติดตั้งอะไรเพิ่มแทนได้: เปลี่ยนไปใช้ `mmdc` markdown-mode ตรง ๆ (คำสั่งเดียวกับ fallback ที่ skill `diagrams` เอกสารไว้อยู่แล้ว) เป็น gate แทน `check-mermaid.mjs` สำหรับไฟล์ `.activities.md` — วิธีนี้ verify ผ่านจริงแล้วครบทั้ง 15 ไฟล์ (114/114 block) ด้านบน
 
-**สถานะ**: finding นี้ยังเป็น must ที่เปิดอยู่ — ปิดได้เมื่อ (ก) มีคน apply patch ข้างต้น (หรือสลับไปใช้ `mmdc` markdown-mode) แล้วรัน checker ซ้ำได้ OK ครบทุกไฟล์จริง หรือ (ข) orchestrator ออก waiver เป็นลายลักษณ์อักษรว่ายอมรับหลักฐาน jsdom-parse 123/123 + mmdc-render 9/9 ข้างต้นแทน automated gate ของ contract ข้อ 1 ชุดไฟล์นี้เอง (README + theme files) ไม่มีสิทธิ์แก้ไฟล์นอก output dir จึงทำได้แค่เอกสารหลักฐานและข้อเสนอ patch ไว้ตรงนี้
+**สถานะ**: finding นี้ยังเป็น must ที่เปิดอยู่ — ปิดได้เมื่อ (ก) มีคน apply patch ข้างต้น (หรือสลับไปใช้ `mmdc` markdown-mode) แล้วรัน checker ซ้ำได้ OK ครบทุกไฟล์จริง หรือ (ข) orchestrator ออก waiver เป็นลายลักษณ์อักษรว่ายอมรับหลักฐาน jsdom-parse 114/114 + mmdc-render 114/114 (2026-09-15) ข้างต้นแทน automated gate ของ contract ข้อ 1 ชุดไฟล์นี้เอง (README + theme files) ไม่มีสิทธิ์แก้ไฟล์นอก output dir จึงทำได้แค่เอกสารหลักฐานและข้อเสนอ patch ไว้ตรงนี้
 
 ### Content-level residual must-fix ที่ยังค้าง (ไม่รวม tool defect ด้านบน)
 
@@ -410,7 +372,7 @@ global.document = dom.window.document;
 | 05 | 5 | § 5.2 verify ไม่ได้ระบุ 3 ผลลัพธ์จริงของ VerifyAsync, § 5.9/5.4 label R500 ไม่แยกกรณี mark Failed จริง, § 5.10 เหตุผล 401 Rejected ไม่ครบ (ขาด binding_mismatch) |
 | 06 | 1 | § 6.2 ไม่มี branch validation ของ NotificationIntent (email/phone/recipient required) |
 | 07 | 3 | § 7.5 ลำดับ node ENVK ไม่ตรง source, ไม่มี 404 branch ที่ CRED/ENVK และไม่มี 400 invalid_idempotency_key, sequences Phase B ไม่มี EnsureAccess/idempotency ของ 3 kind |
-| 08 | 2 | § 8.4/8.5 sequences วาด validation และเช็ค merchant active เป็น host self-check ทั้งที่ source ทำใน handler |
+| 08 | 0 | - |
 | 09 | 2 | § 9.4 ไม่วาด async/outbox (RegistrationConsumer, KycPhotoLifecycleConsumer), § 9.6 TTL label สื่อผิดว่าเป็น field ใน request body |
 | 10 | 3 | § 10.2 ไม่มี branch validation เพิ่มเติม (payment method channel, name, metadata), § 10.8/10.9 ไม่มี branch validate Type และใช้ชื่อ field apiClientId ผิดจาก linkedApiClientId |
 | 11 | 0 | - |
@@ -432,5 +394,17 @@ node /Users/king_developer/.claude/skills/readable-markdown/check-mermaid.mjs <a
 
 - ฉีด jsdom ก่อน import mermaid แล้วเรียก `mermaid.parse()` ตรง ๆ (โค้ด shim เดียวกับ patch ด้านบน) — วิธีนี้ยืนยันแล้วว่าได้ `OK` ครบทุก block ทั้ง 15 ไฟล์
 - หรือ `mmdc -p pptr.json -i <file>.activities.md -o <out>.md` (markdown-mode, ไม่ต้องติดตั้งอะไรเพิ่ม) ตาม fallback ของ skill `diagrams` — render ผ่านจริงได้ = syntax ถูก
+
+หลัง render ผ่าน ให้รัน grep verify ข้อ 4 (stale-token sweep) — ทุก pattern ต้องว่าง ยกเว้น retire-note ที่ตั้งใจ:
+
+```bash
+cd outputs/diagrams/2026-09-14_api-endpoints_v1
+grep -rnE 'adm_csrf|__Host-adm_session|BffSession|__Host-pol_session|IdentityAccessBff|Bearer/BFF' *.md   # ต้องว่าง
+grep -rnE 'RequireCsrf' *.md   # CSRF ที่ยอมรับได้ = RequireUserCsrf (merchant-user mch_csrf) เท่านั้น;
+  # RequireAudienceCsrf (dual-console) และ retire-note ที่เขียนว่า RequireCsrf() ถูก retire = ยอมรับได้;
+  # bare RequireCsrf() ที่ใช้เป็น live gate ของ route admin = stale ต้องแก้เป็น "policy admin (Bearer) ไม่มี CSRF ดู § 0.1"
+```
+
+ยืนยันกับ source: admin `.RequireCsrf()` และ `Admins/CsrfFilter.cs` ถูกลบจริง (retire) — survivors ใน source = `RequireUserCsrf`/`RequireAudienceCsrf` (`Program.cs`, `Iam/CsrfParity.cs`), `mch_csrf` (`Merchants/UserCsrfFilter.cs`)
 
 **Render**: GitHub / Obsidian / VS Code Mermaid

@@ -45,7 +45,7 @@ erDiagram
 
 | Schema | Current tables/ขอบเขต | Runtime owner |
 |---|---|---|
-| `acct` | `Accounts`, `LoginAccounts`, `Employees`, `Agents`, `SystemClients`, key/BFF/registration tables | `ControlPlaneDbContext` |
+| `acct` | `Accounts`, `LoginAccounts`, `Employees`, `Agents`, `SystemClients`, key/registration tables | `ControlPlaneDbContext` |
 | `access` | `MerchantAccess`, `AccessRoles`, `BranchAccess`, `PlatformAccess`, `PlatformAccessRoles`, `SystemClientScopes`, `MerchantAccessMethods` | `ControlPlaneDbContext` |
 | `admin` | Admin identity/session, governance/audit, provisioning, control webhook/notification delivery, operation records | `ControlPlaneDbContext` |
 | `iam` | permissions/groups/roles/grants, API clients, one-time secret tickets | `ControlPlaneDbContext` |
@@ -121,7 +121,7 @@ Native JSON columns 11 จุดตาม model snapshot คือ `acct.Agents.
 
 ## Migration and raw objects
 
-Migration chain มี 47 migrations และจบที่ `20260911163519_ReviewFixPaymentLinkNotificationIntent`. `Task9MigrationReadiness` เพิ่ม deterministic mapping/conflict report, target-owner backfill, writer lease, watermark recovery และ rollback machinery; local rehearsal ไม่ใช่ production cutover.
+Migration chain มี 50 migrations และจบที่ `20260914111802_RetireLegacyAdminIdentityPlane`. `Task9MigrationReadiness` เพิ่ม deterministic mapping/conflict report, target-owner backfill, writer lease, watermark recovery และ rollback machinery; local rehearsal ไม่ใช่ production cutover.
 
 Raw objects สำคัญคือ `shop.OrderNoSeq`, `merch.RegistrationNotices` และ explicit grants/sequence ที่ migration owner สร้าง. Production rollback ต้องใช้ verified backup/restore ตาม runbook; `Down` ไม่ใช่ production rollback.
 

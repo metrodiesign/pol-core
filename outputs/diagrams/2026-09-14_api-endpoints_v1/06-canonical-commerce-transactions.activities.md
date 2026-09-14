@@ -272,7 +272,7 @@ Endpoint นี้เป็น explicit support inquiry ไม่สร้าง
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission payment.view<br/>RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> AUTHZ["policy admin (Bearer) + permission payment.view<br/>ดู § 0.1"]
     AUTHZ --> RESOLVE["ResolveTransactionAsync ดู § 6.5"]
     RESOLVE --> RFOUND{"resolve สำเร็จ?"}
     RFOUND -->|no| R40X["403 / 404 / 400 ตามเงื่อนไข § 6.5"]
@@ -341,7 +341,7 @@ Append-only support event: ตรวจ version และ note ก่อนเ�
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission payment.view<br/>RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> AUTHZ["policy admin (Bearer) + permission payment.view<br/>ดู § 0.1"]
     AUTHZ --> RESOLVE["ResolveTransactionAsync ดู § 6.5"]
     RESOLVE --> RFOUND{"resolve สำเร็จ?"}
     RFOUND -->|no| R40X["403 / 404 / 400 ตามเงื่อนไข § 6.5"]

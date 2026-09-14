@@ -83,7 +83,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1<br/>RequireCsrf adm_csrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1"]
     AUTHZ --> BODY{"EnsureMerchant: body.MerchantId<br/>== route merchantId (ไม่ Guid.Empty)?"}
     BODY -->|no| R400V["400 ProblemDetails<br/>code validation_failed"]
     BODY -->|yes| HDR{"VersionEtags.Require(If-Match) รูป vN<br/>+ IdempotencyKeys.Require(Idempotency-Key) ดู § 0.5"}
@@ -203,7 +203,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchants.roles.manage ดู § 0.1<br/>RequireCsrf adm_csrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchants.roles.manage ดู § 0.1"]
     AUTHZ --> M1{"RequireMutationAccess:<br/>merchantId อยู่ใน Admin scope?"}
     M1 -->|no| R403["403 code merchant_scope_forbidden"]
     M1 -->|yes| A1{"RequireActiveMerchantAsync:<br/>merchant Active?"}
@@ -287,7 +287,7 @@ flowchart TD
     REVEAL --> ETAG["VersionEtags.Set(vN)"]
     ETAG --> R200["200 MerchantUserEditView (ฟิลด์ไม่ mask)"]
 
-    KIND -->|"PUT (update)"| AUTHZ2["policy admin + permission merchants.users.manage ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    KIND -->|"PUT (update)"| AUTHZ2["policy admin + permission merchants.users.manage ดู § 0.1"]
     AUTHZ2 --> M2{"RequireMutationAccess:<br/>merchantId อยู่ใน Admin scope?"}
     M2 -->|no| R403["403 code merchant_scope_forbidden"]
     M2 -->|yes| ACT2{"RequireActiveMerchantAsync:<br/>merchant Active?"}
@@ -336,7 +336,7 @@ Endpoint เดียวแต่ branch ซับซ้อน: TTL validate, re
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchants.users.manage ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchants.users.manage ดู § 0.1"]
     AUTHZ --> M1{"RequireMutationAccess:<br/>merchantId อยู่ใน Admin scope?"}
     M1 -->|no| R403["403 code merchant_scope_forbidden"]
     M1 -->|yes| ACT{"RequireActiveMerchantAsync:<br/>merchant Active?"}
@@ -393,7 +393,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchants.roles.manage ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchants.roles.manage ดู § 0.1"]
     AUTHZ --> M1{"RequireMutationAccess:<br/>merchantId อยู่ใน Admin scope?"}
     M1 -->|no| R403["403 code merchant_scope_forbidden"]
     M1 -->|yes| ACT{"RequireActiveMerchantAsync:<br/>merchant Active?"}
@@ -435,7 +435,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1"]
     AUTHZ --> ACC{"EnsureAccess: body.MerchantId<br/>อยู่ใน Admin scope?"}
     ACC -->|no| R403["403 code merchant_scope_forbidden"]
     ACC -->|yes| EXIST{"EnsureMerchantExistsAsync:<br/>merchant มีอยู่จริง? (ไม่เช็ค Active)"}
@@ -473,7 +473,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1"]
     AUTHZ --> ACC{"EnsureAccess: body.MerchantId<br/>อยู่ใน Admin scope?"}
     ACC -->|no| R403["403 code merchant_scope_forbidden"]
     ACC -->|yes| LOAD["LoadOriginatorAsync(originatorId, body.MerchantId)"]
@@ -521,7 +521,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin + permission merchant.manage ดู § 0.1"]
     AUTHZ --> BINDQ{"query merchantId มาด้วย?<br/>(non-nullable, model binding)"}
     BINDQ -->|no| R400B["400 (BadHttpRequestException, model binding)"]
     BINDQ -->|yes| ACC{"EnsureAccess: merchantId<br/>อยู่ใน Admin scope?"}

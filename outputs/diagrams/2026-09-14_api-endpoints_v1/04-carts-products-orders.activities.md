@@ -173,7 +173,7 @@ flowchart TD
 flowchart TD
     START((●)) --> AUTHZ["policy dual-console + RequireOrderIdentityPermission(payment.view, order.read)<br/>ดู § 0.1 / § 0.2"]
     AUTHZ --> AUD{"Admin request? (IsAdminCommerceRequest)"}
-    AUD -->|no| IDREQ{"IsIdentityRequest (Bearer/BFF)?"}
+    AUD -->|no| IDREQ{"IsIdentityRequest (Bearer)?"}
     IDREQ -->|yes| OWNER{"EnsureIdentityOrderOwnerAsync:<br/>order พบและ AccessEvaluator.CanReadOrder<br/>(OwnerSaleId/OwnerBranchIdAtCreation) อนุญาต?"}
     OWNER -->|no| R404_O["404 Order was not found"]
     OWNER -->|yes| DETAIL_M["GetOrderDetailCommand(actor.MerchantId, orderId,<br/>merchant-user, actor.UserId)"]
@@ -211,7 +211,7 @@ flowchart TD
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
 | GET | `/api/v1/orders` | subject: list แบ่งหน้าแทน detail เดี่ยว ผ่าน SFS (`SfsQueryParser.Parse`, maxLimit 100) allowlist `orderNo` (eq/contains), `status` (eq/in), `paymentChannel` (eq/in), sort `createdAt`/`orderNo` ดู § 0.6; ไม่มี reveal-audit, ไม่มี ETag; Merchant -> `GetOrdersQuery` -> `PagedResult<OrderListItem>` (ไม่มี metadata); Admin -> query `merchantId` optional (guid ผิด -> 400 `invalid_filter`) -> `AdminOrderQuery` ตาม accessible merchants -> `PagedResult<AdminOrderListResponse>`; ไม่มี owner-identity check ราย order (source: `Program.cs:2184-2238`, `GetOrders.cs`) |
-| GET | `/api/v1/orders/{orderId:guid}/payment-links` | subject: คืน array `PaymentLinkView` ของ order (ไม่มี raw token), ไม่มี reveal-audit, ไม่มี ETag; identity request ตรวจ owner ด้วย `EnsureIdentityOrderOwnerAsync` เหมือน § กลาง; **ไม่มี branch Admin ในซอร์สเลย** (ไม่เรียก `IsAdminCommerceRequest`) — Admin console (cookie, ไม่ใช่ identity request) ที่เรียก endpoint นี้จะได้ `actor.MerchantId` throw `InvalidOperationException` เพราะไม่มี `merchant_id` claim และไม่มีการ `actorScope.Begin` ในนี้ ต่างจาก sibling POST (§ 4.8) ที่จัดการ Admin ชัดเจน — ตอบ **409** ตาม § 0.9 ไม่ใช่ 404/403 (ดู Deviations) (source: `Program.cs:1100-1124`, `HttpActorContext.cs:56-58`) |
+| GET | `/api/v1/orders/{orderId:guid}/payment-links` | subject: คืน array `PaymentLinkView` ของ order (ไม่มี raw token), ไม่มี reveal-audit, ไม่มี ETag; identity request ตรวจ owner ด้วย `EnsureIdentityOrderOwnerAsync` เหมือน § กลาง; **ไม่มี branch Admin ในซอร์สเลย** (ไม่เรียก `IsAdminCommerceRequest`) — Admin console (platform Bearer) ที่เรียก endpoint นี้จะได้ `actor.MerchantId` throw `InvalidOperationException` เพราะไม่มี `merchant_id` claim และไม่มีการ `actorScope.Begin` ในนี้ ต่างจาก sibling POST (§ 4.8) ที่จัดการ Admin ชัดเจน — ตอบ **409** ตาม § 0.9 ไม่ใช่ 404/403 (ดู Deviations) (source: `Program.cs:1049-1074`, `HttpActorContext.cs:56-58`) |
 
 ---
 
@@ -221,7 +221,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy identity-platform (BFF cookie หรือ Bearer)<br/>RequireIdentityPermission(payment.create)<br/>RequireIdentityPlatformMutation ดู § 0.1 / § 0.2 / § 0.3"]
+    START((●)) --> AUTHZ["policy identity-platform (Bearer platform JWT)<br/>RequireIdentityPermission(payment.create)<br/>RequireIdentityPlatformMutation ดู § 0.2 / § 0.3"]
     AUTHZ --> VALID{"ValidateCanonicalCreateRequest:<br/>businessType, currency 3 ตัวอักษร, items>=1,<br/>metadata VersionedMetadata, money field ทุกตัว?"}
     VALID -->|no| R400_V["400 validation_failed / items_required / metadata_invalid"]
     VALID -->|yes| NOTIF{"NotificationIntentNormalizer:<br/>email/phone รูปแบบถูกต้อง,<br/>มี recipient เมื่อ send=true?"}
@@ -427,7 +427,7 @@ flowchart TD
     REASON -->|no| R400_R["400 validation_failed"]
     REASON -->|yes| AUD{"Admin request? (IsAdminCommerceRequest)"}
 
-    AUD -->|no| IDREQ{"IsIdentityRequest (Bearer/BFF)?"}
+    AUD -->|no| IDREQ{"IsIdentityRequest (Bearer)?"}
     IDREQ -->|yes| OWNER{"EnsureIdentityOrderOwnerAsync ผ่าน?"}
     OWNER -->|no| R404_O["404 Order was not found"]
     OWNER -->|yes| REASON_ID{"command.Reason ไม่ว่าง?<br/>(RequireReason บังคับเฉพาะ identity path)"}
@@ -529,7 +529,7 @@ flowchart TD
     Q -->|yes| RESOURCE{"RequireAdminOrderAsync(orderId, merchantId, mutation:true)<br/>พบและตรง merchant?"}
     RESOURCE -->|no| R404_RES["404 Order was not found / 403 merchant_scope_forbidden"]
     RESOURCE -->|yes| BIND["actorScope.Begin(merchantId)"]
-    AUD -->|no| IDREQ{"IsIdentityRequest (Bearer/BFF)?"}
+    AUD -->|no| IDREQ{"IsIdentityRequest (Bearer)?"}
     IDREQ -->|yes| OWNER{"EnsureIdentityOrderOwnerAsync ผ่าน?"}
     OWNER -->|no| R404_O["404 Order was not found"]
     OWNER -->|yes| MID_M["merchantId = actor.MerchantId"]
@@ -710,7 +710,7 @@ flowchart TD
 
 | fullPath | เอกสารบอก | source บอก | อ้างอิง |
 | --- | --- | --- | --- |
-| `GET /api/v1/orders/{orderId:guid}/payment-links` | policy `dual-console` (รองรับทั้ง Admin และ Merchant console เหมือน endpoint พี่น้องในกลุ่ม order) | ไม่มี branch `IsAdminCommerceRequest` เลยในซอร์ส และไม่เรียก `actorScope.Begin`; Admin console session (cookie, ไม่ใช่ identity request ผ่าน Bearer/BFF) ที่เรียก endpoint นี้จะได้ `actor.MerchantId` throw `InvalidOperationException` เพราะไม่มี claim `merchant_id` — ตอบ **409** ผ่าน exception handler กลาง ไม่ใช่ผลลัพธ์ปกติของ dual-console | `src/Api/Api/Program.cs:1100-1124`, `src/Api/Api/HttpActorContext.cs:56-58`, `src/Api/BuildingBlocks.Web/ProblemDetailsExceptionHandler.cs:89-90` |
+| `GET /api/v1/orders/{orderId:guid}/payment-links` | policy `dual-console` (รองรับทั้ง Admin และ Merchant console เหมือน endpoint พี่น้องในกลุ่ม order) | ไม่มี branch `IsAdminCommerceRequest` เลยในซอร์ส และไม่เรียก `actorScope.Begin`; Admin console เป็น platform Bearer ที่ไม่มี claim `merchant_id` เมื่อเรียก endpoint นี้จะได้ `actor.MerchantId` throw `InvalidOperationException` — ตอบ **409** ผ่าน exception handler กลาง ไม่ใช่ผลลัพธ์ปกติของ dual-console | `src/Api/Api/Program.cs:1049-1074`, `src/Api/Api/HttpActorContext.cs:56-58`, `src/Api/BuildingBlocks.Web/ProblemDetailsExceptionHandler.cs:89-90` |
 
 ## Notes
 

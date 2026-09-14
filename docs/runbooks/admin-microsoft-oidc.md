@@ -61,8 +61,8 @@ Login แบบไม่มี email ต้องสำเร็จได้เ�
 
 Production boot ต้อง fail (`ProvisioningGuards.RequireWorkforceAdminProvider`) เมื่อ `IdentityAccess:Workforce:ClientId`/`ClientSecret`
 ว่างหรือเป็น placeholder, `CallbackPath` ไม่ใช่ค่าบังคับ, Authority ไม่ใช่ public-cloud tenant-pinned `/v2.0` หรือ
-`IdentityAccess:WorkforceTenantId` ไม่ตรง tenant ใน Authority และเมื่อ configured tenant ไม่ตรง persisted
-`WorkforceTenantBinding` singleton Schema ที่มี triple index ไม่อนุญาตให้ runtime รับ tenant เพิ่ม
+`IdentityAccess:WorkforceTenantId` ไม่ตรง tenant ใน Authority. ตาราง `admin.WorkforceTenantBindings` ถูก retire แล้ว
+(migration `20260914111802_RetireLegacyAdminIdentityPlane`) การ pin tenant มาจาก config อย่างเดียว runtime ยังรับ tenant เดียว
 
 prod compose ป้อนค่าเหล่านี้จาก `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY`, `ADMIN_ENTRA_TENANT_ID`, secret file
 `admin_entra_client_secret` (entrypoint export เป็น `IdentityAccess__Workforce__ClientSecret`) และ `ADMIN_FRONTEND_ORIGIN`
@@ -139,7 +139,7 @@ REVERT;
 
 legacy admin identity plane (`POST /api/v1/admins` invite/bind) ถูก retire แล้ว flow ปัจจุบันคือ employee login
 ด้วย Microsoft ก่อน (JIT สร้าง `acct.Accounts` จาก verified tenant tuple) จากนั้น Super Admin grant platform access
-ให้ account นั้นผ่าน `PUT /api/v1/accounts/{accountId}/platform-access` (Bearer platform token; identity-platform CSRF):
+ให้ account นั้นผ่าน `PUT /api/v1/accounts/{accountId}/platform-access` (Bearer platform token; `If-Match` + `Idempotency-Key`, ไม่มี CSRF):
 
 ```json
 {

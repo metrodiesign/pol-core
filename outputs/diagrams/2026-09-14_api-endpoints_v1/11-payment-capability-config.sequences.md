@@ -32,9 +32,9 @@ sequenceDiagram
     participant ST as Payments store<br/>(Global / Admin)
     participant DB as DB<br/>(cfg.* catalog chain)
 
-    Note over A,API: Phase A — gate (ดู § 0.1 / § 0.3)
+    Note over A,API: Phase A — gate (ดู § 0.1)
     A->>C: เปิดหน้า capability / setting
-    C->>API: GET เช่น /payments/providers/{providerCode}/methods/{method} (cookie __Host-adm_session)
+    C->>API: GET เช่น /payments/providers/{providerCode}/methods/{method} (Authorization Bearer)
     Note over API,ST: Phase B — parse code + ตัดสิน scope
     API->>ST: Get{Resource}Async(code, access)
     ST->>DB: อ่าน catalog chain (AsNoTracking, PlatformReadGuard)
@@ -146,7 +146,7 @@ sequenceDiagram
 
 ## 11.3 เปิด / ปิด capability ระดับ account / merchant / merchant user
 
-PUT ระดับ merchant-scoped รันในธุรกรรมของ `AdminPaymentsControlStore` เอง: merchant exclusive lock, replay ผ่าน OperationRecord ต่อ merchant, ตรวจ authorization lease แล้วอัปเสิร์ตแถว policy (source: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs:152-167,181-196,222-237,269-284`, `AdminPaymentsControlStore.cs:187-309,336-392,435-492`, `MerchantRuntimeAuthorizationLease.cs:24-39`).
+PUT ระดับ merchant-scoped รันในธุรกรรมของ `AdminPaymentsControlStore` เอง: merchant exclusive lock, replay ผ่าน OperationRecord ต่อ merchant, ตรวจ authorization lease แล้วอัปเสิร์ตแถว policy (source: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs:152-167,181-196,222-237,269-284`, `AdminPaymentsControlStore.cs:187-309,336-392,435-492`, `MerchantRuntimeAuthorizationLease.cs:24-56`).
 
 ```mermaid
 sequenceDiagram
@@ -155,7 +155,7 @@ sequenceDiagram
     participant C as Admin Console SPA
     participant API as AdminControlEndpoints
     participant ST as AdminPaymentsControlStore
-    participant DB as DB<br/>(cfg.* / policy rows / admin.Users)
+    participant DB as DB<br/>(cfg.* / policy rows / acct.Accounts)
 
     Note over A,API: Phase A — gate + If-Match + Idempotency-Key (ดู § 0.1 / § 0.3 / § 0.5)
     A->>C: เปิด / ปิด method ต่อ account / merchant / user
@@ -166,7 +166,7 @@ sequenceDiagram
     ST->>DB: sp_getapplock global Shared + payment-authz:merchant:{id} Exclusive
     ST->>DB: โหลด catalog chain (provider, provider-method, method, option)
     ST->>DB: หา OperationRecord (merchant, actor, operation, key)
-    ST->>DB: authorizationLease.VerifyAsync (UPDATE admin.Users แบบมีเงื่อนไข)
+    ST->>DB: authorizationLease.VerifyAsync (UPDATE [acct].[Accounts] แบบมีเงื่อนไข)
     Note over ST,C: Phase C — response
     alt target ไม่พบในสโคป
         ST-->>API: NotFound

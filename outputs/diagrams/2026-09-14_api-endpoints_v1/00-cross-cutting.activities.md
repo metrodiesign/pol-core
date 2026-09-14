@@ -7,9 +7,9 @@
 | § | Diagram | Endpoints |
 | --- | --- | --- |
 | 0.1 | Console session authentication + authorization | ทุก endpoint policy `admin` / `merchant-user` / `dual-console` ที่ต่อ RequirePermission, RequireAudiencePermission, RequirePlatformUserTier, BoundFilter |
-| 0.2 | Identity BFF / Bearer authentication + identity-order permission | policy `identity-bff` / `identity-platform` / `admin-or-identity-order` และแถวที่มี `(identity: order.read / order.write / checkout.write)` |
-| 0.3 | CSRF double-submit | ทุก unsafe method ที่มี CSRF filter (RequireCsrf, RequireUserCsrf, RequireAudienceCsrf, RequireAdminOrIdentityCsrf, BffCsrfFilter, RequireIdentityPlatformMutation) |
-| 0.4 | Rate limiting | แถวที่ระบุ `rate limit` (policy customer-payment, admin-auth, merchant-user-auth, psp-webhook) |
+| 0.2 | Identity platform (Bearer) authentication + identity-order permission | policy `identity-platform` / `admin-or-identity-order` และแถวที่มี `(identity: order.read / order.write / checkout.write)` |
+| 0.3 | CSRF double-submit | merchant-user unsafe method ที่มี CSRF filter (RequireUserCsrf, RequireAudienceCsrf, RequireAdminOrIdentityMutation, RequireIdentityPlatformMutation) — admin เป็น Bearer ไม่มี CSRF |
+| 0.4 | Rate limiting | แถวที่ระบุ `rate limit` (policy customer-payment, merchant-user-auth, psp-webhook) — admin-auth ถูก retire พร้อม route /admins/auth/** |
 | 0.5 | ETag / If-Match / Idempotency-Key | mutation ที่มี IfMatchMutationMarker, AdminIfMatchMutationMarker, IdempotencyMutationMarker, GovernanceDecisionMarker และ GET detail ที่คืน ETag |
 | 0.6 | SFS query parsing | GET list ที่อ่าน page / limit / filters / sort / search ผ่าน SfsQueryParser |
 | 0.7 | Maker-checker approval | endpoint `*-requests`, `*-change-requests`, `activation-requests`, `secret-rotation-requests` และ `/approvals/{approvalId}/approve` / `reject` |
@@ -20,31 +20,28 @@
 
 ## 0.1 Console session authentication + authorization
 
-ทุก request ใต้ policy `admin` / `merchant-user` / `dual-console` ผ่าน ConsoleSession policy scheme เลือก handler จาก policy + cookie แล้ว re-resolve บัญชีสดต่อ request ก่อนถึง permission gate แบบ fail-closed (source: `src/Api/Api/Iam/ConsoleSessionAuthentication.cs:33-68`, `Admins/SessionAuthenticationHandler.cs:62-138`, `Merchants/UserSessionAuthenticationHandler.cs:70-175`, `Iam/PermissionAuthorization.cs:83-139`, `Admins/HostWiring.cs:98-117`, `Merchants/UserPermissionAuthorization.cs:16-30`, `Program.cs:711-714`)
+ทุก request ใต้ policy `admin` / `merchant-user` / `dual-console` / `admin-or-identity-order` ผ่าน `ConsoleSession` policy scheme ที่ forward ไป real scheme ตาม policy + audience: Admin ใช้ `PlatformToken` (employee Bearer JWT) และ Merchant ใช้ `MerchantUserSession` (cookie) แล้ว re-resolve บัญชีสดต่อ request ก่อนถึง permission gate แบบ fail-closed (source: `src/Api/Api/Iam/ConsoleSessionAuthentication.cs:38-67`, `IdentityAccess/PlatformTokenAuthentication.cs:41-109`, `Merchants/UserSessionAuthenticationHandler.cs:70-175`, `Iam/PermissionAuthorization.cs:86-139`, `Admins/HostWiring.cs:101-116`, `Merchants/UserPermissionAuthorization.cs:16-24`, `Program.cs:660-663`)
 
 ```mermaid
 flowchart TD
     START((●)) --> MW["middleware: UseRateLimiter ดู § 0.4<br/>UseAuthentication, UseIdentityAccess, UseAuthorization"]
     MW --> SEL{"policy ของ endpoint?"}
-    SEL -->|admin| AUD_A["audience = Admin"]
+    SEL -->|admin| AUD_A["ConsoleSession.SelectScheme: audience = Admin"]
     SEL -->|merchant-user| AUD_M["audience = Merchant"]
-    SEL -->|dual-console| DUAL{"มี adm cookie หรือ<br/>BFF cookie โดยไม่มี mch cookie?"}
+    SEL -->|dual-console| DUAL{"มี Bearer และไม่มี __Host-mch_session?"}
     DUAL -->|yes| AUD_A
     DUAL -->|no| AUD_M
     SEL -->|admin-or-identity-order| AUD_A
-    AUD_A --> IDR{"identity-order route และ<br/>identity request (Bearer หรือ BFF cookie)?"}
-    IDR -->|yes| GO_ID["เส้น identity ดู § 0.2"]
-    IDR -->|no| ADM_COOKIE{"มี __Host-adm_session?"}
-    ADM_COOKIE -->|yes| ADM_H["AdminSession handler<br/>hash lookup + SessionDecisionPolicy<br/>re-resolve admin READ-ONLY"]
-    ADM_COOKIE -->|no| BFF_COOKIE{"มี __Host-pol_session?"}
-    BFF_COOKIE -->|yes| BFF_H["IdentityAccessBff scheme ดู § 0.2<br/>TryBindAdminScope เฉพาะ Employee"]
-    BFF_COOKIE -->|no| R401_A["401 ProblemDetails<br/>code admin_session_required"]
-    ADM_H --> ADM_OK{"session live, ไม่ reuse,<br/>admin ยัง Active?"}
-    ADM_OK -->|no| R401_A
-    ADM_OK -->|yes| BIND_A["bind IAdminScope<br/>claims admin_tier, NameIdentifier<br/>rotate cookie / slide idle"]
-    BFF_H --> BFF_OK{"ticket live และ Employee?"}
-    BFF_OK -->|no| R401_B["401 default (BFF scheme ไม่มี challenge เฉพาะ)<br/>UseStatusCodePages แปลงเป็น ProblemDetails ไม่มี code"]
-    BFF_OK -->|yes| BIND_A
+    AUD_A --> IDR{"identity-order route และ identity request (Bearer)?"}
+    IDR -->|yes| GO_ID["re-route ไป PlatformToken (audience Merchant)<br/>เส้น identity ดู § 0.2"]
+    IDR -->|no| PT["PlatformToken scheme:<br/>OpenIddict validate JWT (signature, audience api, lifetime, token entry)"]
+    PT --> PT_OK{"account Active และ<br/>AuthorizationVersion เท่ากับ authz_version ใน token?"}
+    PT_OK -->|no| R401_A["401 Bearer error invalid_token<br/>SPA refresh หรือ login ใหม่"]
+    PT_OK -->|yes| ADM_AUD{"audience Admin?"}
+    ADM_AUD -->|no| BIND_ID["binding เส้น identity / order ดู § 0.2"]
+    ADM_AUD -->|yes| BINDCHK{"account เป็น Employee และมี authorization snapshot?"}
+    BINDCHK -->|no| R401_A
+    BINDCHK -->|yes| BIND_A["bind IAdminScope: AdminId = AccountId,<br/>Permissions จาก platform-role,<br/>Tier Super = access.PlatformAccess active มิฉะนั้น Scoped"]
     AUD_M --> MCH_COOKIE{"มี __Host-mch_session?"}
     MCH_COOKIE -->|no| R401_M["401 (default challenge)"]
     MCH_COOKIE -->|yes| MCH_H["MerchantUserSession handler<br/>hash lookup + expiry<br/>re-resolve user READ-ONLY"]
@@ -53,7 +50,7 @@ flowchart TD
     MCH_LIFE -->|yes| MCH_OK{"session live, ไม่ reuse?"}
     MCH_OK -->|no| R401_M
     MCH_OK -->|yes| BIND_M["bind IUserScope<br/>claims merchant_id, sale_code<br/>rotate cookie / slide idle"]
-    BIND_A --> FILTERS["endpoint filters ตามลำดับ chain ของ endpoint<br/>CSRF ดู § 0.3 (gate ด้านล่างมีเฉพาะที่ endpoint ต่อไว้)"]
+    BIND_A --> FILTERS["endpoint filters ตามลำดับ chain ของ endpoint<br/>CSRF ดู § 0.3 (admin เป็น Bearer ไม่มี CSRF)"]
     BIND_M --> FILTERS
     FILTERS --> BOUND{"BoundFilter (group /merchants/users):<br/>scope ของ audience bound?"}
     BOUND -->|no| R403_B["403 The selected console account is not active"]
@@ -61,13 +58,13 @@ flowchart TD
     PERM -->|no| R403_P["403 You do not have permission for this action"]
     PERM -->|yes| AUDP{"RequireAudiencePermission:<br/>Admin ใช้ adminKey, Merchant ใช้ merchantKey"}
     AUDP -->|no| R403_P
-    AUDP -->|yes| TIER{"RequirePlatformUserTier:<br/>admin_tier ∈ allowed?"}
+    AUDP -->|yes| TIER{"RequirePlatformUserTier:<br/>IAdminScope.Tier ∈ allowed?"}
     TIER -->|no| R403_T["403 code super_required"]
     TIER -->|yes| HANDLER["handler ทำงาน"]
     HANDLER --> END_S((◉))
     GO_ID --> END_S
+    BIND_ID --> END_S
     R401_A --> END_F((◉))
-    R401_B --> END_F
     R401_M --> END_F
     R403_L --> END_F
     R403_B --> END_F
@@ -78,61 +75,50 @@ flowchart TD
     classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
     class BIND_A,BIND_M,HANDLER,END_S ok
-    class R401_A,R401_B,R401_M,R403_L,R403_B,R403_P,R403_T,END_F fail
-    class SEL,DUAL,IDR,ADM_COOKIE,BFF_COOKIE,ADM_OK,BFF_OK,MCH_COOKIE,MCH_LIFE,MCH_OK,BOUND,PERM,AUDP,TIER gate
+    class R401_A,R401_M,R403_L,R403_B,R403_P,R403_T,END_F fail
+    class SEL,DUAL,IDR,PT_OK,ADM_AUD,BINDCHK,MCH_COOKIE,MCH_LIFE,MCH_OK,BOUND,PERM,AUDP,TIER gate
 ```
 
 | Gate | ใช้กับ | ผลเมื่อไม่ผ่าน | source |
 | --- | --- | --- | --- |
-| policy `admin` | AdminSession cookie หรือ BFF cookie (Employee) | 401 `admin_session_required` (ไม่มี cookie หรือ adm cookie ไม่ผ่าน), 401 default เมื่อ BFF cookie ไม่ผ่าน | `Admins/SessionAuthenticationHandler.cs:126-138,200-203`, `Iam/ConsoleSessionAuthentication.cs:65-67` |
+| policy `admin` | `PlatformToken` (employee Bearer JWT) เท่านั้น ไม่มี cookie fallback | 401 `invalid_token` (account ไม่ Active หรือ version ไม่ตรง), 401 OpenIddict (JWT เสีย) | `Iam/ConsoleSessionAuthentication.cs:44-67`, `IdentityAccess/PlatformTokenAuthentication.cs:52-72` |
 | policy `merchant-user` | MerchantUserSession cookie เท่านั้น (ไม่มี Bearer fallback) | 401 default หรือ 403 lifecycle code | `Merchants/UserSessionAuthenticationHandler.cs:157-175,249-252` |
-| policy `dual-console` | เลือก audience จาก cookie ที่มี, permission key ต้องเป็น Scope.Shared | ตาม audience ที่เลือก | `Iam/ConsoleSessionAuthentication.cs:44-49`, `Iam/PermissionAuthorization.cs:47-55` |
-| `RequirePermission(key)` | IAdminScope ก่อน แล้ว IUserScope, ไม่มี scope = 403 | 403 ProblemDetails | `Iam/PermissionAuthorization.cs:83-106` |
-| `RequireAudiencePermission(adminKey, merchantKey)` | เฉพาะ dual-console, key คนละฝั่งต่อ audience | 403 ProblemDetails | `Iam/PermissionAuthorization.cs:108-139` |
-| `RequirePlatformUserTier(Tier.Super)` | claim admin_tier จาก AdminSession | 403 `super_required` | `Admins/HostWiring.cs:98-117` |
-| `BoundFilter` | group `/merchants/users` (dual-console + merchant-user) | 403 | `Merchants/UserPermissionAuthorization.cs:16-30` |
+| policy `dual-console` | Bearer ไม่มี mch cookie = Admin (PlatformToken), มิฉะนั้น Merchant (cookie) | ตาม audience ที่เลือก | `Iam/ConsoleSessionAuthentication.cs:50-52,72-74` |
+| `RequirePermission(key)` | IAdminScope ก่อน แล้ว IUserScope, ไม่มี scope = 403 | 403 ProblemDetails | `Iam/PermissionAuthorization.cs:86-106` |
+| `RequireAudiencePermission(adminKey, merchantKey)` | เฉพาะ dual-console, key คนละฝั่งต่อ audience | 403 ProblemDetails | `Iam/PermissionAuthorization.cs:113-139` |
+| `RequirePlatformUserTier(Tier.Super)` | `IAdminScope.Current.Tier` resolve สดจาก auth handler (ไม่ใช่ claim), Super = access.PlatformAccess active | 403 `super_required` | `Admins/HostWiring.cs:101-116` |
+| `BoundFilter` | group `/merchants/users` (dual-console + merchant-user) | 403 | `Merchants/UserPermissionAuthorization.cs:16-24` |
 
 ---
 
-## 0.2 Identity BFF / Bearer authentication + identity-order permission
+## 0.2 Identity platform (Bearer) authentication + identity-order permission
 
-policy `identity-bff` รับเฉพาะ BFF cookie, `identity-platform` รับ BFF cookie หรือ Bearer (OpenIddict) และ route ที่มี identity-order marker สลับจาก console ไปเส้นนี้เมื่อ request เป็น identity request โดย ticket มี absolute expiry และผูก AuthorizationVersion ของบัญชี (source: `src/Api/Api/IdentityAccess/BffSessionAuthentication.cs:43-44,195-271`, `IdentityAccessAuthorization.cs:10-92`, `IdentityAccessWiring.cs:70-113`, `Iam/IdentityPermissionAuthorization.cs:15-97`, `Iam/IdentityRequestAuthorization.cs:15-50`, `Iam/OrderIdentityAccessScope.cs:17-27`, `src/Domain/Modules/Accounts.Domain/AccountModels.cs:430-431`, `src/Infrastructure/Persistence/Persistence.ControlPlane/OpenIddictRegistration.cs:28-75`)
+policy `identity-platform` รับเฉพาะ platform JWT (Bearer, OpenIddict) ผ่าน `PlatformToken` scheme — employee, agent และ SYSTEM client ใช้เส้นนี้ทั้งหมด ไม่มี BFF cookie แล้ว (BFF session ถูก retire) route ที่มี identity-order marker สลับจาก console ไปเส้นนี้เมื่อ request เป็น identity request (Bearer) โดย access token ผูก AuthorizationVersion ของบัญชี (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:96-125`, `IdentityAccess/PlatformTokenAuthentication.cs:41-109`, `IdentityAccess/IdentityAccessAuthorization.cs:8-96`, `Iam/IdentityPermissionAuthorization.cs:16-96`, `Iam/OrderIdentityAccessScope.cs:17-27`, `src/Infrastructure/Persistence/Persistence.ControlPlane/OpenIddictRegistration.cs:28-75`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> AMB{"UseIdentityAccess: identity-order route<br/>และมี auth context มากกว่า 1<br/>(Bearer + cookie หรือ BFF + console cookie)?"}
+    START((●)) --> AMB{"UseIdentityAccess: identity-order route<br/>และมี Bearer พร้อม __Host-mch_session (merchant-user cookie)?"}
     AMB -->|yes| R400["400 ProblemDetails<br/>code ambiguous_authentication_context"]
-    AMB -->|no| POL{"policy?"}
-    POL -->|identity-bff| BFF["IdentityAccessBff handler"]
-    POL -->|"identity-platform (BFF หรือ Bearer)"| KIND{"มี Authorization Bearer?"}
-    POL -->|"dual-console / admin-or-identity-order<br/>ที่เป็น identity request"| KIND
-    KIND -->|yes| BEARER["OpenIddict validation scheme<br/>local server, audience api, token entry validation<br/>access token อายุ 5 นาที"]
-    KIND -->|no| BFF
-    BFF --> BOTH{"Bearer + BFF cookie พร้อมกัน?"}
-    BOTH -->|yes| R401["401 (Fail หรือ NoResult ที่ชั้น auth)"]
-    BOTH -->|no| COOKIE{"มี __Host-pol_session?"}
-    COOKIE -->|no| R401
-    COOKIE -->|yes| TICKET["FindByHash(SHA-256 cookie)<br/>BffSessionTicket + Account"]
-    TICKET --> LIVE{"account Active และ ticket.IsLiveAt:<br/>RevokedAt null, now ก่อน ExpiresAt (absolute ไม่ slide),<br/>AuthorizationVersion เท่ากับของ account?"}
-    LIVE -->|no| R401
-    LIVE -->|yes| UNP{"unprotect ticket สำเร็จ<br/>และ AccountId ตรง?"}
-    UNP -->|no| R401
-    UNP -->|yes| ADMAUD{"audience Admin (admin console)?"}
-    ADMAUD -->|yes| BINDADM{"TryBindAdminScope:<br/>Employee และมี snapshot?"}
+    AMB -->|no| POL{"policy identity-platform<br/>(หรือ dual-console / admin-or-identity-order ที่เป็น identity request)?"}
+    POL -->|yes| BEARER["PlatformToken scheme -> OpenIddict validation<br/>local server, audience api, token entry validation<br/>access token อายุ 5 นาที"]
+    BEARER --> ACC{"account Active และ<br/>AuthorizationVersion เท่ากับ authz_version ใน token?"}
+    ACC -->|no| R401["401 invalid_token"]
+    ACC -->|yes| ADMAUD{"audience Admin (admin console)?"}
+    ADMAUD -->|yes| BINDADM{"TryBindAdminScope: Employee และมี snapshot?"}
     BINDADM -->|no| R401
-    BINDADM -->|yes| CLAIMS
-    ADMAUD -->|no| CLAIMS["claims sub, account_type, authz_version,<br/>token_context, scope, client_id, merchant_id"]
-    BEARER --> CLAIMS
-    CLAIMS --> REQ["IdentityAccessRequirement (policy identity-bff / identity-platform):<br/>account Active + authz_version ตรง,<br/>client_id มี = client + account Active,<br/>token_context PLATFORM = Employee + HasPlatformAccess,<br/>merchant_id = ResolveAuthorization(merchant) ตรง + Active,<br/>required_permission claim อยู่ใน Permissions"]
+    BINDADM -->|yes| REQ
+    ADMAUD -->|no| REQ["IdentityAccessRequirement (policy identity-platform):<br/>token_context PLATFORM = Employee + HasPlatformAccess,<br/>client_id มี = client + account Active,<br/>merchant_id = ResolveAuthorization(merchant) ตรง + Active,<br/>required_permission claim อยู่ใน Permissions"]
     REQ --> REQ_OK{"ทุกข้อผ่าน?"}
     REQ_OK -->|no| R403["403 (authorization fail)"]
     REQ_OK -->|yes| ORDER{"endpoint มี RequireOrderIdentityPermission /<br/>RequireIdentityPermission?"}
     ORDER -->|no| HANDLER
-    ORDER -->|yes| RESOLVE["ResolveMerchantAsync(principal)<br/>account + client + merchant_id + snapshot"]
+    ORDER -->|"เป็น console request (ไม่ใช่ Bearer)"| CONSOLE["fallback PermissionAuthorization.IsAllowed ตาม § 0.1"]
+    CONSOLE --> HANDLER
+    ORDER -->|"เป็น identity request (Bearer)"| RESOLVE["ResolveMerchantAsync(principal)<br/>account + client + merchant_id + snapshot"]
     RESOLVE --> MCTX{"merchant context ได้?"}
     MCTX -->|"ไม่มี merchant_id claim"| R403_M["403 ProblemDetails<br/>code merchant_context_missing"]
     MCTX -->|"resolve ล้ม"| R403
-    MCTX -->|yes| SCOPE{"system token (client_id):<br/>scope claim มี systemScope<br/>human: Permissions มี humanPermission?"}
+    MCTX -->|yes| SCOPE{"system token (client_id): scope claim มี systemScope<br/>human: Permissions มี humanPermission?"}
     SCOPE -->|no| R403
     SCOPE -->|yes| PROOF["CommerceAuthorizationProof ใน HttpContext.Items<br/>IActorScope.Begin(merchantId, accountId)<br/>IOrderIdentityAccessScope.Begin(accountId, snapshot)"]
     PROOF --> HANDLER["handler ทำงาน<br/>(console request บน route เดียวกันใช้ § 0.1)"]
@@ -146,83 +132,72 @@ flowchart TD
     classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
     classDef ext fill:#4a3b0f,stroke:#e3b341,color:#fff
-    class PROOF,HANDLER,END_S ok
+    class PROOF,CONSOLE,HANDLER,END_S ok
     class R400,R401,R403,R403_M,END_F fail
-    class AMB,POL,KIND,BOTH,COOKIE,LIVE,UNP,ADMAUD,BINDADM,REQ_OK,ORDER,MCTX,SCOPE gate
+    class AMB,POL,ACC,ADMAUD,BINDADM,REQ_OK,ORDER,MCTX,SCOPE gate
     class BEARER ext
 ```
 
-| Gate | human (BFF cookie) | SYSTEM client (Bearer) | source |
+| Gate | human (employee / agent Bearer) | SYSTEM client (Bearer) | source |
 | --- | --- | --- | --- |
-| `RequireOrderIdentityPermission(payment.view, order.read)` | Permissions ต้องมี `payment.view` | scope claim ต้องมี `order.read` | `Iam/IdentityPermissionAuthorization.cs:24-41,77-82` |
+| `RequireOrderIdentityPermission(payment.view, order.read)` | Permissions ต้องมี `payment.view` | scope claim ต้องมี `order.read` | `Iam/IdentityPermissionAuthorization.cs:24-40,56-96` |
 | `RequireOrderIdentityPermission(payment.create, order.write)` | `payment.create` | `order.write` | เดียวกัน |
 | `RequireOrderIdentityPermission(payment.create, checkout.write)` | `payment.create` | `checkout.write` | เดียวกัน |
 | `RequireIdentityPermission(payment.create)` (POST /orders canonical) | `payment.create` | `order.write` คงที่ | `Iam/IdentityPermissionAuthorization.cs:43-49` |
-| console request (ไม่มี Bearer / BFF cookie) บน route เดียวกัน | ใช้ `PermissionAuthorization.IsAllowed` ตาม § 0.1 | ไม่มี | `Iam/IdentityPermissionAuthorization.cs:29-39` |
+| console request (ไม่มี Bearer) บน route เดียวกัน | ใช้ `PermissionAuthorization.IsAllowed` ตาม § 0.1 | ไม่มี | `Iam/IdentityPermissionAuthorization.cs:29-39` |
 
 ---
 
 ## 0.3 CSRF double-submit
 
-unsafe method (POST / PUT / PATCH / DELETE) ต้องส่ง `X-CSRF-Token` เท่ากับ CSRF cookie ของ scheme ตัวเอง, filter เลือกตาม audience, Bearer ข้ามได้เฉพาะ identity route และ boot guard บังคับให้ทุก unsafe endpoint ใต้ cookie policy มี filter ฝั่งถูกต้อง (source: `src/Api/Api/Admins/CsrfFilter.cs:13-48`, `Merchants/UserCsrfFilter.cs:14-37`, `Iam/CsrfParity.cs:21-125`, `IdentityAccess/BffCsrfFilter.cs:10-82`, `Program.cs:3713-3715`)
+unsafe method (POST / PUT / PATCH / DELETE) บน cookie session (merchant-user) ต้องส่ง `X-CSRF-Token` เท่ากับ cookie `mch_csrf` (double-submit) — admin console เป็น Bearer JWT ล้วน cross-site แนบ Bearer ไม่ได้ จึงไม่มี CSRF filter ฝั่ง admin; identity-platform mutation ตรวจแค่ว่ามี Bearer และ boot guard บังคับให้ทุก unsafe endpoint ใต้ cookie policy มี filter ฝั่งถูกต้อง (source: `src/Api/Api/Merchants/UserCsrfFilter.cs:11-40`, `Iam/CsrfParity.cs:11-125`, `IdentityAccess/BffCsrfFilter.cs:5-27`, `Program.cs:3007`)
 
 ```mermaid
 flowchart TD
     START((●)) --> SAFE{"method เป็น GET / HEAD / OPTIONS / TRACE?"}
     SAFE -->|yes| PASS["ข้าม CSRF (filter ไม่ตรวจ)"]
     SAFE -->|no| KIND{"CSRF filter ที่ endpoint ต่อ chain?"}
-    KIND -->|"RequireCsrf (policy admin)"| ADM["CsrfFilter: cookie adm_csrf<br/>หรือ pol_csrf เมื่อ auth ด้วย BFF cookie อย่างเดียว"]
-    KIND -->|"RequireUserCsrf (policy merchant-user)"| MCH["UserCsrfFilter: cookie mch_csrf"]
-    KIND -->|"RequireAudienceCsrf / RequireAdminOrIdentityCsrf"| AUD{"identity-order route และ<br/>identity request?"}
-    KIND -->|"BffCsrfFilter (policy identity-bff)"| BFF["BffCsrfFilter: cookie pol_csrf"]
-    KIND -->|"RequireIdentityPlatformMutation (identity-platform)"| BEARER{"Authorization Bearer?"}
+    KIND -->|"RequireUserCsrf (merchant-user)"| MCH["UserCsrfFilter: cookie mch_csrf"]
+    KIND -->|"RequireAudienceCsrf (dual-console)"| AUD{"identity request (Bearer)?"}
+    KIND -->|"RequireIdentityPlatformMutation / RequireAdminOrIdentityMutation (Bearer)"| BEARER{"Authorization Bearer?"}
     BEARER -->|yes| PASS
-    BEARER -->|no| BFF
-    AUD -->|yes| BEARER
+    BEARER -->|no| R401["401 ProblemDetails code bearer_required"]
+    AUD -->|yes| PASS
     AUD -->|no| SELAUD{"SelectedConsoleAudience?"}
-    SELAUD -->|Admin| ADM
+    SELAUD -->|Admin| PASS
     SELAUD -->|Merchant| MCH
     SELAUD -->|none| R403_AUD["403 No authenticated console audience is bound"]
-    ADM --> CMP_A{"cookie และ header X-CSRF-Token<br/>ไม่ว่างและเท่ากัน (constant-time)?"}
-    MCH --> CMP_A
-    CMP_A -->|no| R403["403 ProblemDetails Missing or invalid CSRF token<br/>code csrf_failed (admin), ไม่มี code (merchant)"]
-    CMP_A -->|yes| PASS
-    BFF --> CMP_B{"cookie pol_csrf เท่ากับ header?"}
-    CMP_B -->|no| R403_B["403 ProblemDetails<br/>code csrf_failed"]
-    CMP_B -->|yes| ORIGIN{"Origin header (ถ้ามี)<br/>ตรง scheme://host?"}
-    ORIGIN -->|no| R403_B
-    ORIGIN -->|yes| HASH{"BffSessionContext มี และ<br/>SHA-256(header) ตรง ticket.CsrfHash?"}
-    HASH -->|no| R403_B
-    HASH -->|yes| PASS
+    MCH --> CMP{"cookie mch_csrf และ header X-CSRF-Token<br/>ไม่ว่างและเท่ากัน (constant-time)?"}
+    CMP -->|no| R403["403 ProblemDetails Missing or invalid CSRF token"]
+    CMP -->|yes| PASS
     PASS --> NEXT["filter ถัดไป / handler"]
     NEXT --> END_S((◉))
-    R403 --> END_F((◉))
-    R403_B --> END_F
+    R401 --> END_F((◉))
+    R403 --> END_F
     R403_AUD --> END_F
-    BOOT["boot: CsrfParity.Assert<br/>unsafe endpoint ใต้ policy ที่รู้จักต้องมี CsrfProtected ของ scheme ตัวเอง<br/>ผิดฝั่งหรือขาด = boot ล้ม (ไม่ใช่ runtime)"]
+    BOOT["boot: CsrfParity.Assert<br/>unsafe endpoint ใต้ cookie policy ต้องมี CsrfProtected ของ scheme ตัวเอง<br/>ยกเว้น PlatformToken (Bearer ไม่มีอะไรให้ปลอม)<br/>ผิดฝั่งหรือขาด = boot ล้ม (ไม่ใช่ runtime)"]
 
     classDef ok fill:#1f6f3a,stroke:#3fb950,color:#fff
     classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
     class PASS,NEXT,END_S ok
-    class R403,R403_B,R403_AUD,END_F fail
-    class SAFE,KIND,AUD,BEARER,SELAUD,CMP_A,CMP_B,ORIGIN,HASH,BOOT gate
+    class R401,R403,R403_AUD,END_F fail
+    class SAFE,KIND,AUD,BEARER,SELAUD,CMP,BOOT gate
 ```
 
-| Filter | cookie ที่เทียบ | ตรวจเพิ่ม | ใช้กับ policy | source |
+| Filter | ตรวจ | ผลเมื่อไม่ผ่าน | ใช้กับ policy | source |
 | --- | --- | --- | --- | --- |
-| `RequireCsrf()` | `adm_csrf` หรือ `pol_csrf` (BFF cookie อย่างเดียว) | ไม่มี | `admin` (group `/admins` ติดทั้ง group) | `Admins/CsrfFilter.cs:20-44`, `Program.cs:2418` |
-| `RequireUserCsrf()` | `mch_csrf` | ไม่มี | `merchant-user` | `Merchants/UserCsrfFilter.cs:21-33` |
-| `RequireAudienceCsrf()` | ตาม audience ที่เลือก | identity request บน identity-order route ไป BffCsrfFilter, Bearer ข้าม | `dual-console` | `Iam/CsrfParity.cs:29-33,43-68` |
-| `RequireAdminOrIdentityCsrf()` | เดียวกับ AudienceCsrf | marker AdminSession + IdentityPlatform | `admin-or-identity-order` | `Iam/CsrfParity.cs:35-40` |
-| `BffCsrfFilter` (ต่อเอง) | `pol_csrf` | Origin ตรง host, SHA-256(header) ตรง CsrfHash ใน ticket | `identity-bff` | `IdentityAccess/BffCsrfFilter.cs:18-70`, `IdentityAccessEndpoints.cs:51-62,122-125` |
-| `RequireIdentityPlatformMutation()` | `pol_csrf` | Bearer ข้ามทั้ง filter | `identity-platform` | `IdentityAccess/BffCsrfFilter.cs:10-16,72-82` |
+| `RequireUserCsrf()` | cookie `mch_csrf` เท่ากับ header `X-CSRF-Token` (constant-time) | 403 Missing or invalid CSRF token | `merchant-user` | `Merchants/UserCsrfFilter.cs:23-33`, `Iam/CsrfParity.cs:22-24` |
+| `RequireAudienceCsrf()` | identity request (Bearer) ผ่าน; audience Admin ผ่าน; audience Merchant รัน double-submit `mch_csrf` | 403 (Merchant ไม่ผ่าน หรือไม่มี audience) | `dual-console` | `Iam/CsrfParity.cs:26-33,44-66` |
+| `RequireAdminOrIdentityMutation()` | ทั้งสอง audience เป็น Bearer จึงผ่าน (บันทึก marker IdentityPlatform) | ผ่าน | `admin-or-identity-order` | `Iam/CsrfParity.cs:35-42` |
+| `RequireIdentityPlatformMutation()` | ต้องมี Authorization Bearer | 401 `bearer_required` | `identity-platform` | `IdentityAccess/BffCsrfFilter.cs:8-26` |
+| boot guard `CsrfParity.Assert` | ทุก unsafe endpoint ใต้ cookie policy ต้องมี filter ฝั่งตัวเอง ยกเว้น PlatformToken (Bearer) | boot fail | ทุก policy | `Iam/CsrfParity.cs:82-90,94-125` |
 
 ---
 
 ## 0.4 Rate limiting
 
-UseRateLimiter รันก่อน UseAuthentication, ทุก policy เป็น sliding window ต่อ source IP ไม่รอคิว และตอบ 429 พร้อม Retry-After จาก OnRejected กลางที่ตั้งครั้งเดียว (source: `src/Api/Api/Webhooks/RateLimiting.cs:22-58`, `Customers/PaymentRateLimiting.cs:19-38`, `Admins/AuthRateLimiting.cs:13-72`, `Merchants/UserAuthRateLimiting.cs:13-32`, `Program.cs:711,802-1089,1305,1903-1938,2437,2471,2612,2746,2794`)
+UseRateLimiter รันก่อน UseAuthentication, ทุก policy เป็น sliding window ต่อ source IP ไม่รอคิว และตอบ 429 พร้อม Retry-After จาก OnRejected กลางที่ตั้งครั้งเดียว (source: `src/Api/Api/Webhooks/RateLimiting.cs:22-58`, `Customers/PaymentRateLimiting.cs:19-38`, `Merchants/UserAuthRateLimiting.cs:13-32`, `Program.cs:711,802-1089,1305,1903-1938,2612,2746,2794`)
 
 ```mermaid
 flowchart TD
@@ -230,11 +205,9 @@ flowchart TD
     MW --> POL{"endpoint RequireRateLimiting policy?"}
     POL -->|"ไม่มี"| PASS["ไม่จำกัด"]
     POL -->|customer-payment| P1["sliding 10 req / 60s, 6 segments<br/>checkout access / confirm / status / summary / verify,<br/>orders/{token}/pay, payment-status, payment-returns"]
-    POL -->|admin-auth| P2["sliding 20 req / 60s, 6 segments<br/>GET admins/auth/{provider}/login, POST admins/auth/logout"]
     POL -->|merchant-user-auth| P3["sliding 20 req / 60s, 6 segments<br/>POST merchants/users/register, GET merchants/auth/{provider}/login,<br/>POST merchants/auth/logout"]
     POL -->|psp-webhook| P4["sliding 60 req / 10s, 5 segments<br/>POST webhooks/{pspConnectionId},<br/>POST webhooks/payment-providers/{providerAccountId}"]
     P1 --> LEASE{"acquire permit ได้?<br/>QueueLimit 0 ไม่รอคิว"}
-    P2 --> LEASE
     P3 --> LEASE
     P4 --> LEASE
     LEASE -->|no| R429["429 + header Retry-After<br/>จาก limiter estimate หรือ 2s (OnRejected กลาง)"]
@@ -254,10 +227,8 @@ flowchart TD
 | Policy | PermitLimit / Window | partition | endpoint | source |
 | --- | --- | --- | --- | --- |
 | `customer-payment` | 10 / 60s (6 segments) | source IP | checkout access, confirm, status, summary, verify, `orders/{token}/pay`, `payment-status`, `payment-returns` GET+POST | `Customers/PaymentRateLimiting.cs:23-37`, `Program.cs:802-1089,1903-1938` |
-| `admin-auth` | 20 / 60s (6 segments) | source IP | `GET admins/auth/{provider}/login`, `POST admins/auth/logout` | `Admins/AuthRateLimiting.cs:27-31`, `Program.cs:2437,2471` |
 | `merchant-user-auth` | 20 / 60s (6 segments) | source IP | `POST merchants/users/register`, `GET merchants/auth/{provider}/login`, `POST merchants/auth/logout` | `Merchants/UserAuthRateLimiting.cs:17-31`, `Program.cs:2612,2746,2794` |
 | `psp-webhook` | 60 / 10s (5 segments) | source IP (ไม่ใช่ pspConnectionId) | `POST webhooks/{pspConnectionId}`, `POST webhooks/payment-providers/{providerAccountId}` | `Webhooks/RateLimiting.cs:31-44`, `Program.cs:1062,1305` |
-| `admin-identity-mutation-ip` + per-admin `PartitionedRateLimiter<Guid>` | 20 / 60s | IP แล้ว AdminId | นิยามไว้แต่ไม่มี caller ใน `src/Api/Api` | `Admins/AuthRateLimiting.cs:32-61` |
 
 ---
 
@@ -367,7 +338,7 @@ flowchart TD
     DISP1 --> RECV["GovernanceStore.ReceiveAsync(ApprovalRequested)<br/>dedupe ด้วย SourceEventId"]
     RECV --> PENDING["ApprovalRequest Pending v1<br/>ApprovalEvent requested + audit approval.created"]
     PENDING --> CHECKER["checker GET /approvals/{approvalId}<br/>รับ ETag v1 + targetVersion"]
-    CHECKER --> DECIDE["POST /approvals/{approvalId}/approve หรือ /reject<br/>If-Match, Idempotency-Key, body reason + targetVersion<br/>gate admin + settings.manage + RequireCsrf"]
+    CHECKER --> DECIDE["POST /approvals/{approvalId}/approve หรือ /reject<br/>If-Match, Idempotency-Key, body reason + targetVersion<br/>gate admin (Bearer) + settings.manage"]
     DECIDE --> VALID{"If-Match รูป vN, key ไม่เกิน 200,<br/>reason 1..1000, targetVersion 1..200?"}
     VALID -->|no| R400["400 ProblemDetails<br/>code invalid_request"]
     VALID -->|yes| IDEM{"OperationRecord เดิม<br/>(actor, operation, key)?"}
@@ -486,7 +457,7 @@ flowchart TD
     MAP --> TABLE["NotFound 404, Gone 410,<br/>ConcurrencyConflict / Conflict / InvalidOperation 409,<br/>AccessDenied 403, InvalidRequest / Argument / BadHttpRequest 400,<br/>Upstream / DependencyUnavailable 503, อื่น 500"]
     TABLE --> CODE["extensions.code จาก exception ที่มี Code<br/>+ traceId เสมอ"]
     SRC -->|"framework bare status 401 / 403 / 404"| SCP["UseStatusCodePages แปลงเป็น ProblemDetails"]
-    SRC -->|"auth challenge"| CHAL["admin 401 code admin_session_required<br/>merchant 403 lifecycle code<br/>identity 400 ambiguous_authentication_context"]
+    SRC -->|"auth challenge"| CHAL["admin/identity 401 Bearer error invalid_token (หรือ bearer_required)<br/>merchant 403 lifecycle code<br/>identity-order 400 ambiguous_authentication_context"]
     EXPLICIT --> JSON["application/problem+json"]
     CODE --> JSON
     SCP --> JSON
@@ -530,24 +501,18 @@ flowchart TD
 
 ## Deviations
 
-| fullPath | เอกสารบอก | source บอก | อ้างอิง |
-| --- | --- | --- | --- |
-| ทุก child ของ group `/api/v1/admins/*` ที่ map ใน Program.cs (เช่น `POST /api/v1/admins/auth/logout` L179, `POST /api/v1/admins/roles` L188, `POST /api/v1/admins/{id:guid}/merchants` L194) | แถวส่วนใหญ่ไม่ระบุ CSRF filter (ยกเว้น L178 `POST /api/v1/admins` และ L202 `POST /api/v1/merchants`) | group ติด `RequireCsrf()` ระดับ group จึงมี CsrfFilter ทุก child, unsafe method ต้องส่ง `X-CSRF-Token` แม้ endpoint จะ AllowAnonymous (logout) | `src/Api/Api/Program.cs:2418,2446-2451`, `Iam/CsrfParity.cs:23-24` |
+ไม่มี deviation ค้างสำหรับ § 0.1–0.3 หลัง retire admin cookie/BFF stack — แถวเดิมของ group `/api/v1/admins/*` ที่ติด `RequireCsrf()` ถูกลบ เพราะทั้ง route group และ admin CSRF filter (`Admins/CsrfFilter.cs`) ถูกถอดออก admin console ใช้ Bearer JWT ล้วน
 
 ## Notes
 
 | เรื่อง | ข้อเท็จจริงจาก source | source |
 | --- | --- | --- |
-| ลำดับ middleware | UseRateLimiter, UseAuthentication, UseIdentityAccess, UseAuthorization แล้วจึง endpoint filters ตามลำดับที่ endpoint ต่อ chain (governance ต่อ RequireCsrf ก่อน RequirePermission, cart mutation ต่อ RequirePermission ก่อน RequireAudienceCsrf) จึงห้ามสรุปว่า CSRF มาก่อน permission เสมอ | `Program.cs:711-714,1547-1548`, `Governance/GovernanceEndpoints.cs:168` |
-| Bearer กับ console | SelectScheme ส่ง Bearer ไป OpenIddict เฉพาะ identity-order route ที่เป็น identity request, นอกนั้น Bearer ถูกมองเป็น request ไม่มี cookie | `Iam/ConsoleSessionAuthentication.cs:50-67` |
-| BFF cookie บน admin console | ticket ไม่ผ่านตอบ 401 default (BFF handler ไม่มี HandleChallengeAsync), ไม่ใช่ `admin_session_required` | `Iam/ConsoleSessionAuthentication.cs:65-67`, `IdentityAccess/BffSessionAuthentication.cs:167-241` |
-| อายุ ticket BFF | absolute expiry ตาม `IdentityAccess:BffSessionMinutes` (เอกสาร L57: default 480 นาที, dev 1440) ไม่ slide, refresh ต้องเรียกขณะ ticket ยัง live ไม่งั้น 401 | `IdentityAccess/BffSessionAuthentication.cs:43-44`, `IdentityAccessEndpoints.cs:527-566` |
-| CsrfParity กับ identity-bff | ไม่ตรวจ endpoint policy `identity-bff` เพราะ `AuthPolicyScheme.AllFor("identity-bff")` คืนว่าง, กลุ่มนี้พึ่ง `.AddEndpointFilter<BffCsrfFilter>()` + `BffCsrfProtected` ที่ต่อเอง | `Iam/PermissionAuthorization.cs:33-41`, `IdentityAccessEndpoints.cs:51-62,122-125` |
-| per-admin rate limit | `RequireAdminIdentityMutationRateLimit` นิยามไว้แต่ไม่มี caller ใน `src/Api/Api` จึงไม่วาดเป็น gate | `Admins/AuthRateLimiting.cs:40-61` |
+| ลำดับ middleware | UseRateLimiter, UseAuthentication, UseIdentityAccess, UseAuthorization แล้วจึง endpoint filters ตามลำดับที่ endpoint ต่อ chain (cart mutation ต่อ RequirePermission ก่อน RequireAudienceCsrf) จึงห้ามสรุปว่า CSRF มาก่อน permission เสมอ | `Program.cs:660-663` |
+| Bearer กับ console | SelectScheme routes audience Admin และ admin-or-identity-order ไป PlatformToken, merchant audience ไป MerchantUserSession; identity-order route ที่เป็น identity request สลับไป PlatformToken (audience Merchant) | `Iam/ConsoleSessionAuthentication.cs:44-67` |
 | 429 กลาง | `RejectionStatusCode = 429` และ `OnRejected` (Retry-After จาก limiter หรือ 2s) ตั้งครั้งเดียวบน RateLimiterOptions ร่วม มีผลทุก policy | `Webhooks/RateLimiting.cs:29,46-56` |
-| browser return ไม่ใช่ 302 + reason | `/api/v1/payment-returns/{providerCode}` ตอบ 303 + cookie `checkout_status` + Location `/api/v1/checkout/status` หรือ 401 `checkout_return_invalid`, รูป 302 + reason มีเฉพาะ OIDC callback | `Program.cs:903-979`, `Admins/LoginService.cs:225`, `Merchants/UserLoginService.cs:209,231`, `IdentityAccess/IdentityAccessWiring.cs:193-202` |
+| browser return ไม่ใช่ 302 + reason | `/api/v1/payment-returns/{providerCode}` ตอบ 303 + cookie `checkout_status` + Location `/api/v1/checkout/status` หรือ 401 `checkout_return_invalid`, รูป 302 + reason มีเฉพาะ OIDC callback | `Program.cs:903-979`, `Merchants/UserLoginService.cs:209,231`, `IdentityAccess/IdentityAccessWiring.cs:193-202` |
 | 412 ของ POST /orders | เห็นเฉพาะใน `ProducesProblem` metadata ไม่พบใน handler path ที่อ่าน จึงอยู่นอก frame | `Program.cs:2116` |
-| ชื่อ cookie บน dev HTTP | `__Host-*` ใช้เมื่อ HTTPS, dev HTTP ใช้ `pol_session` / dev name ของ admin และ merchant แทน, พฤติกรรม CSRF เหมือนกัน | `IdentityAccess/BffSessionAuthentication.cs:35-36,127-133` |
+| ชื่อ cookie บน dev HTTP | merchant-user ใช้ `__Host-mch_session`/`mch_csrf` เมื่อ HTTPS, dev HTTP ใช้ `mch_session` แทน, พฤติกรรม CSRF เหมือนกัน (admin console ไม่มี cookie แล้ว) | `Merchants/UserSessionCookies.cs:15-30` |
 | ขอบเขตไฟล์นี้ | ค่า permission key / marker รายตัวของ endpoint ให้ดูตาราง flow ประกอบของ theme นั้น, ไฟล์นี้ให้เฉพาะกลไกกลาง | - |
 
 **Render**: GitHub / Obsidian / VS Code Mermaid

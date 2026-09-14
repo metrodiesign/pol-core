@@ -31,7 +31,7 @@ sequenceDiagram
 
     Note over CON,DB: Phase A — auth + validate query
     AD->>CON: เปิดหน้า inbound webhook log
-    CON->>API: GET /api/v1/webhooks/inbound-events?page&limit&merchantId&psp&status&search&from&to + cookie __Host-adm_session
+    CON->>API: GET /api/v1/webhooks/inbound-events?page&limit&merchantId&psp&status&search&from&to + Authorization Bearer
     API->>API: policy admin + permission audit.view ดู § 0.1 (CSRF filter ติดแต่ GET ข้าม ดู § 0.3)
     API->>STORE: ListAsync(query, Access(scope))
     STORE->>STORE: Validate: page>=1, limit 1..100, search<=128, from<=to
@@ -76,7 +76,7 @@ sequenceDiagram
 
     Note over CON,DB: Phase A — auth + SFS parse
     AD->>CON: เปิดหน้ารายการธุรกรรม
-    CON->>API: GET /api/v1/payments/transactions?page&limit&filters&sort&search + cookie __Host-adm_session
+    CON->>API: GET /api/v1/payments/transactions?page&limit&filters&sort&search + Authorization Bearer
     API->>API: policy admin + permission txn.view ดู § 0.1
     API->>API: SfsQueryParser.Parse(query, maxLimit:100) ดู § 0.6
     alt ไม่มี filter createdAt
@@ -116,7 +116,7 @@ sequenceDiagram
 
     Note over CON,DB: Phase A — auth + parse period
     AD->>CON: เปิดหน้า dashboard
-    CON->>API: GET /api/v1/reports/dashboard?from&to&merchantId + cookie __Host-adm_session
+    CON->>API: GET /api/v1/reports/dashboard?from&to&merchantId + Authorization Bearer
     API->>API: policy admin + permission txn.view ดู § 0.1
     API->>API: ParsePeriod: from/to optional, default 7 วัน, ต้อง to>=from
     alt parse ไม่ได้ หรือ to<from
@@ -161,7 +161,7 @@ sequenceDiagram
 
     Note over CON,DB: Phase A — auth + required period
     AD->>CON: กด Export CSV
-    CON->>API: GET /api/v1/payments/transactions/export?from&to&filters&sort&search + cookie __Host-adm_session
+    CON->>API: GET /api/v1/payments/transactions/export?from&to&filters&sort&search + Authorization Bearer
     API->>API: policy admin + permission txn.export ดู § 0.1
     API->>API: ParsePeriod(required:true): ต้องส่งทั้ง from/to, to>=from, <=31 วัน
     alt ไม่ส่ง หรือ parse ไม่ได้ หรือ to<from
@@ -212,7 +212,7 @@ sequenceDiagram
 
     Note over CON,DB: Phase A — auth เลือก audience (ดู § 0.1)
     U->>CON: เปิดหน้า reconciliation
-    CON->>API: GET /api/v1/reports/reconciliation?merchantId + cookie __Host-adm_session หรือ __Host-mch_session
+    CON->>API: GET /api/v1/reports/reconciliation?merchantId + Authorization Bearer หรือ cookie __Host-mch_session
     API->>API: policy dual-console + permission payment.view ดู § 0.1
     alt audience = Merchant (SelectedConsoleAudience)
         API->>MED: Send(GetReconciliationSummaryQuery(actor.MerchantId))

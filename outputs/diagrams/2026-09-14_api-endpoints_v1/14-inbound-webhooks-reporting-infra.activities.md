@@ -22,7 +22,7 @@ list กรอง merchant scope + query แล้วคืนเฉพาะ pa
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + permission audit.view ดู § 0.1<br/>CSRF filter ติดไว้ (RequireCsrf) แต่ GET เป็น safe method ข้ามเสมอ ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin (Bearer) + permission audit.view ดู § 0.1<br/>GET เป็น safe method, admin เป็น Bearer จึงไม่มี CSRF"]
     AUTHZ --> BIND["bind query page=1 limit=25 merchantId psp status search from to"]
     BIND --> VALID{"Validate: page>=1, limit 1..100,<br/>search <=128 ตัวอักษร, from<=to?"}
     VALID -->|no| R400_V["400 ProblemDetails code invalid_filter<br/>(ArgumentException: page/limit ผิด, search ยาวเกิน, from หลัง to)"]
@@ -260,7 +260,7 @@ flowchart TD
 
 | เรื่อง | ข้อเท็จจริงจาก source | source |
 | --- | --- | --- |
-| CSRF บน GET ของ webhook log | `RequireCsrf()` ติดทั้งสอง endpoint แต่ `CsrfFilter` ข้าม safe method (GET) เสมอ จึงไม่บังคับ `X-CSRF-Token` จริง — ติดไว้โดยตั้งใจตาม REQ-7.1 | `Iam/CsrfFilter.cs:17-23`, `Iam/CsrfParity.cs:104` |
+| CSRF บน GET ของ webhook log | endpoint เป็น policy `admin` (Bearer JWT) จึงไม่มี CSRF filter — admin double-submit ถูก retire และเป็น GET (safe method) อยู่แล้ว | `Iam/CsrfParity.cs:19,94-125` |
 | scope ว่างของ list vs detail | list คืน `PagedResult` ว่าง (200) เมื่อ Admin ไม่มี merchant ใน scope เลย ส่วน detail คืน null -> 404 แบบเดียวกับหาไม่พบ (ไม่แยกเหตุ) | `InboundWebhookStore.cs:131-132,185-186` |
 | 409 ที่ประกาศไว้แต่ไม่มี path จริง | `GetAdminTransaction` (`GET /payments/transactions/{id}`) ประกาศ `ProducesProblem(409)` แต่ `GetTransactionAsync` อ่านแล้วคืน null หรือ object เท่านั้น ไม่มี branch ที่ throw exception ที่ map เป็น 409 — เผื่อ concurrency ในอนาคตหรือ metadata ตกค้าง | `AdminReportingEndpoints.cs:165-188`, `AdminReportingReader.cs:134-169` |
 | merchantId นอก scope ของ dashboard/operations/operations-export | ไม่ตอบ 403/404 แต่คืนค่าว่าง/summary ศูนย์อย่างเงียบ ๆ (`DashboardAsync` เช็ค `access.Allows(selected)` ก่อน query) | `AdminReportingReader.cs:25-26` |

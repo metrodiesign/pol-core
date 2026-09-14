@@ -31,7 +31,7 @@ sequenceDiagram
 
     Note over A,API: Phase A — gate
     A->>SPA: เปิดรายการ หรือ รายละเอียด
-    SPA->>API: GET + cookie session (ดู § 0.1, permission settings.manage หรือ apikey.manage, api-clients ต่อ RequireCsrf แต่ GET ข้าม ดู § 0.3)
+    SPA->>API: GET + Authorization Bearer (ดู § 0.1, permission settings.manage หรือ apikey.manage, admin Bearer ไม่มี CSRF)
     Note over API,DB: Phase B — list
     API->>API: typed filter, page >= 1, limit 1..100, guid / instant / status / ความยาว
     alt filter ผิด

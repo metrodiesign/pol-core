@@ -19,11 +19,11 @@
 
 ## 9.1 Provision ร้านค้าใหม่ (Super-only)
 
-Super validate ทุกอย่างก่อนเข้า transaction (pure, ไม่มี side effect) แล้วเปิด txn เดียวคุมทั้ง control plane และ commerce runtime พร้อม idempotency ledger ที่ key จาก merchant code (source: `src/Api/Api/Program.cs:2506-2558`, `src/Application/Modules/Merchants.Application/ProvisionMerchant/ProvisionMerchantHandler.cs:49-118`, `src/Infrastructure/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs:72-221`)
+Super validate ทุกอย่างก่อนเข้า transaction (pure, ไม่มี side effect) แล้วเปิด txn เดียวคุมทั้ง control plane และ commerce runtime พร้อม idempotency ledger ที่ key จาก merchant code (source: `src/Api/Api/Program.cs:2370-2411`, `src/Application/Modules/Merchants.Application/ProvisionMerchant/ProvisionMerchantHandler.cs:49-118`, `src/Infrastructure/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs:72-221,223-249`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> AUTHZ["policy admin + RequirePlatformUserTier(Tier.Super) ดู § 0.1<br/>RequireCsrf ดู § 0.3"]
+    START((●)) --> AUTHZ["policy admin (Bearer PlatformToken) + RequirePlatformUserTier(Tier.Super) ดู § 0.1<br/>admin เป็น Bearer ไม่มี CSRF"]
     AUTHZ --> BODY["body merchant + pspConnections list<br/>CorrelationId = TraceIdentifier, CallerAdminId จาก scope"]
     BODY --> SECCHK{"ProvisioningGuards.RejectSecretsInConfig:<br/>config มี secretKey/publicKey/webhookSecret?"}
     SECCHK -->|yes| R400SEC["400 secret field ต้องอยู่ใน secrets ไม่ใช่ config"]
@@ -37,7 +37,7 @@ flowchart TD
     ENV --> EXIST{"ExistsByCodeAsync(code) (pre-check นอก txn)?"}
     EXIST -->|yes| R409E["409 Merchant is already provisioned"]
     EXIST -->|no| TXN["ProvisioningCoordinator: เปิด txn เดียวคุม<br/>ControlPlaneDbContext + CommerceDbContext"]
-    TXN --> RECHECK{"VerifyCallerIsActiveSuperAsync (WITH UPDLOCK, HOLDLOCK):<br/>caller ยัง Tier=Super, Status=Active,<br/>AuthorizationVersion ตรงที่ pin ไว้?"}
+    TXN --> RECHECK{"VerifyCallerIsActiveSuperAsync (WITH UPDLOCK, HOLDLOCK):<br/>acct.Accounts Status=Active, AuthorizationVersion ตรงที่ pin ไว้,<br/>และมี access.PlatformAccess active (Super)?"}
     RECHECK -->|no| R500["500 An unexpected error occurred<br/>(WriteGuardException ไม่มี case เฉพาะใน ProblemDetailsExceptionHandler)"]
     RECHECK -->|yes| LEDGER["INSERT ledger row operationKey=provision-merchant:{code}<br/>(parameterized, unique index)"]
     LEDGER --> DUPKEY{"insert ชนกับ key เดิม (duplicate)?"}
@@ -165,7 +165,7 @@ flowchart TD
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| POST | `/api/v1/merchants/auth/logout` | diagram — AllowAnonymous แต่กลุ่มมี `BoundFilter` จึงต้องมี session ที่ bound จริงก่อน revoke ได้ (ต่างจาก admin § 8.2 ที่ไม่มี filter นี้) ไม่มี session -> 403 ไม่ใช่ 204 |
+| POST | `/api/v1/merchants/auth/logout` | diagram — AllowAnonymous แต่กลุ่มมี `BoundFilter` จึงต้องมี session ที่ bound จริงก่อน revoke ได้ (ต่างจาก employee logout § 1.7 ที่ไม่มี filter นี้) ไม่มี session -> 403 ไม่ใช่ 204 |
 | POST | `/api/v1/merchants/auth/logout-all` | diagram — policy `merchant-user` (401/403 มาตรฐาน § 0.1), revoke ทุก session ของ user, audit `LogoutAll` |
 
 ---
@@ -460,7 +460,7 @@ flowchart TD
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
 | POST | `/api/v1/merchants/users/roles` | diagram — 409 code ซ้ำ (รวม shared bucket), 400 permission key นอก catalog, ไม่มี ETag |
-| PUT | `/api/v1/merchants/users/roles/{code}` | diagram — 404 นอก visible set, 409 ไม่ใช่เจ้าของ (shared seed) / seed anchor deactivate, lock Account ก่อนแก้, ไม่มี If-Match/ETag (ต่างจาก admin § 8.7) |
+| PUT | `/api/v1/merchants/users/roles/{code}` | diagram — 404 นอก visible set, 409 ไม่ใช่เจ้าของ (shared seed) / seed anchor deactivate, lock Account ก่อนแก้, ไม่มี If-Match/ETag (ต่างจาก § 2.4 Platform role ที่มี If-Match/ETag) |
 | DELETE | `/api/v1/merchants/users/roles/{code}` | diagram — 409 seed anchor (`merchant_manager`) หรือมีผู้ใช้ผูก, ไม่มี If-Match |
 | PUT | `/api/v1/merchants/users/{merchantUserId:guid}/roles` | diagram — target ต้อง Active + merchant เดียวกัน (404 no leak), 400 unknown code, 409 ลด role ของ manager คนสุดท้าย |
 
@@ -470,7 +470,7 @@ flowchart TD
 
 | fullPath | เอกสารบอก | source บอก | อ้างอิง |
 | --- | --- | --- | --- |
-| `/api/v1/merchants` (POST) | policy `admin` · CSRF filter | เพิ่ม `RequirePlatformUserTier(Tier.Super)` เฉพาะ Super provision ได้ | `src/Api/Api/Program.cs:2548` |
+| `/api/v1/merchants` (POST) | policy `admin` (Bearer, ไม่มี CSRF) | `RequirePlatformUserTier(Tier.Super)` ที่ boundary แล้ว re-verify ใน txn ผ่าน `ProvisioningCoordinator.VerifyCallerIsActiveSuper` (`acct.Accounts` Status/AuthorizationVersion + `access.PlatformAccess` active) | `src/Api/Api/Program.cs:2370-2411`, `ProvisioningCoordinator.cs:223-249` |
 
 ## Notes
 

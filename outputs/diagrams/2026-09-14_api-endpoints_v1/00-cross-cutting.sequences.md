@@ -7,9 +7,9 @@
 | § | Diagram | Endpoints |
 | --- | --- | --- |
 | 0.1 | Console session authentication + authorization | ทุก endpoint policy `admin` / `merchant-user` / `dual-console` ที่ต่อ RequirePermission, RequireAudiencePermission, RequirePlatformUserTier, BoundFilter |
-| 0.2 | Identity BFF / Bearer authentication + identity-order permission | policy `identity-bff` / `identity-platform` / `admin-or-identity-order` และแถวที่มี `(identity: order.read / order.write / checkout.write)` |
-| 0.3 | CSRF double-submit | ทุก unsafe method ที่มี CSRF filter (RequireCsrf, RequireUserCsrf, RequireAudienceCsrf, RequireAdminOrIdentityCsrf, BffCsrfFilter, RequireIdentityPlatformMutation) |
-| 0.4 | Rate limiting | แถวที่ระบุ `rate limit` (policy customer-payment, admin-auth, merchant-user-auth, psp-webhook) |
+| 0.2 | Identity platform (Bearer) authentication + identity-order permission | policy `identity-platform` / `admin-or-identity-order` และแถวที่มี `(identity: order.read / order.write / checkout.write)` |
+| 0.3 | CSRF double-submit | merchant-user unsafe method ที่มี CSRF filter (RequireUserCsrf, RequireAudienceCsrf, RequireAdminOrIdentityMutation, RequireIdentityPlatformMutation) — admin เป็น Bearer ไม่มี CSRF |
+| 0.4 | Rate limiting | แถวที่ระบุ `rate limit` (policy customer-payment, merchant-user-auth, psp-webhook) — admin-auth ถูก retire พร้อม route /admins/auth/** |
 | 0.5 | ETag / If-Match / Idempotency-Key | mutation ที่มี IfMatchMutationMarker, AdminIfMatchMutationMarker, IdempotencyMutationMarker, GovernanceDecisionMarker และ GET detail ที่คืน ETag |
 | 0.6 | SFS query parsing | GET list ที่อ่าน page / limit / filters / sort / search ผ่าน SfsQueryParser |
 | 0.7 | Maker-checker approval | endpoint `*-requests`, `*-change-requests`, `activation-requests`, `secret-rotation-requests` และ `/approvals/{approvalId}/approve` / `reject` |
@@ -20,7 +20,7 @@
 
 ## 0.1 Console session authentication + authorization
 
-ConsoleSession policy scheme เลือก handler จาก policy + cookie, handler re-resolve บัญชีสดต่อ request แล้ว endpoint filters ตัดสิน permission แบบ fail-closed (source: `src/Api/Api/Iam/ConsoleSessionAuthentication.cs:33-68`, `Admins/SessionAuthenticationHandler.cs:62-168`, `Merchants/UserSessionAuthenticationHandler.cs:70-205`, `Iam/PermissionAuthorization.cs:83-139`, `Admins/HostWiring.cs:98-117`)
+ConsoleSession policy scheme forward ไป real scheme ตาม policy + audience (Admin ไป PlatformToken Bearer, Merchant ไป MerchantUserSession cookie), handler re-resolve บัญชีสดต่อ request แล้ว endpoint filters ตัดสิน permission แบบ fail-closed (source: `src/Api/Api/Iam/ConsoleSessionAuthentication.cs:38-67`, `IdentityAccess/PlatformTokenAuthentication.cs:41-109`, `Merchants/UserSessionAuthenticationHandler.cs:70-205`, `Iam/PermissionAuthorization.cs:86-139`, `Admins/HostWiring.cs:101-116`)
 
 ```mermaid
 sequenceDiagram
@@ -29,32 +29,32 @@ sequenceDiagram
     participant SPA as Console SPA
     participant MW as API pipeline<br/>UseAuthentication + UseAuthorization
     participant SEL as ConsoleSession<br/>policy scheme
-    participant AH as AdminSession handler
+    participant PT as PlatformToken handler<br/>admin Bearer JWT
     participant MH as MerchantUserSession handler
-    participant DB as DB (admin.Sessions / merch.Sessions)
+    participant DB as DB (acct.Accounts / merch.Sessions)
     participant F as Endpoint filters
     participant H as Handler
 
-    Note over SPA,SEL: Phase A — เลือก scheme จาก policy + cookie
+    Note over SPA,SEL: Phase A — เลือก scheme จาก policy + audience
     U->>SPA: ใช้งานหน้า console
-    SPA->>MW: request + cookie __Host-adm_session หรือ __Host-mch_session (+ X-CSRF-Token เมื่อ unsafe)
-    MW->>SEL: SelectScheme(policy metadata, cookies)
-    alt policy admin หรือ dual-console ที่มี adm cookie
-        SEL-->>MW: AdminSession (BFF cookie อย่างเดียวไป IdentityAccessBff ดู § 0.2)
-    else policy merchant-user หรือ dual-console ที่ไม่มี adm cookie
+    SPA->>MW: request — admin แนบ Authorization Bearer หรือ merchant แนบ cookie __Host-mch_session (+ X-CSRF-Token เมื่อ unsafe)
+    MW->>SEL: SelectScheme(policy metadata, Bearer, cookies)
+    alt policy admin / admin-or-identity-order หรือ dual-console ที่มี Bearer ไม่มี mch cookie
+        SEL-->>MW: PlatformToken (audience Admin)
+    else policy merchant-user หรือ dual-console ที่มี mch cookie
         SEL-->>MW: MerchantUserSession
     end
     Note over MW,DB: Phase B — authenticate + bind scope ต่อ request
-    alt AdminSession
-        MW->>AH: HandleAuthenticateAsync
-        AH->>DB: FindByTokenHash(SHA-256 cookie)
-        DB-->>AH: session (family, status, expiry)
-        AH->>AH: SessionDecisionPolicy.Decide (Reject / ReuseRevokeFamily / Serve)
-        AH->>DB: ResolveByIdAsync(adminId) READ-ONLY
-        DB-->>AH: Resolution (Tier, Accessible, Permissions)
-        AH->>AH: AdminScope.Set + claims admin_tier, NameIdentifier
-        AH->>DB: rotate token หรือ slide idle (เมื่อถึงกำหนด)
-        AH-->>MW: Success หรือ Fail
+    alt PlatformToken (audience Admin)
+        MW->>PT: HandleAuthenticateAsync
+        PT->>PT: OpenIddict validate JWT (signature, audience api, lifetime, token entry)
+        PT->>DB: FindAccount(sub) READ-ONLY
+        DB-->>PT: account (Status, AuthorizationVersion)
+        PT->>PT: account Active และ AuthorizationVersion == authz_version?
+        PT->>DB: ResolveAuthorization(accountId) READ-ONLY
+        DB-->>PT: snapshot (Permissions, HasPlatformAccess)
+        PT->>PT: AdminScope.Set: AdminId = AccountId, Tier Super = HasPlatformAccess มิฉะนั้น Scoped
+        PT-->>MW: Success หรือ 401 invalid_token
     else MerchantUserSession
         MW->>MH: HandleAuthenticateAsync
         MH->>DB: FindByTokenHash + ResolveByIdAsync(userId) READ-ONLY
@@ -63,7 +63,7 @@ sequenceDiagram
         MH-->>MW: Success หรือ Fail (+ MerchantLifecycleChallenge)
     end
     alt authenticate ล้มเหลว
-        MW-->>SPA: 401 ProblemDetails admin_session_required หรือ 401 default
+        MW-->>SPA: 401 Bearer error invalid_token (admin) หรือ 401 default (merchant)
     else merchant user ไม่ Active
         MW-->>SPA: 403 ProblemDetails code awaiting-approval / rejected / suspended / unbound
     else ผ่าน
@@ -81,9 +81,9 @@ sequenceDiagram
 
 ---
 
-## 0.2 Identity BFF / Bearer authentication + identity-order permission
+## 0.2 Identity platform (Bearer) authentication + identity-order permission
 
-request ที่มี BFF cookie หรือ Bearer ผ่าน UseIdentityAccess (กัน context ซ้อน), authenticate ด้วย IdentityAccessBff หรือ OpenIddict, ตรวจ IdentityAccessRequirement สดต่อ request แล้ว filter identity-order ตัดสิน human permission หรือ system scope (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:70-113`, `BffSessionAuthentication.cs:195-271`, `IdentityAccessAuthorization.cs:10-92`, `Iam/IdentityPermissionAuthorization.cs:24-97`, `Iam/IdentityRequestAuthorization.cs:15-50`)
+request ที่มี platform JWT (Bearer) ผ่าน UseIdentityAccess (กัน context ซ้อน), authenticate ด้วย PlatformToken -> OpenIddict, ตรวจ IdentityAccessRequirement สดต่อ request แล้ว filter identity-order ตัดสิน human permission หรือ system scope — ไม่มี BFF cookie แล้ว (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:96-125`, `PlatformTokenAuthentication.cs:41-109`, `IdentityAccessAuthorization.cs:8-96`, `Iam/IdentityPermissionAuthorization.cs:24-96`, `Iam/OrderIdentityAccessScope.cs:17-27`)
 
 ```mermaid
 sequenceDiagram
@@ -91,35 +91,26 @@ sequenceDiagram
     actor U as Employee / Agent / SYSTEM client
     participant C as Web app หรือ integration client
     participant MW as API pipeline<br/>UseAuthentication + UseIdentityAccess + UseAuthorization
-    participant BH as IdentityAccessBff handler
-    participant OI as OpenIddict validation
+    participant OI as PlatformToken to OpenIddict validation
     participant AR as IdentityAccessRequirement handler
-    participant DB as DB (BffSessionTickets, Accounts, MerchantAccess)
+    participant DB as DB (acct.Accounts, access, SystemClients)
     participant F as RequireOrderIdentityPermission filter
     participant H as Handler
 
     Note over C,MW: Phase A — ตรวจ context ซ้อน
-    C->>MW: request + cookie __Host-pol_session หรือ Authorization Bearer
-    alt identity-order route และมีทั้ง Bearer และ cookie (หรือ BFF + console cookie)
+    C->>MW: request + Authorization Bearer (platform JWT)
+    alt identity-order route และมีทั้ง Bearer และ __Host-mch_session (merchant-user cookie)
         MW-->>C: 400 ProblemDetails ambiguous_authentication_context
     end
-    Note over MW,DB: Phase B — authenticate
-    alt cookie BFF (policy identity-bff หรือ identity-platform)
-        MW->>BH: HandleAuthenticateAsync
-        BH->>DB: FindByHash(ticket) + FindAccount
-        DB-->>BH: ticket + account
-        BH->>BH: IsLiveAt(now, account.AuthorizationVersion) + Unprotect payload
-        opt audience Admin (admin console ด้วย BFF cookie)
-            BH->>DB: ResolveAuthorization(accountId) + ListMerchantAccess
-            BH->>BH: AdminScope.Set (Employee เท่านั้น)
-        end
-        BH-->>MW: principal (sub, authz_version, token_context, scope, merchant_id)
-    else Bearer (policy identity-platform หรือ identity-order route)
-        MW->>OI: validate access token (issuer local, audience api, token entry)
-        OI-->>MW: principal จาก token (sub, client_id, scope, merchant_id)
+    Note over MW,DB: Phase B — authenticate (Bearer เท่านั้น)
+    MW->>OI: validate access token (issuer local, audience api, token entry, lifetime)
+    OI-->>MW: principal (sub, client_id, scope, merchant_id, authz_version, token_context)
+    opt audience Admin (admin console)
+        MW->>DB: ResolveAuthorization(accountId) + ListMerchantAccess
+        MW->>MW: AdminScope.Set (Employee เท่านั้น)
     end
     alt authenticate ล้มเหลว
-        MW-->>C: 401
+        MW-->>C: 401 invalid_token
     end
     Note over AR,DB: Phase C — IdentityAccessRequirement (fresh ต่อ request)
     MW->>AR: HandleRequirementAsync
@@ -148,48 +139,44 @@ sequenceDiagram
 
 ## 0.3 CSRF double-submit
 
-safe method ข้าม, unsafe method ด้วย cookie ต้องส่ง `X-CSRF-Token` เท่ากับ CSRF cookie ของ scheme (BFF เพิ่ม Origin + hash ใน ticket), Bearer ข้ามเฉพาะ identity route (source: `src/Api/Api/Admins/CsrfFilter.cs:20-44`, `Merchants/UserCsrfFilter.cs:21-33`, `Iam/CsrfParity.cs:43-68`, `IdentityAccess/BffCsrfFilter.cs:23-82`)
+safe method ข้าม; merchant-user unsafe method ต้องส่ง `X-CSRF-Token` เท่ากับ cookie `mch_csrf` (double-submit, constant-time); admin console เป็น Bearer จึงไม่มี CSRF; identity-platform mutation ต้องมี Bearer มิฉะนั้น 401 `bearer_required` (source: `src/Api/Api/Merchants/UserCsrfFilter.cs:23-33`, `Iam/CsrfParity.cs:22-66`, `IdentityAccess/BffCsrfFilter.cs:8-26`)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as Admin / Merchant user / Employee
+    actor U as Merchant user / Employee / Agent
     participant SPA as Console หรือ Web app
     participant F as CSRF endpoint filter
-    participant S as Session feature<br/>(BffSessionContext)
     participant H as Handler
 
     Note over SPA,F: Phase A — safe method
-    SPA->>F: GET /api/v1/... (cookie session)
+    SPA->>F: GET /api/v1/...
     F->>H: ข้ามการตรวจ (GET / HEAD / OPTIONS / TRACE)
     H-->>SPA: 200
-    Note over SPA,H: Phase B — unsafe method ด้วย cookie session
-    SPA->>F: POST /api/v1/... + cookie adm_csrf / mch_csrf / pol_csrf + header X-CSRF-Token
-    alt RequireCsrf หรือ RequireUserCsrf หรือ AudienceCsrf (console)
-        F->>F: เลือก cookie ตาม audience แล้วเทียบ header แบบ constant-time
-    else BffCsrfFilter หรือ RequireIdentityPlatformMutation (cookie)
-        F->>F: เทียบ cookie pol_csrf กับ header + ตรวจ Origin ตรง scheme://host
-        F->>S: อ่าน ProtectedTicket.CsrfHash
-        S-->>F: hash
-        F->>F: SHA-256(header) ต้องเท่ากับ CsrfHash
-    end
+    Note over SPA,H: Phase B — merchant-user unsafe method (cookie)
+    SPA->>F: POST /api/v1/... + cookie mch_csrf + header X-CSRF-Token
+    F->>F: RequireUserCsrf / RequireAudienceCsrf (audience Merchant) เทียบ mch_csrf กับ header แบบ constant-time
     alt ไม่ตรง หรือขาด
-        F-->>SPA: 403 ProblemDetails Missing or invalid CSRF token (code csrf_failed)
+        F-->>SPA: 403 ProblemDetails Missing or invalid CSRF token
     else ตรง
         F->>H: invoke handler
         H-->>SPA: 2xx
     end
-    Note over SPA,H: Phase C — Bearer ข้าม CSRF
-    SPA->>F: POST /api/v1/orders + Authorization Bearer (ไม่มี cookie)
-    F->>H: RequireIdentityPlatformMutation / AudienceCsrf ปล่อยผ่านเมื่อ Bearer
-    H-->>SPA: 201
+    Note over SPA,H: Phase C — admin / identity Bearer (ไม่มี cookie)
+    SPA->>F: POST /api/v1/... + Authorization Bearer
+    alt RequireAudienceCsrf (audience Admin) หรือ RequireAdminOrIdentityMutation
+        F->>H: ปล่อยผ่าน (Bearer แนบ cross-site ไม่ได้)
+        H-->>SPA: 2xx
+    else RequireIdentityPlatformMutation และไม่มี Bearer
+        F-->>SPA: 401 ProblemDetails code bearer_required
+    end
 ```
 
 ---
 
 ## 0.4 Rate limiting
 
-UseRateLimiter ตัดสินก่อน authentication ด้วย sliding window ต่อ source IP, เกินโควตาตอบ 429 + Retry-After ทันทีโดยไม่ถือ connection (source: `src/Api/Api/Webhooks/RateLimiting.cs:26-57`, `Customers/PaymentRateLimiting.cs:23-37`, `Admins/AuthRateLimiting.cs:25-38`, `Merchants/UserAuthRateLimiting.cs:17-31`, `Program.cs:711`)
+UseRateLimiter ตัดสินก่อน authentication ด้วย sliding window ต่อ source IP, เกินโควตาตอบ 429 + Retry-After ทันทีโดยไม่ถือ connection (source: `src/Api/Api/Webhooks/RateLimiting.cs:26-57`, `Customers/PaymentRateLimiting.cs:23-37`, `Merchants/UserAuthRateLimiting.cs:17-31`, `Program.cs:711`)
 
 ```mermaid
 sequenceDiagram
@@ -442,8 +429,8 @@ sequenceDiagram
 
 ## Notes
 
-- Deviations ของ cross-cutting อยู่ที่ `00-cross-cutting.activities.md` (group `/admins` ติด `RequireCsrf()` ทั้ง group) ไฟล์นี้ไม่ทำซ้ำ
-- ลำดับ participant สะท้อน middleware จริง: UseRateLimiter, UseAuthentication, UseIdentityAccess, UseAuthorization แล้ว endpoint filters ตามลำดับที่ endpoint ต่อ chain (`Program.cs:711-714`)
+- Deviations ของ cross-cutting อยู่ที่ `00-cross-cutting.activities.md` (ไม่มี deviation ค้างหลัง retire admin cookie/BFF stack) ไฟล์นี้ไม่ทำซ้ำ
+- ลำดับ participant สะท้อน middleware จริง: UseRateLimiter, UseAuthentication, UseIdentityAccess, UseAuthorization แล้ว endpoint filters ตามลำดับที่ endpoint ต่อ chain (`Program.cs:660-663`)
 - § 0.7 / § 0.8 มี phase async: ลูกศรจาก dispatcher เกิดหลัง HTTP response แล้ว ไม่มี caller รอ, ผลสุดท้ายอ่านได้จาก `GET /api/v1/approvals/{approvalId}` หรือ delivery / transaction status endpoint ของ theme นั้น
 - `<br/>` ใน participant alias ใช้ตัดบรรทัดชื่อเท่านั้น ไม่ใช่ path จริง
 

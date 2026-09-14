@@ -24,7 +24,7 @@ Admin control plane ใช้ route root `/api/v1` และ credential เด�
 | PSP connection | `GET|POST /payments/psp-connections` · `GET|PUT /payments/psp-connections/{connectionId}` · `POST /payments/psp-connections/{connectionId}/test` · `POST /payments/psp-connections/{connectionId}/credential-change-requests` | `settings.manage` | config อ่านได้, credential ไม่อ่านกลับ; test บันทึก health; credential change ต้อง maker-checker |
 | Routing ruleset | `GET|POST /payments/routing-rulesets` · `GET|PUT|DELETE /payments/routing-rulesets/{rulesetId}` · `POST /payments/routing-rulesets/{rulesetId}/activation-requests` | `settings.manage` | draft แก้ได้; validate overlap/priority ก่อน activation; active ruleset ต้อง approval |
 
-`GET` บางรายการของ control plane มี `RequireCsrf` ตาม endpoint metadata ปัจจุบัน. ให้ใช้ OpenAPI เป็น contract สุดท้ายของ header, query และ response.
+route `admin` ทั้งหมดเป็น Bearer-only แล้ว ไม่มี `RequireCsrf`/CSRF filter (retire admin cookie 2026-09-14); mutation guard ที่เหลือคือ `If-Match` และ `Idempotency-Key` ตาม endpoint metadata. ให้ใช้ OpenAPI เป็น contract สุดท้ายของ header, query และ response.
 
 ### Canonical merchant configuration
 

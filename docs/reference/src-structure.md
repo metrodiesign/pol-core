@@ -61,7 +61,7 @@ Runtime register เพียง 2 contexts:
 
 ## API และ background runtime
 
-`src/Api/Api/Program.cs` รวม route root `/api/v1`, named OpenAPI documents, BFF auth, CORS, module registrations และ background dispatch ใน process เดียว. ไม่มี Worker host ที่เป็น runtime dependency. Background services จัดการ outbox, notification/webhook delivery, session/photo pruning และ maintenance ตาม registrations ใน `src/Infrastructure/Persistence/` และ `src/Api/Api/BackgroundDispatch/`.
+`src/Api/Api/Program.cs` รวม route root `/api/v1`, named OpenAPI documents, identity-platform (OpenIddict Bearer) และ merchant-user BFF auth, CORS, module registrations และ background dispatch ใน process เดียว. ไม่มี Worker host ที่เป็น runtime dependency. Background services จัดการ outbox, notification/webhook delivery, session/photo pruning และ maintenance ตาม registrations ใน `src/Infrastructure/Persistence/` และ `src/Api/Api/BackgroundDispatch/`.
 
 Infrastructure routes อยู่นอก API area ได้แก่ `/health/*`, `/openapi/*` และ `/scalar`. API area ใช้ path scheme `/api/v1/{area}`; audience/auth policy อยู่ metadata ของ endpoint ไม่อยู่ใน path.
 

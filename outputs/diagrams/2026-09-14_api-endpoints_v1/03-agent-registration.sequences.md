@@ -211,7 +211,7 @@ sequenceDiagram
 
     Note over CON,API: Phase A — authz (ดู § 0.1), CSRF ข้าม GET (ดู § 0.3)
     AD->>CON: เปิดหน้ารายการ registration
-    CON->>API: GET /api/v1/agent-registrations?merchantId=... + cookie __Host-adm_session (policy admin + permission merchants.users.view)
+    CON->>API: GET /api/v1/agent-registrations?merchantId=... + Authorization Bearer (policy admin + permission merchants.users.view)
     Note over API: Phase B — เลือก merchant scope
     alt query merchantId ส่งมา
         API->>API: selected = merchantId
@@ -253,7 +253,7 @@ sequenceDiagram
 
     Note over CON,API: Phase A — authz (ดู § 0.1), CSRF ข้าม GET (ดู § 0.3)
     AD->>CON: เปิด case เพื่อพิจารณา
-    CON->>API: GET /api/v1/agent-registrations/{registrationId} หรือ /attempts + cookie __Host-adm_session (policy admin + permission merchants.users.view)
+    CON->>API: GET /api/v1/agent-registrations/{registrationId} หรือ /attempts + Authorization Bearer (policy admin + permission merchants.users.view)
     API->>SVC: GetCaseByIdAsync(registrationId)
     SVC->>DB: SELECT acct.AgentRegistrations WHERE Id = registrationId
     DB-->>SVC: registration หรือ null
@@ -294,7 +294,7 @@ sequenceDiagram
 
     Note over CON,API: Phase A — authz (ดู § 0.1) + CSRF (ดู § 0.3) + ETag/Idempotency (ดู § 0.5)
     AD->>CON: ตัดสินใจ approve หรือ reject attempt
-    CON->>API: POST .../attempts/{attemptId}/approve หรือ /reject + cookie __Host-adm_session + X-CSRF-Token + If-Match + Idempotency-Key (policy admin + permission merchants.users.approve หรือ merchants.users.reject)
+    CON->>API: POST .../attempts/{attemptId}/approve หรือ /reject + Authorization Bearer + If-Match + Idempotency-Key (policy admin + permission merchants.users.approve หรือ merchants.users.reject)
     API->>SVC: GetCaseByIdAsync(registrationId)
     SVC->>DB: SELECT WHERE Id = registrationId
     DB-->>SVC: registration หรือ null

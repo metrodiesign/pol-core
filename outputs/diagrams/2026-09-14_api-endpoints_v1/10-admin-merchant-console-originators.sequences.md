@@ -525,7 +525,6 @@ sequenceDiagram
 
     Note over SPA,API: Phase A — access + existence
     SPA->>API: POST /originators + body MerchantId/Code/Name/Type/...
-    API->>API: RequireCsrf ดู § 0.3
     API->>STORE: CreateOriginatorAsync(intent)
     STORE->>STORE: EnsureAccess(body.MerchantId)
     alt นอก Admin scope
