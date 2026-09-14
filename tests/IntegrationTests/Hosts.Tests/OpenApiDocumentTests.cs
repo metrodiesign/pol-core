@@ -73,30 +73,30 @@ public sealed class AudienceOpenApiDocumentTests
             operation.Contains("/admins", StringComparison.Ordinal)
             || operation.Contains("/merchants/users", StringComparison.Ordinal));
 
-        Assert.Equal(["AdminSession", "IdentityPlatform", "MerchantUserSession"], SecuritySchemes(v1));
+        Assert.Equal(["IdentityPlatform", "MerchantUserSession", "PlatformToken"], SecuritySchemes(v1));
         Assert.Equal(["IdentityPlatform", "MerchantUserSession"], SecuritySchemes(merchant));
-        Assert.Equal(["AdminSession", "IdentityPlatform"], SecuritySchemes(admin));
+        Assert.Equal(["IdentityPlatform", "PlatformToken"], SecuritySchemes(admin));
         Assert.Empty(SecuritySchemes(integration));
         Assert.Equal(["MerchantUserSession"],
             OperationSecuritySchemes(merchant, "/api/v1/carts", "post"));
-        Assert.Equal(["AdminSession"], OperationSecuritySchemes(admin, "/api/v1/carts", "post"));
+        Assert.Equal(["PlatformToken"], OperationSecuritySchemes(admin, "/api/v1/carts", "post"));
         Assert.Equal(["IdentityPlatform"],
             OperationSecuritySchemes(merchant, "/api/v1/orders", "post"));
         Assert.Equal(["IdentityPlatform"],
             OperationSecuritySchemes(admin, "/api/v1/orders", "post"));
-        Assert.Equal(["AdminSession", "IdentityPlatform"],
+        Assert.Equal(["IdentityPlatform", "PlatformToken"],
             OperationSecuritySchemes(v1, "/api/v1/orders/{orderId}", "patch"));
         Assert.Equal(["IdentityPlatform"],
             OperationSecuritySchemes(merchant, "/api/v1/orders/{orderId}", "patch"));
-        Assert.Equal(["AdminSession", "IdentityPlatform"],
+        Assert.Equal(["IdentityPlatform", "PlatformToken"],
             OperationSecuritySchemes(admin, "/api/v1/orders/{orderId}", "patch"));
         foreach (var path in new[] { "/api/v1/orders/{orderId}/items", "/api/v1/orders/{orderId}/history" })
         {
-            Assert.Equal(["AdminSession", "IdentityPlatform"],
+            Assert.Equal(["IdentityPlatform", "PlatformToken"],
                 OperationSecuritySchemes(v1, path, "get"));
             Assert.Equal(["IdentityPlatform"],
                 OperationSecuritySchemes(merchant, path, "get"));
-            Assert.Equal(["AdminSession", "IdentityPlatform"],
+            Assert.Equal(["IdentityPlatform", "PlatformToken"],
                 OperationSecuritySchemes(admin, path, "get"));
         }
         Assert.Empty(OperationSecuritySchemes(integration, "/api/v1/orders/{token}/summary", "get"));
@@ -132,8 +132,8 @@ public sealed class AudienceOpenApiDocumentTests
             AssertEveryOperationIsDocumented(document);
         }
 
-        Assert.Contains("/api/v1/admins/auth/{provider}/login",
-            SecuritySchemeDescription(admin, "AdminSession"), StringComparison.Ordinal);
+        Assert.Contains("/oauth/token",
+            SecuritySchemeDescription(admin, "PlatformToken"), StringComparison.Ordinal);
         Assert.Contains("/api/v1/merchants/auth/{provider}/login",
             SecuritySchemeDescription(merchant, "MerchantUserSession"), StringComparison.Ordinal);
         var publishedText = v1.GetRawText();

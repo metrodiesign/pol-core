@@ -8277,3 +8277,26 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914051532_RetireAdminSessions'
+)
+BEGIN
+    DROP TABLE [admin].[Sessions];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914051532_RetireAdminSessions'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260914051532_RetireAdminSessions', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

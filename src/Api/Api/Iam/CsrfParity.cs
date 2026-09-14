@@ -1,4 +1,3 @@
-using Api.Admins;
 using Api.Merchants;
 using Microsoft.AspNetCore.Authorization;
 
@@ -16,33 +15,34 @@ internal sealed record CsrfProtected(string SchemeId);
 /// The only sanctioned way to attach a CSRF filter: filter + <see cref="CsrfProtected"/> marker in one call, so
 /// the boot parity guard can see it. Generic over the builder so the same call works on a single route and on a
 /// route group (group metadata propagates to every child endpoint). Do not use a bare
-/// <c>AddEndpointFilter&lt;CsrfFilter&gt;()</c> — the guard cannot see it and will fail the boot.
+/// <c>AddEndpointFilter&lt;UserCsrfFilter&gt;()</c> — the guard cannot see it and will fail the boot. The admin
+/// console authenticates with a Bearer token, which a cross-site request cannot attach, so it has no CSRF filter.
 /// </summary>
 internal static class CsrfProtection
 {
-    public static TBuilder RequireCsrf<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
-        => builder.WithMetadata(new CsrfProtected("AdminSession")).AddEndpointFilter<TBuilder, CsrfFilter>();
-
     public static TBuilder RequireUserCsrf<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
         => builder.WithMetadata(new CsrfProtected("MerchantUserSession")).AddEndpointFilter<TBuilder, UserCsrfFilter>();
 
+    /// <summary>Dual-console route: the merchant-user cookie audience runs the double-submit check; the admin
+    /// (Bearer) audience has nothing to check and passes through.</summary>
     public static TBuilder RequireAudienceCsrf<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
     {
-        builder.WithMetadata(new CsrfProtected("AdminSession"), new CsrfProtected("MerchantUserSession"));
+        builder.WithMetadata(new CsrfProtected("MerchantUserSession"));
         return builder.AddEndpointFilter<TBuilder, AudienceCsrfFilter>();
     }
 
-    public static TBuilder RequireAdminOrIdentityCsrf<TBuilder>(this TBuilder builder)
+    /// <summary>Admin-or-identity order route: both audiences are Bearer-authenticated (platform token / identity
+    /// platform), so the filter only records the identity-platform mutation contract and passes through.</summary>
+    public static TBuilder RequireAdminOrIdentityMutation<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {
-        builder.WithMetadata(new CsrfProtected("AdminSession"), new CsrfProtected("IdentityPlatform"));
+        builder.WithMetadata(new CsrfProtected("IdentityPlatform"));
         return builder.AddEndpointFilter<TBuilder, AudienceCsrfFilter>();
     }
 }
 
 internal sealed class AudienceCsrfFilter : IEndpointFilter
 {
-    private static readonly CsrfFilter Admin = new();
     private static readonly UserCsrfFilter Merchant = new();
 
     public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
@@ -54,7 +54,7 @@ internal sealed class AudienceCsrfFilter : IEndpointFilter
 
         return context.HttpContext.Features.Get<SelectedConsoleAudience>()?.Value switch
         {
-            ConsoleAudience.Admin => Admin.InvokeAsync(context, next),
+            ConsoleAudience.Admin => next(context),
             ConsoleAudience.Merchant => Merchant.InvokeAsync(context, next),
             _ => ValueTask.FromResult<object?>(Results.Problem(
                 statusCode: StatusCodes.Status403Forbidden,
@@ -95,9 +95,10 @@ internal static class CsrfParity
 
     /// <summary>Pure — unit-testable. Rules: an endpoint whose policy maps through
     /// <see cref="AuthPolicyScheme"/> and accepts an unsafe method must carry a <see cref="CsrfProtected"/>
-    /// marker for that policy's scheme; a marker for any other scheme is always a problem (wrong-side filter
-    /// reads the wrong cookie and silently 403s everything). Missing method metadata counts as unsafe
-    /// (fail-closed). A marker on a safe-only endpoint is fine (GETs are attached deliberately, REQ-7.1).</summary>
+    /// marker for each of that policy's schemes except the Bearer-only platform token (nothing to forge); a
+    /// marker for any other scheme is always a problem (wrong-side filter reads the wrong cookie and silently
+    /// 403s everything). Missing method metadata counts as unsafe (fail-closed). A marker on a safe-only endpoint
+    /// is fine (GETs are attached deliberately, REQ-7.1).</summary>
     internal static IReadOnlyList<string> FindProblems(
         IEnumerable<(string Pattern, IReadOnlyList<string>? Methods, string? Policy, IReadOnlyList<string> Schemes)> endpoints)
     {
@@ -107,12 +108,13 @@ internal static class CsrfParity
             var mapped = AuthPolicyScheme.AllFor(policy);
             if (mapped.Count == 0)
                 continue;
-            var required = mapped.Select(x => x.SchemeId).ToHashSet(StringComparer.Ordinal);
-            foreach (var wrong in schemes.Where(s => !required.Contains(s)))
+            var allowed = mapped.Select(x => x.SchemeId).ToHashSet(StringComparer.Ordinal);
+            foreach (var wrong in schemes.Where(s => !allowed.Contains(s)))
                 problems.Add($"'{pattern}' (policy '{policy}') carries a {wrong} CSRF filter — wrong side.");
             var hasUnsafe = methods is null || methods.Any(m => !SafeMethods.Contains(m));
             if (!hasUnsafe)
                 continue;
+            var required = allowed.Where(s => s != AuthPolicyScheme.PlatformTokenSchemeId);
             foreach (var missing in required.Where(s => !schemes.Contains(s)))
                 problems.Add($"'{string.Join(",", methods ?? ["*"])} {pattern}' (policy '{policy}') has no {missing} CSRF filter.");
         }

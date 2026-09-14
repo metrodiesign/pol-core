@@ -1,7 +1,7 @@
 extern alias ApiHost;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ApiHost::Api;
-using ApiHost::Api.Admins;
+using ApiHost::Api.Iam;
 using System.Net;
 using System.Security.Claims;
 using BuildingBlocks.Infrastructure.Outbox;
@@ -28,13 +28,13 @@ public sealed class AdminProvisioningAuthorizationTests
     {
         var sp = new ServiceCollection()
             .AddLogging()
-            .AddPlatformUserSessionScheme()
+            .AddConsoleSessionAuthentication()
             .BuildServiceProvider();
 
         var policy = await sp.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync("admin");
         Assert.NotNull(policy);
-        // REQ-10.6 scheme-pinned: the console policy scheme, which forwards to the admin cookie scheme or (BFF
-        // cookie only) the employee BFF scheme — never a Bearer audience.
+        // REQ-10.6 scheme-pinned: the console policy scheme, which forwards the admin audience to the employee
+        // platform token scheme — no cookie fallback.
         Assert.Equal([ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName], policy!.AuthenticationSchemes);
         Assert.False((await sp.GetRequiredService<IAuthorizationService>().AuthorizeAsync(Anonymous(), "admin")).Succeeded); // REQ-7.2
     }

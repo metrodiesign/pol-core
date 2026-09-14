@@ -62,27 +62,3 @@ public sealed class GetEffectivePermissionsHandler(IUserRepository admins, IRole
         return [.. keys.OrderBy(k => k, StringComparer.Ordinal)];   // deterministic ascending (REQ-6.2)
     }
 }
-
-/// <summary>An admin's sessions for the session-management view (REQ-4). Existence is resolved first so an unknown
-/// admin (404) is distinct from a real admin with no sessions (200 + empty). Null result -> the host maps to 404.
-/// <see cref="SessionView.IsLive"/> is computed at read time; token material NEVER leaves the store (REQ-4.3).</summary>
-public sealed record ListSessionsQuery(Guid AdminId) : IQuery<IReadOnlyList<SessionView>?>;
-
-public sealed record SessionView(
-    Guid SessionId, Guid FamilyId, SessionStatus Status, DateTime IssuedAt, DateTime IdleExpiresAt,
-    DateTime AbsoluteExpiresAt, string? IpAddress, string? UserAgent, bool IsLive);
-
-public sealed class ListSessionsHandler(IUserRepository admins, ISessionStore sessions, IClock clock)
-    : IQueryHandler<ListSessionsQuery, IReadOnlyList<SessionView>?>
-{
-    public async ValueTask<IReadOnlyList<SessionView>?> Handle(ListSessionsQuery query, CancellationToken ct)
-    {
-        if (!await admins.ExistsAsync(query.AdminId, ct))
-            return null;   // -> 404 (REQ-4.4); existence-only, no need to load the entity
-        var now = clock.UtcNow;
-        var list = await sessions.ListByAdminAsync(query.AdminId, ct);
-        return [.. list.Select(s => new SessionView(
-            s.Id, s.FamilyId, s.Status, s.IssuedAt, s.IdleExpiresAt, s.AbsoluteExpiresAt,
-            s.IpAddress, s.UserAgent, s.IsLiveAt(now)))];
-    }
-}

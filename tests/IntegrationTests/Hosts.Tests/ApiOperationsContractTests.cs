@@ -230,7 +230,10 @@ public sealed class ApiOperationsContractTests
 
             var unsafeMethod = !HttpMethods.Contains(row.Method.ToUpperInvariant())
                 || row.Method is "POST" or "PUT" or "PATCH" or "DELETE";
+            // CSRF applies only where a cookie can authenticate: the merchant-user console (its own policy or the
+            // dual-console policy). Employee routes are Bearer-only (PlatformToken / identity-platform).
             var csrfExpected = unsafeMethod && !anonymous
+                && endpoint.AuthorizationPolicies.Any(policy => policy is "merchant-user" or "dual-console")
                 && !row.Path.StartsWith("/oauth/", StringComparison.Ordinal)
                 && !row.Path.StartsWith("/api/v1/webhooks/", StringComparison.Ordinal)
                 && !row.Path.StartsWith("/api/v1/payment-returns/", StringComparison.Ordinal);

@@ -1,50 +1,17 @@
 namespace Api.Admins;
 
 /// <summary>
-/// The confidential Microsoft OIDC client for the admin BFF login (REQ-1/2/8). Secrets are injected via
-/// <c>AdminAuth__Providers__{Provider}__ClientSecret</c> (env / user-secrets / Vault), never committed, never logged
-/// (REQ-8.1/8.3). The merchant-user side runs its own separate OIDC BFF (<c>UserOidcOptions</c>) —
-/// there is no shared Google id-token Bearer plumbing left (removed with T5's single-scheme session cookie).
-/// </summary>
-internal sealed class AdminAuthOptions
-{
-    public const string SectionName = "AdminAuth";
-
-    /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
-    public string ErrorPath { get; init; } = "/login-error";
-
-    public Dictionary<string, OidcProviderOptions> Providers { get; init; } = [];
-
-    /// <summary>Microsoft Graph origin for the employee-profile lookup (tier0-graph-employee-profile REQ-11.1);
-    /// tests point it at a fake handler's origin.</summary>
-    public string GraphBaseUrl { get; init; } = "https://graph.microsoft.com";
-}
-
-/// <summary>
-/// Server-side session lifetime + cookie posture for the admin BFF (REQ-3/5/7). Timings drive the
-/// <c>SessionPolicy</c> the domain consumes; <c>SameSite</c>/allowlist are the host's cookie + open-redirect
-/// posture. Defaults assume a same-site admin SPA + API (REQ-7.3); set <c>SameSite=None</c> for a cross-site deploy.
+/// Admin console origins the host needs outside of authentication (the employee login itself is
+/// <c>IdentityAccess</c>: Microsoft OIDC at the API, then a platform Bearer token). The section keeps its
+/// <c>AdminSession</c> name so operator env keys (<c>AdminSession__WebAppBaseUrl</c>) are unchanged.
 /// </summary>
 internal sealed class AdminSessionOptions
 {
     public const string SectionName = "AdminSession";
 
-    public int IdleMinutes { get; init; } = 1440;
-    public int AbsoluteHours { get; init; } = 168;
-    public int RotationMinutes { get; init; } = 15;
-    public int GraceSeconds { get; init; } = 60;
-    /// <summary>Cookie SameSite: <c>Lax</c> (same-site deploy) or <c>None</c> (cross-site; forces Secure + keeps CSRF).</summary>
-    public string SameSite { get; init; } = "Lax";
-    public int PreAuthTtlMinutes { get; init; } = 10;
-    public string DefaultReturnPath { get; init; } = "/";
-    /// <summary>Absolute origin of the admin SPA the callback redirects back to (e.g. <c>https://localhost:3001</c>).
-    /// The IdP callback lands on the API origin directly (provider-scoped OIDC), so a RELATIVE returnTo/ErrorPath
-    /// would otherwise resolve against the API host — a JSON 404, not the SPA. Blank = keep relative (same-origin
-    /// deploy behind one host). The value is operator config, never request input — returnTo itself stays an
-    /// allowlisted same-origin path, so this adds no open-redirect surface.</summary>
+    /// <summary>Absolute origin of the admin SPA (e.g. <c>https://localhost:3001</c>). Blank = same-origin deploy
+    /// behind one host. Operator config, never request input.</summary>
     public string WebAppBaseUrl { get; init; } = "";
     /// <summary>Absolute origin of the Development-only Scalar UI (e.g. <c>https://localhost:5001</c>).</summary>
     public string ScalarBaseUrl { get; init; } = "";
-    /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-1.3). Same-origin paths only.</summary>
-    public string[] ReturnUrlAllowlist { get; init; } = [];
 }

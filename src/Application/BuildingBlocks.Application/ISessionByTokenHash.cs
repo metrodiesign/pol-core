@@ -14,7 +14,7 @@ public interface ISessionByTokenHash
 
 public enum SessionLookupStatus
 {
-    // Mirrors persisted admin.Sessions.Status and merch.Sessions.Status for direct projections.
+    // Mirrors persisted merch.Sessions.Status for direct projections (admin.Sessions was retired with the cookie login).
     Active = 1,
     Superseded = 2,
     Revoked = 3,

@@ -72,7 +72,7 @@ public sealed class AdminTask5ContractTests
         var schemes = operation.GetProperty("security").EnumerateArray()
             .SelectMany(x => x.EnumerateObject().Select(p => p.Name))
             .ToHashSet(StringComparer.Ordinal);
-        Assert.Contains("AdminSession", schemes);
+        Assert.Contains("PlatformToken", schemes);
         Assert.Contains("MerchantUserSession", schemes);
     }
 
@@ -81,7 +81,7 @@ public sealed class AdminTask5ContractTests
         var schemes = operation.GetProperty("security").EnumerateArray()
             .SelectMany(x => x.EnumerateObject().Select(p => p.Name))
             .ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(["AdminSession"], schemes);
+        Assert.Equal(["PlatformToken"], schemes);
     }
 }
 

@@ -66,7 +66,6 @@ public sealed class OneBasedMigrationShapeTests
 
     private static readonly (string Table, string Column)[] Targets =
     [
-        ("admin.Sessions", "Status"),
         ("admin.Users", "Tier"),
         ("admin.Users", "Status"),
         ("iam.PermissionGroups", "Scope"),

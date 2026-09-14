@@ -67,7 +67,6 @@ public sealed class PolDbContext : DbContext, IMerchantFilterContext
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.UserConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.MerchantAccessConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.AuditConfiguration());
-        modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.SessionConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.AuthAuditConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.RoleAssignmentConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.ProvisioningOperationConfiguration());

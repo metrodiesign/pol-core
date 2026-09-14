@@ -54,7 +54,6 @@ public sealed class TransactionInventoryTests
         ["src/Application/Modules/Orders.Application/OrderPaymentExpiredConsumer.cs"] = 1,
         ["src/Application/Modules/Admins.Application/Users/UnassignMerchant.cs"] = 1,                       // row 9
         ["src/Application/Modules/Admins.Application/Users/ReactivateAdmin.cs"] = 1,                        // row 4
-        ["src/Application/Modules/Admins.Application/Users/RevokeAdminSession.cs"] = 1,                     // row 5
         ["src/Application/Modules/Admins.Application/Users/SelfProvisionSuperAdmin.cs"] = 1,                // row 6
         ["src/Application/Modules/Admins.Application/Users/CreateScopedAdmin.cs"] = 1,                      // row 3
         ["src/Application/Modules/Admins.Application/Users/BindInvitedAdmin.cs"] = 1,                       // row 2
@@ -62,7 +61,6 @@ public sealed class TransactionInventoryTests
         ["src/Application/Modules/Admins.Application/Users/AssignMerchant.cs"] = 1,                         // row 1
         ["src/Application/Modules/Admins.Application/Users/SetAdminRoles.cs"] = 1,                          // row 7
         ["src/Application/Modules/Admins.Application/Users/ChangeAdminTier.cs"] = 1,                        // row 23 (task 4)
-        ["src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs"] = 1,                  // Tier 0 resolve/bind/JIT
         ["src/Application/Modules/Merchants.Application/Users/ApproveReject.cs"] = 2,                    // rows 17+18
         ["src/Application/Modules/Merchants.Application/Users/SubmitRegistration.cs"] = 1,               // row 20
         ["src/Application/Modules/Merchants.Application/Users/SetUserRoles.cs"] = 1,                     // row 19

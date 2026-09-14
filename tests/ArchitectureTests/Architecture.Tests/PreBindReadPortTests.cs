@@ -22,40 +22,6 @@ namespace Architecture.Tests;
 public sealed class PreBindReadPortTests
 {
     [Fact]
-    public async Task Admin_session_by_token_hash_returns_a_narrow_projection()
-    {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        ControlPlaneDbContext NewContext() =>
-            new(new DbContextOptionsBuilder<ControlPlaneDbContext>().UseSqlite(connection).Options,
-                FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
-        using (var setup = NewContext())
-            await setup.Database.EnsureCreatedAsync();
-
-        var hash = System.Security.Cryptography.SHA256.HashData("token-1"u8.ToArray());
-        Guid sessionId, adminId;
-        using (var writer = NewContext())
-        {
-            var admin = User.SelfProvision("google", "g-sub-1", "ops@example.com", DateTime.UtcNow);
-            writer.Users.Add(admin);
-            var session = Session.Start(admin.Id, hash, DateTime.UtcNow,
-                new SessionPolicy(TimeSpan.FromMinutes(30), TimeSpan.FromHours(12), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1)));
-            writer.Sessions.Add(session);
-            await writer.SaveChangesAsync();
-            sessionId = session.Id;
-            adminId = admin.Id;
-        }
-
-        using var reader = NewContext();
-        var lookup = await new AdminSessionByTokenHash(reader).FindByTokenHashAsync(hash, CancellationToken.None);
-
-        Assert.NotNull(lookup);
-        Assert.Equal(sessionId, lookup!.SessionId);
-        Assert.Equal(adminId, lookup.OwnerId);
-        Assert.Equal(SessionLookupStatus.Active, lookup.Status);
-    }
-
-    [Fact]
     public async Task Merchant_session_by_token_hash_returns_a_narrow_projection()
     {
         using var connection = new SqliteConnection("DataSource=:memory:");

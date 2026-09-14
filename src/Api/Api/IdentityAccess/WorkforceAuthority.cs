@@ -1,28 +1,16 @@
-namespace Api.Admins;
+namespace Api.IdentityAccess;
 
-/// <summary>Immutable, validated tenant pin for the enabled Admin Microsoft provider.</summary>
-internal sealed record AdminMicrosoftTenantSnapshot(Guid? TenantId)
+/// <summary>The Microsoft workforce Authority behind employee login (<c>IdentityAccess:Workforce:Authority</c>) must
+/// pin exactly one tenant: an HTTPS public-cloud endpoint with path <c>/{tenant-guid}/v2.0</c>. Multi-tenant
+/// authorities (<c>common</c>, <c>organizations</c>) would accept any Entra tenant, so they are rejected.</summary>
+internal static class WorkforceAuthority
 {
-    public bool IsEnabled => TenantId.HasValue;
+    /// <summary>The redirect URI registered on the workforce Entra app, relative to the API's public origin.</summary>
+    public const string CallbackPath = "/api/v1/admins/auth/microsoft/callback";
 
-    public static AdminMicrosoftTenantSnapshot Resolve(AdminAuthOptions auth)
+    /// <summary>Returns the pinned tenant id or throws <see cref="InvalidOperationException"/>.</summary>
+    internal static Guid Parse(string? authority)
     {
-        var providers = auth.Providers
-            .Where(pair => MicrosoftOidc.Is(pair.Key))
-            .Select(pair => pair.Value)
-            .ToArray();
-        if (providers.Length > 1)
-            throw InvalidAuthority();
-        return providers.Length == 0
-            ? new AdminMicrosoftTenantSnapshot((Guid?)null)
-            : Parse(providers[0].ClientId, providers[0].Authority);
-    }
-
-    internal static AdminMicrosoftTenantSnapshot Parse(string? clientId, string? authority)
-    {
-        if (string.IsNullOrWhiteSpace(clientId))
-            return new AdminMicrosoftTenantSnapshot((Guid?)null);
-
         if (string.IsNullOrEmpty(authority)
             || authority != authority.Trim()
             || authority.Contains('%')
@@ -53,10 +41,10 @@ internal sealed record AdminMicrosoftTenantSnapshot(Guid? TenantId)
             throw InvalidAuthority();
         }
 
-        return new AdminMicrosoftTenantSnapshot(tenantId);
+        return tenantId;
     }
 
     private static InvalidOperationException InvalidAuthority() => new(
-        "AdminAuth:Providers:Microsoft:Authority must be an HTTPS public-cloud workforce Authority "
+        "IdentityAccess:Workforce:Authority must be an HTTPS public-cloud workforce Authority "
         + "with path /{tenant-guid}/v2.0.");
 }

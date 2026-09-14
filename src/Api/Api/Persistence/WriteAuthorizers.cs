@@ -9,8 +9,6 @@ using Admins.Application;
 using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
 using AdminUser = Admins.Domain.Users.User;
 using AdminAudit = Admins.Domain.Users.Audit;
-using AdminSession = Admins.Domain.Users.Session;
-using AdminAuthAudit = Admins.Domain.Users.AuthAudit;
 using WorkforceTenantBinding = Admins.Domain.Users.WorkforceTenantBinding;
 using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Iam.Domain.Permissions;
@@ -319,7 +317,7 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
 {
     private static readonly HashSet<Type> BoundOnlyTypes =
     [
-        typeof(AdminUser), typeof(MerchantAccess), typeof(AdminAudit), typeof(AdminSession), typeof(AdminAuthAudit),
+        typeof(AdminUser), typeof(MerchantAccess), typeof(AdminAudit),
         typeof(AdminRoleAssignment),
         typeof(Role), typeof(RolePermission), typeof(PermissionGroup), typeof(Permission),
         typeof(ApiClient), typeof(OneTimeSecretTicket),
@@ -362,8 +360,6 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         (typeof(AdminUser), WriteOperation.Update),
         (typeof(AdminAudit), WriteOperation.Insert),
         (typeof(AdminRoleAssignment), WriteOperation.Insert),
-        (typeof(AdminSession), WriteOperation.Insert),
-        (typeof(AdminAuthAudit), WriteOperation.Insert),
         (typeof(IdentityAccount), WriteOperation.Insert),
         (typeof(LoginAccount), WriteOperation.Insert),
         // Repeat login observes the provider's current email/display name on the existing LoginAccount.

@@ -38,14 +38,6 @@ public sealed class ConsoleConfigurationResolverTests
 
         var snapshot = Resolve(configuration);
 
-        Assert.Equal(31, snapshot.AdminSession.IdleMinutes);
-        Assert.Equal(41, snapshot.AdminSession.AbsoluteHours);
-        Assert.Equal(7, snapshot.AdminSession.RotationMinutes);
-        Assert.Equal(8, snapshot.AdminSession.GraceSeconds);
-        Assert.Equal("None", snapshot.AdminSession.SameSite);
-        Assert.Equal(9, snapshot.AdminSession.PreAuthTtlMinutes);
-        Assert.Equal("/dashboard", snapshot.AdminSession.DefaultReturnPath);
-        Assert.Equal(["/", "/dashboard"], snapshot.AdminSession.ReturnUrlAllowlist);
         Assert.Equal("https://admin.example.com", snapshot.AdminSession.WebAppBaseUrl);
         Assert.Equal("https://api.example.com", snapshot.AdminSession.ScalarBaseUrl);
         Assert.Equal(51, snapshot.MerchantSession.IdleMinutes);
@@ -117,7 +109,6 @@ public sealed class ConsoleConfigurationResolverTests
 
         var snapshot = Resolve(configuration);
 
-        Assert.Equal(11, snapshot.AdminSession.IdleMinutes);
         Assert.Equal(21, snapshot.MerchantSession.IdleMinutes);
     }
 

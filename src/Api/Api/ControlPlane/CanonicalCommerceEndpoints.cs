@@ -108,7 +108,7 @@ internal static class CanonicalCommerceEndpoints
                 value => value.Order.OrderId.ToString("D"), ct);
             VersionEtags.Set(http, result.Value.Order.Version);
             return Results.Ok(result.Value.Order);
-        }).RequireAdminOrIdentityCsrf().RequireAuthorization(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
+        }).RequireAdminOrIdentityMutation().RequireAuthorization(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
             .RequireOrderIdentityPermission(Keys.PaymentCreate, "order.write")
             .WithMetadata(new IfMatchMutationMarker("200"))
             .WithTags("คำสั่งซื้อ").WithName("PatchCanonicalDraftOrder")
@@ -340,7 +340,7 @@ internal static class CanonicalCommerceEndpoints
                 ?? throw new NotFoundException("Transaction was not found.");
             VersionEtags.Set(http, updated.Version);
             return Results.Ok(TransactionViewMapper.ToView(updated));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.PaymentView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.PaymentView)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ธุรกรรม").WithName("VerifyCanonicalTransaction")
             .WithSummary("ตรวจสอบ Transaction")
@@ -383,7 +383,7 @@ internal static class CanonicalCommerceEndpoints
                 ?? throw new NotFoundException("Transaction was not found.");
             VersionEtags.Set(http, updated.Version);
             return Results.Ok(new CanonicalTransactionReviewView(key, body.Note.Trim(), updated.Version));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.PaymentView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.PaymentView)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ธุรกรรม").WithName("AddCanonicalTransactionReviewNote")
             .WithSummary("เพิ่ม Transaction review note")

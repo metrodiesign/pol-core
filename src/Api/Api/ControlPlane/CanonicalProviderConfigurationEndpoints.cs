@@ -87,7 +87,7 @@ internal static class CanonicalProviderConfigurationEndpoints
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Created($"/api/v1/merchants/{merchantId:D}/provider-accounts/{result.Connection.PspConnectionId:D}",
                 result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("201"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName("CreateCanonicalProviderAccount")
             .WithSummary("สร้าง Provider Account configuration")
@@ -135,7 +135,7 @@ internal static class CanonicalProviderConfigurationEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName("PatchCanonicalProviderAccount")
             .WithSummary("แก้ไข Provider Account")
@@ -179,7 +179,7 @@ internal static class CanonicalProviderConfigurationEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), http.TraceIdentifier, Access(scope)), ct);
             VersionEtags.Set(http, current.Version + 1);
             return Results.Created($"/api/v1/merchants/{merchantId:D}/provider-accounts/{providerAccountId:D}/credential-versions/{result.CandidateVersionId:D}", result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .Accepts<CanonicalCredentialVersionCreateRequest>("application/json")
             .WithMetadata(new IfMatchMutationMarker("201"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName("CreateCanonicalCredentialVersion")
@@ -204,7 +204,7 @@ internal static class CanonicalProviderConfigurationEndpoints
                 providerAccountId, merchantId, VersionEtags.Require(http), IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName("TestCanonicalProviderConnection")
             .WithSummary("ทดสอบการเชื่อมต่อ Provider")
@@ -230,7 +230,7 @@ internal static class CanonicalProviderConfigurationEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName("DisableCanonicalProviderAccount")
             .WithSummary("หยุด Provider Account ฉุกเฉิน")
@@ -345,7 +345,7 @@ internal static class CanonicalProviderConfigurationEndpoints
                 return Results.Created($"/api/v1/merchants/{merchantId:D}/payment-setting-requests/{result.ApprovalId:D}", result.Request);
             }
             throw new InvalidRequestException("A provider account, ruleset or target environment is required.", "validation_failed");
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("201"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName("CreateCanonicalPaymentSettingRequest")
             .WithSummary("สร้างคำขอเปลี่ยน payment setting")
@@ -382,7 +382,7 @@ internal static class CanonicalProviderConfigurationEndpoints
                 IdempotencyKeys.Require(http), http.TraceIdentifier, GovernanceAccess(scope)), ct);
             http.Response.Headers.ETag = $"\"v{result.Approval.Version}\"";
             return Results.Ok(ToView(result.Approval));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การตั้งค่า Provider").WithName(name)
             .WithSummary(decision == ApprovalDecision.Approve ? "อนุมัติ payment setting request" : "ปฏิเสธ payment setting request")

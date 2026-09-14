@@ -242,11 +242,12 @@ public sealed class ProvisioningGuardsTests
     {
         var pairs = new List<(string Key, string? Value)>
         {
-            ("AdminAuth:Providers:Microsoft:Authority",
+            ("IdentityAccess:Workforce:Authority",
                 "https://login.microsoftonline.com/3f2504e0-4f89-41d3-9a0c-0305e82c3301/v2.0"),
-            ("AdminAuth:Providers:Microsoft:ClientId", "workforce-client"),
-            ("AdminAuth:Providers:Microsoft:ClientSecret", "injected-secret"),
-            ("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback"),
+            ("IdentityAccess:Workforce:ClientId", "workforce-client"),
+            ("IdentityAccess:Workforce:ClientSecret", "injected-secret"),
+            ("IdentityAccess:Workforce:CallbackPath", "/api/v1/admins/auth/microsoft/callback"),
+            ("IdentityAccess:WorkforceTenantId", "3f2504e0-4f89-41d3-9a0c-0305e82c3301"),
         };
         pairs.AddRange(overrides);
         var values = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -256,46 +257,22 @@ public sealed class ProvisioningGuardsTests
     }
 
     [Fact]
-    public void Production_workforce_provider_guard_accepts_complete_microsoft_configuration()
-    {
+    public void Production_workforce_provider_guard_accepts_complete_microsoft_configuration() =>
         ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(Workforce());
-        ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(
-            Workforce(("AdminAuth:GraphBaseUrl", "https://graph.microsoft.com")));
-    }
 
     [Theory]
-    [InlineData("http://graph.microsoft.com")]
-    [InlineData("https://graph.microsoft.com/")]
-    [InlineData("https://graph.test.invalid")]
-    public void Production_workforce_provider_guard_rejects_noncanonical_graph_origin(string graphBaseUrl)
-    {
-        var config = Workforce(("AdminAuth:GraphBaseUrl", graphBaseUrl));
-
-        var error = Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
-        Assert.Contains("AdminAuth:GraphBaseUrl", error.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("AdminAuth:Providers:Microsoft:ClientId")]
-    [InlineData("AdminAuth:Providers:Microsoft:ClientSecret")]
-    [InlineData("AdminAuth:Providers:Microsoft:Authority")]
-    [InlineData("AdminAuth:Providers:Microsoft:CallbackPath")]
+    [InlineData("IdentityAccess:Workforce:ClientId")]
+    [InlineData("IdentityAccess:Workforce:ClientSecret")]
+    [InlineData("IdentityAccess:Workforce:Authority")]
+    [InlineData("IdentityAccess:Workforce:CallbackPath")]
+    [InlineData("IdentityAccess:WorkforceTenantId")]
     public void Production_workforce_provider_guard_rejects_missing_required_settings(string missingKey)
     {
         var config = Workforce((missingKey, ""));
 
-        Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
-    }
-
-    [Fact]
-    public void Production_workforce_provider_guard_rejects_enabled_google()
-    {
-        var config = Workforce(("AdminAuth:Providers:Google:ClientId", "google-client"));
-
-        Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+        Assert.DoesNotContain("injected-secret", error.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -304,7 +281,16 @@ public sealed class ProvisioningGuardsTests
     [InlineData("https://accounts.google.com")]
     public void Production_workforce_provider_guard_rejects_unpinned_or_wrong_authority(string authority)
     {
-        var config = Workforce(("AdminAuth:Providers:Microsoft:Authority", authority));
+        var config = Workforce(("IdentityAccess:Workforce:Authority", authority));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+    }
+
+    [Fact]
+    public void Production_workforce_provider_guard_rejects_a_tenant_pin_that_differs_from_the_authority()
+    {
+        var config = Workforce(("IdentityAccess:WorkforceTenantId", "11111111-1111-4111-8111-111111111111"));
 
         Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
@@ -313,7 +299,7 @@ public sealed class ProvisioningGuardsTests
     [Fact]
     public void Production_workforce_provider_guard_rejects_non_contract_callback_path()
     {
-        var config = Workforce(("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/callback"));
+        var config = Workforce(("IdentityAccess:Workforce:CallbackPath", "/api/v1/admins/auth/callback"));
 
         Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));

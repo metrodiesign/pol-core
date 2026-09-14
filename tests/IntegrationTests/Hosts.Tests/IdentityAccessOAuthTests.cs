@@ -1,6 +1,6 @@
 extern alias ApiHost;
 using ApiIdentity = ApiHost::Api.IdentityAccess;
-using ApiAdmin = ApiHost::Api.Admins;
+using ApiMerchant = ApiHost::Api.Merchants;
 using Accounts.Application;
 using Accounts.Domain;
 using BuildingBlocks.Application;
@@ -453,7 +453,7 @@ public sealed class IdentityAccessOAuthTests
                 HttpMethod.Get, $"/api/v1/orders/{orderId:D}?merchantId={merchantId:D}");
             mixedConsole.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             mixedConsole.Headers.Add("Cookie",
-                $"{ApiAdmin.SessionCookies.SessionCookieNameDevHttp}=mixed");
+                $"{ApiMerchant.UserSessionCookies.SessionCookieNameDevHttp}=mixed");
             using var mixedConsoleResponse = await client.SendAsync(mixedConsole);
             Assert.Equal(HttpStatusCode.BadRequest, mixedConsoleResponse.StatusCode);
             Assert.Contains("ambiguous_authentication_context",
@@ -549,11 +549,7 @@ public sealed class IdentityAccessOAuthTests
 
     private static void AddOrderAdminHeaders(HttpRequestMessage request, string key, string? etag = null)
     {
-        const string csrf = "pr253-oauth-admin-csrf";
         request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
-        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, csrf);
-        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add("Cookie", $"{cookieName}={csrf}");
         request.Headers.Add("Idempotency-Key", key);
         if (etag is not null)
             request.Headers.Add("If-Match", etag);

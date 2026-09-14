@@ -37,7 +37,6 @@ public sealed class HostTestConfigGateTests
         "ProvisioningGuards.RequireWorkforceAdminProvider(builder.Configuration)", // Production-only workforce Admin gate
         "ProvisioningGuards.RequirePublicBaseUrl(builder.Configuration)", // non-Development only
         "AddMerchantUserOidcAuthentication(builder.Configuration", // eager; tests set MerchantAuth:* via UseSetting
-        "AddAdminOidcAuthentication(builder.Configuration",        // eager; tests set AdminAuth:* via UseSetting
         "AddConsoleConfiguration(builder.Configuration",           // lazy capture; resolves after Build (provider-stack test)
         "builder.Services.AddPlatformOAuth(builder.Configuration",  // OAuth:Issuer/certificate is injected with UseSetting in IdentityAccessOAuthTests
         "builder.Services.AddIdentityAccess(builder.Configuration", // IdentityAccess:* provider settings are injected with UseSetting in host OIDC tests

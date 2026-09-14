@@ -16,7 +16,7 @@ internal static class ApiClientEndpoints
         {
             ValidatePage(page, limit);
             return Results.Ok(await store.ListAsync(Access(scope), page, limit, search, merchantId, status, ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithTags("ไคลเอนต์ API").WithName("ListApiClients")
             .WithSummary("รายการ API client")
             .WithDescription("คืน API client ภายใน merchant scope แบบแบ่งหน้า กรอง merchantId/status และค้นจาก name หรือ clientId ได้ ไม่คืน client secret")
@@ -29,7 +29,7 @@ internal static class ApiClientEndpoints
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Version);
             return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("ไคลเอนต์ API").WithName("GetApiClient")
             .WithSummary("อ่าน API client")
@@ -44,7 +44,7 @@ internal static class ApiClientEndpoints
             http.Response.Headers.CacheControl = "no-store";
             VersionEtags.Set(http, result.Client.Version);
             return Results.Created($"/api/v1/api-clients/{result.Client.Id:D}", result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithMetadata(new IdempotencyMutationMarker(), new EtagResponseMarker("201"))
             .WithTags("ไคลเอนต์ API").WithName("CreateApiClient")
             .WithSummary("สร้าง API client")
@@ -59,7 +59,7 @@ internal static class ApiClientEndpoints
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Client.Version);
             return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ไคลเอนต์ API").WithName("UpdateApiClient")
             .WithSummary("แก้ไข API client")
@@ -74,7 +74,7 @@ internal static class ApiClientEndpoints
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Client.Version);
             return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ไคลเอนต์ API").WithName("RevokeApiClient")
             .WithSummary("เพิกถอน API client")
@@ -91,7 +91,7 @@ internal static class ApiClientEndpoints
             http.Response.Headers.CacheControl = "no-store";
             VersionEtags.Set(http, result.ClientVersion);
             return Results.Accepted($"/api/v1/approvals/{result.ApprovalId:D}", result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithMetadata(new IfMatchMutationMarker("202"), new IdempotencyMutationMarker())
             .WithTags("ไคลเอนต์ API").WithName("RequestApiClientSecretRotation")
             .WithSummary("ขอหมุน client secret")
@@ -119,7 +119,7 @@ internal static class ApiClientEndpoints
             http.Response.Headers.CacheControl = "no-store";
             http.Response.Headers.Pragma = "no-cache";
             return Results.Ok(result.Secret);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.ApiKeyManage)
             .WithMetadata(new IdempotencyMutationMarker())
             .WithTags("ไคลเอนต์ API").WithName("RevealApiClientSecret")
             .WithSummary("เปิดดู client secret หนึ่งครั้ง")

@@ -91,12 +91,12 @@ public sealed class ConsoleConfigurationStartupTests
     public async Task Invalid_return_paths_fail_startup(string path)
     {
         var values = ValidCanonical();
-        values["AdminSession:DefaultReturnPath"] = path;
-        values["AdminSession:ReturnUrlAllowlist:0"] = path;
+        values["MerchantSession:DefaultReturnPath"] = path;
+        values["MerchantSession:ReturnUrlAllowlist:0"] = path;
 
         var error = await StartFailure(values, Environments.Development);
 
-        Assert.Contains("AdminSession:ReturnUrlAllowlist", error.Message, StringComparison.Ordinal);
+        Assert.Contains("MerchantSession:ReturnUrlAllowlist", error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(path, error.Message, StringComparison.Ordinal);
     }
 
@@ -104,22 +104,22 @@ public sealed class ConsoleConfigurationStartupTests
     public async Task Duplicate_return_paths_fail_startup_under_ordinal_comparison()
     {
         var values = ValidCanonical();
-        values["AdminSession:ReturnUrlAllowlist:1"] = "/";
+        values["MerchantSession:ReturnUrlAllowlist:1"] = "/";
 
         var error = await StartFailure(values, Environments.Development);
 
-        Assert.Contains("AdminSession:ReturnUrlAllowlist", error.Message, StringComparison.Ordinal);
+        Assert.Contains("MerchantSession:ReturnUrlAllowlist", error.Message, StringComparison.Ordinal);
     }
 
     [Fact] // REQ-3.9, REQ-8.5
     public async Task Default_return_path_missing_from_allowlist_fails_startup()
     {
         var values = ValidCanonical();
-        values["AdminSession:DefaultReturnPath"] = "/missing";
+        values["MerchantSession:DefaultReturnPath"] = "/missing";
 
         var error = await StartFailure(values, Environments.Development);
 
-        Assert.Contains("AdminSession:DefaultReturnPath", error.Message, StringComparison.Ordinal);
+        Assert.Contains("MerchantSession:DefaultReturnPath", error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("/missing", error.Message, StringComparison.Ordinal);
     }
 

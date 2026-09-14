@@ -380,9 +380,6 @@ public sealed class Task8IdentityAccessA2SqlTests
     private static void AddAdminHeaders(HttpRequestMessage request, string key, string? etag = null)
     {
         request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
-        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, "csrf-a2");
-        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add("Cookie", $"{cookieName}=csrf-a2");
         request.Headers.Add("Idempotency-Key", key);
         if (etag is not null)
             request.Headers.Add("If-Match", etag);

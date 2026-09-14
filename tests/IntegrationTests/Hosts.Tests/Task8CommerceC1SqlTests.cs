@@ -1143,9 +1143,6 @@ public sealed class Task8CommerceC1SqlTests
     private static void AddAdminHeaders(HttpRequestMessage request, string key, string? etag = null)
     {
         request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
-        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, "csrf-c1");
-        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add("Cookie", $"{cookieName}=csrf-c1");
         request.Headers.Add("Idempotency-Key", key);
         if (etag is not null)
             request.Headers.Add("If-Match", etag);
@@ -1154,9 +1151,6 @@ public sealed class Task8CommerceC1SqlTests
     private static void AddAdminHeadersWithoutIdempotency(HttpRequestMessage request, string? etag = null)
     {
         request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
-        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, "csrf-c1");
-        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add("Cookie", $"{cookieName}=csrf-c1");
         if (etag is not null)
             request.Headers.Add("If-Match", etag);
     }

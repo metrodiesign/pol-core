@@ -119,7 +119,7 @@ internal static class CanonicalNotificationEndpoints
                 DeliveryAccess(scope),
                 ct);
             return result is null ? Results.NotFound() : Results.Accepted(value: result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IdempotencyMutationMarker())
             .WithTags("การแจ้งเตือน").WithName("RetryCanonicalNotificationDelivery")
             .WithSummary("ลองส่ง Notification ใหม่")
@@ -251,7 +251,7 @@ internal static class CanonicalNotificationEndpoints
                 access,
                 ct);
             return updated is null ? Results.NotFound() : Results.Ok(updated.Endpoint);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("เว็บฮุก").WithName("PutCanonicalMerchantEventEndpoint")
             .WithSummary("กำหนดหรือปิด Merchant event endpoint")

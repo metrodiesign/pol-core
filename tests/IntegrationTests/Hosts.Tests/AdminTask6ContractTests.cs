@@ -143,12 +143,12 @@ public sealed class AdminTask6ContractTests
     private static void AssertDual(JsonElement operation)
     {
         var schemes = Schemes(operation);
-        Assert.Contains("AdminSession", schemes);
+        Assert.Contains("PlatformToken", schemes);
         Assert.Contains("MerchantUserSession", schemes);
     }
 
     private static void AssertAdmin(JsonElement operation) =>
-        Assert.Equal(["AdminSession"], Schemes(operation));
+        Assert.Equal(["PlatformToken"], Schemes(operation));
 
     private static HashSet<string> Schemes(JsonElement operation) => operation.GetProperty("security")
         .EnumerateArray().SelectMany(x => x.EnumerateObject().Select(p => p.Name))

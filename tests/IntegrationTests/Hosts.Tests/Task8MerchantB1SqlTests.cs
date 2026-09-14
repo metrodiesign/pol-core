@@ -227,9 +227,6 @@ public sealed class Task8MerchantB1SqlTests
         HttpRequestMessage request, string key, string? etag = null, string? correlation = null)
     {
         request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
-        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, "csrf-b1");
-        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add("Cookie", $"{cookieName}=csrf-b1");
         request.Headers.Add("Idempotency-Key", key);
         if (etag is not null)
             request.Headers.Add("If-Match", etag);

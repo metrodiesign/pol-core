@@ -161,20 +161,6 @@ public sealed class AdminMicrosoftInviteEndpointTests
     }
 
     [Fact]
-    public async Task Missing_csrf_is_403_before_dispatch()
-    {
-        using var factory = new MicrosoftInviteEndpointFactory(Tier.Super);
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-
-        using var response = await client.SendAsync(Request(
-            $$"""{"objectId":"{{ObjectId:D}}","identityApprovalReference":"entra-export-42"}""",
-            includeCsrf: false));
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Null(factory.Mediator.Command);
-    }
-
-    [Fact]
     public async Task Scoped_admin_is_403_before_dispatch()
     {
         using var factory = new MicrosoftInviteEndpointFactory(Tier.Scoped);
@@ -187,19 +173,12 @@ public sealed class AdminMicrosoftInviteEndpointTests
         Assert.Null(factory.Mediator.Command);
     }
 
-    private static HttpRequestMessage Request(string body, bool includeCsrf = true)
+    private static HttpRequestMessage Request(string body)
     {
-        const string csrf = "microsoft-invite-csrf";
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/admins")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
-        if (includeCsrf)
-        {
-            var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-            request.Headers.Add("Cookie", $"{cookieName}={csrf}");
-            request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, csrf);
-        }
         return request;
     }
 }

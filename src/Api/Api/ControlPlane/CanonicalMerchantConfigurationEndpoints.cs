@@ -63,7 +63,7 @@ internal static class CanonicalMerchantConfigurationEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า")
             .WithName("PatchCanonicalMerchant")
@@ -116,7 +116,7 @@ internal static class CanonicalMerchantConfigurationEndpoints
                 merchantId, body.Code, body.Name, IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Created($"/api/v1/merchants/{merchantId:D}/branches/{result.Value.BranchId:D}", result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new EtagResponseMarker("201"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า")
             .WithName("CreateCanonicalMerchantBranch")
@@ -143,7 +143,7 @@ internal static class CanonicalMerchantConfigurationEndpoints
                 IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า")
             .WithName("PatchCanonicalMerchantBranch")
@@ -198,7 +198,7 @@ internal static class CanonicalMerchantConfigurationEndpoints
                 IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Created($"/api/v1/merchants/{merchantId:D}/sales/{result.Value.SaleId:D}", result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new EtagResponseMarker("201"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า")
             .WithName("CreateCanonicalMerchantSale")
@@ -225,7 +225,7 @@ internal static class CanonicalMerchantConfigurationEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), Access(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า")
             .WithName("PatchCanonicalMerchantSale")

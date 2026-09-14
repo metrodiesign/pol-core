@@ -3,7 +3,7 @@ namespace Hosts.Tests;
 
 /// <summary>The CSRF boot parity guard: every endpoint that accepts an unsafe method under a cookie-session
 /// policy must carry the <c>CsrfProtected</c> marker of its own scheme (attached by
-/// <c>RequireCsrf()</c>/<c>RequireUserCsrf()</c> alongside the filter — a bare <c>AddEndpointFilter</c> leaves
+/// <c>RequireUserCsrf()</c>/<c>RequireAudienceCsrf()</c> alongside the filter — a bare <c>AddEndpointFilter</c> leaves
 /// no metadata). Endpoints with no recognized policy (PSP webhooks, anonymous pre-session routes) are skipped.
 /// The boot-time inventory itself is exercised for free by every WebApplicationFactory test, which runs
 /// <c>CsrfParity.Assert</c> against the real endpoint table.</summary>
@@ -34,25 +34,28 @@ public sealed class CsrfParityTests
 
     [Fact]
     public void Missing_method_metadata_counts_as_unsafe() =>
-        Assert.Contains(Find(("/api/v1/admins/something", null, "admin", [])),
-            p => p.Contains("no AdminSession", StringComparison.Ordinal));
+        Assert.Contains(Find(("/api/v1/merchants/users/something", null, "merchant-user", [])),
+            p => p.Contains("no MerchantUserSession", StringComparison.Ordinal));
+
+    [Fact]
+    public void An_unsafe_admin_endpoint_needs_no_marker_because_the_platform_token_is_a_bearer_credential() =>
+        Assert.Empty(Find(("/api/v1/admins", ["POST"], "admin", [])));
 
     [Fact]
     public void A_safe_endpoint_carrying_its_own_sides_marker_passes() =>
-        // GET /merchants/{code} attaches the filter deliberately (REQ-7.1) — a marker on a safe route is fine.
-        Assert.Empty(Find(("/api/v1/merchants/{code}", ["GET"], "admin", ["AdminSession"])));
+        // A marker on a safe route is fine (REQ-7.1).
+        Assert.Empty(Find(("/api/v1/merchants/users/me", ["GET"], "merchant-user", ["MerchantUserSession"])));
 
     [Fact]
     public void An_unsafe_endpoint_with_its_own_sides_marker_passes() =>
         Assert.Empty(Find(("/api/v1/carts", ["POST"], "merchant-user", ["MerchantUserSession"])));
 
     [Fact]
-    public void An_unsafe_dual_console_endpoint_requires_both_audience_markers() =>
-        Assert.Contains(Find(("/api/v1/carts", ["POST"], "dual-console", ["AdminSession"])),
+    public void An_unsafe_dual_console_endpoint_requires_the_merchant_marker() =>
+        Assert.Contains(Find(("/api/v1/carts", ["POST"], "dual-console", [])),
             p => p.Contains("no MerchantUserSession", StringComparison.Ordinal));
 
     [Fact]
-    public void An_unsafe_dual_console_endpoint_with_both_markers_passes() =>
-        Assert.Empty(Find(("/api/v1/carts", ["POST"], "dual-console",
-            ["AdminSession", "MerchantUserSession"])));
+    public void An_unsafe_dual_console_endpoint_with_the_merchant_marker_passes() =>
+        Assert.Empty(Find(("/api/v1/carts", ["POST"], "dual-console", ["MerchantUserSession"])));
 }

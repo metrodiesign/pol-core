@@ -18,9 +18,6 @@ public sealed class OneBasedEnumContractTests
         Assert.Equal(1, (int)SessionLookupStatus.Active);
         Assert.Equal(2, (int)SessionLookupStatus.Superseded);
         Assert.Equal(3, (int)SessionLookupStatus.Revoked);
-        Assert.Equal(1, (int)Admins.Domain.Users.SessionStatus.Active);
-        Assert.Equal(2, (int)Admins.Domain.Users.SessionStatus.Superseded);
-        Assert.Equal(3, (int)Admins.Domain.Users.SessionStatus.Revoked);
         Assert.Equal(1, (int)Tier.Scoped);
         Assert.Equal(2, (int)Tier.Super);
         Assert.Equal(1, (int)Admins.Domain.Users.UserStatus.Active);

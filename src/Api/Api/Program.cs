@@ -350,24 +350,16 @@ builder.Services.AddScoped<IActorContext>(sp =>
 // routes use endpoint metadata plus cookie presence to select exactly one audience without cross-audience fallback.
 builder.Services.AddAuthentication(ConsoleSessionAuthentication.SchemeName);
 
-// Admin BFF: confidential OIDC clients (Authorization Code + PKCE) for the server-side admin login.
-// Adds the "Admin{Provider}" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
-builder.Services.Configure<AdminAuthOptions>(builder.Configuration.GetSection(AdminAuthOptions.SectionName));
-builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
-
-// Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
-// REDEFINE the "admin" authorization policy to pin it — retiring the Bearer "admin" audience (REQ-4/5/9/10).
-builder.Services.AddPlatformUserSessionScheme();
+// Console policy scheme + the "admin" / dual-console policies. The admin console authenticates with the employee
+// platform token (Authorization: Bearer, PlatformToken scheme registered by AddIdentityAccess); the merchant
+// console with its session cookie.
 builder.Services.AddConsoleSessionAuthentication();
-
-// Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
-builder.Services.AddHostedService<SessionPruneService>();
 
 // CORS for the two credentialed console SPAs; the customer SPA uses a same-origin /api proxy.
 builder.Services.AddPolCors();
 
 // OpenAPI document so the SPA teams have a machine-readable contract (served in Development only). The
-// document also declares the two auth schemes (merchant-user session cookie + admin session cookie) and tags
+// document also declares the auth schemes (merchant-user session cookie + platform Bearer tokens) and tags
 // each operation with the scheme its authorization policy requires, so other teams can authenticate straight
 // from the Scalar reference UI.
 Action<OpenApiOptions> configureOpenApi = options =>
@@ -464,33 +456,6 @@ Action<OpenApiOptions> configureOpenApi = options =>
             ConcurrencyOpenApi.Apply(operation, adminEtag);
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AdminIdempotencyMutationMarker>().Any())
             ConcurrencyOpenApi.Apply(operation, new AdminIdempotencyMutationMarker());
-        if (context.Description.HttpMethod is { } method
-            && !HttpMethods.IsGet(method)
-            && !HttpMethods.IsHead(method)
-            && !HttpMethods.IsOptions(method)
-            && !HttpMethods.IsTrace(method)
-            && context.Description.ActionDescriptor.EndpointMetadata.OfType<CsrfProtected>()
-                .Any(x => string.Equals(x.SchemeId, "AdminSession", StringComparison.Ordinal)))
-        {
-            var parameters = operation.Parameters ??= [];
-            var existing = parameters.FirstOrDefault(x => x.In == ParameterLocation.Header
-                && string.Equals(x.Name, CsrfFilter.HeaderName, StringComparison.OrdinalIgnoreCase));
-            if (existing is OpenApiParameter csrf)
-            {
-                csrf.Required = true;
-            }
-            else if (existing is null)
-            {
-                parameters.Add(new OpenApiParameter
-                {
-                    Name = CsrfFilter.HeaderName,
-                    In = ParameterLocation.Header,
-                    Required = true,
-                    Description = "CSRF token matching the AdminSession CSRF cookie.",
-                    Schema = new OpenApiSchema { Type = JsonSchemaType.String },
-                });
-            }
-        }
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AudienceRequestBodyMarker>().FirstOrDefault()
             is { } audienceRequest)
             await AudienceOpenApi.ApplyAsync(operation, context, audienceRequest, cancellationToken);
@@ -520,18 +485,15 @@ Action<OpenApiOptions> configureOpenApi = options =>
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, "AdminSession"))
-            document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
+        if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, AuthPolicyScheme.PlatformTokenSchemeId))
+            document.Components.SecuritySchemes[AuthPolicyScheme.PlatformTokenSchemeId] = new OpenApiSecurityScheme
             {
-                Type = SecuritySchemeType.ApiKey,
-                In = ParameterLocation.Cookie,
-                // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
-                // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
-                // see the cookie they actually have.
-                Name = SessionCookies.SessionCookieNameDevHttp,
-                Description = "คุกกี้ session ของ Admin Console ที่ browser ได้รับอัตโนมัติหลังเข้าสู่ระบบผ่าน "
-                    + "GET /api/v1/admins/auth/{provider}/login โดย provider คือ microsoft; "
-                    + "บน production (HTTPS) ใช้ชื่อ `__Host-adm_session`",
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "Access token ของพนักงานสำหรับ Admin Console ที่ SPA ได้จาก /oauth/token "
+                    + "(authorization code + PKCE ผ่าน /oauth/authorize แล้วเข้าสู่ระบบด้วย Microsoft); "
+                    + "ส่งเป็น Authorization: Bearer ทุกคำขอ",
             };
         if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, "MerchantUserSession"))
             document.Components.SecuritySchemes["MerchantUserSession"] = new OpenApiSecurityScheme
@@ -553,7 +515,7 @@ Action<OpenApiOptions> configureOpenApi = options =>
             };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
-        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> AdminSession). The host
+        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> PlatformToken). The host
         // document is passed so the requirement serialises as a $ref into components.securitySchemes. Anonymous
         // routes (order summary link, admin login, webhook) carry no requirement.
         var schemesByRoute = new Dictionary<(string Path, string Method), IReadOnlyList<string>>();
@@ -618,7 +580,6 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks(appConnString);
 builder.Services.AddWebhookRateLimiter();
-builder.Services.AddAdminAuthRateLimiter();
 builder.Services.AddMerchantUserAuthRateLimiter();
 builder.Services.AddCustomerPaymentRateLimiter();
 
@@ -638,8 +599,9 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
     UserInvitationOptions.RequireProduction(app.Configuration);
 
-var adminMicrosoftTenant = app.Services.GetRequiredService<Api.Admins.AdminMicrosoftTenantSnapshot>();
-if (adminMicrosoftTenant.TenantId is { } workforceTenantId)
+// Pin the workforce tenant (IdentityAccess:WorkforceTenantId) so admin provisioning can bind Entra identities to it.
+if (Guid.TryParse(app.Services.GetRequiredService<IOptions<IdentityAccessOptions>>().Value.WorkforceTenantId,
+        out var workforceTenantId) && workforceTenantId != Guid.Empty)
 {
     await using var tenantPinScope = app.Services.CreateAsyncScope();
     await tenantPinScope.ServiceProvider.GetRequiredService<IWorkforceTenantBindingStore>()
@@ -718,10 +680,10 @@ app.UseAuthorization();
 // the Bearer fallback is retired), re-resolves the MerchantUser READ-ONLY by id, and binds IMerchantUserScope + the
 // ambient `merchant_id` claim per request.
 
-// Admin resolution is no longer a middleware: PlatformUserSessionAuthenticationHandler authenticates the
-// __Host-adm_session cookie during authorization (the "admin" policy pins that scheme), re-resolves the admin
-// READ-ONLY by id, and binds IAdminScope per request (REQ-9). First-login bootstrap/bind happens at the OIDC
-// callback (AdminCallbackResolver), not per request.
+// Admin resolution is no longer a middleware: PlatformTokenAuthenticationHandler validates the employee Bearer
+// token during authorization (the "admin" policy routes to that scheme), re-resolves the account READ-ONLY by id,
+// and binds IAdminScope per request (REQ-9). First-login JIT happens at the Microsoft OIDC callback
+// (IdentityBffLoginService), not per request.
 
 // Liveness (process only) + readiness (DB + vault), anonymous, minimal body — no topology leak.
 app.MapPolHealthChecks();
@@ -754,14 +716,14 @@ var api = app.MapGroup("/api/v1");
 app.MapIdentityAccessEndpoints();
 api.MapAgentRegistrationEndpoints();
 var requiredMerchantQuery = new RawQueryParamMarker(
-    "merchantId", "Merchant UUID required for the AdminSession branch.");
+    "merchantId", "Merchant UUID required for the admin (PlatformToken) branch.");
 var optionalMerchantQuery = requiredMerchantQuery with
 {
-    Description = "Optional merchant UUID filter within the AdminSession scope.",
+    Description = "Optional merchant UUID filter within the admin scope.",
     Required = false,
 };
 var requiredOriginatorQuery = new RawQueryParamMarker(
-    "originatorId", "Originator UUID required for the AdminSession branch.");
+    "originatorId", "Originator UUID required for the admin (PlatformToken) branch.");
 var requiredExportFromQuery = new RawQueryParamMarker(
     "from", "Inclusive UTC export-window start.");
 var requiredExportToQuery = new RawQueryParamMarker(
@@ -2410,90 +2372,11 @@ api.MapGet("/reports/reconciliation", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-// --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
-// One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
-// policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
-// is anonymous; every other route gates on the Session "admin" policy. The CSRF filter exempts safe methods,
-// so the login/callback GETs pass untouched.
-var admin = api.MapGroup("/admins").RequireCsrf();
-
-// Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
-// allowlist, then hand off to the Microsoft OIDC handler, which builds the Authorization Code + PKCE + state
-// + nonce redirect to the IdP. The callback (AdminAuth:Providers:{Provider}:CallbackPath) is handled by the OIDC
-// middleware itself, which establishes the session via OnTicketReceived — there is no mapped callback endpoint.
-// An unknown or unconfigured provider slug is simply absent from the registered map -> 404.
-admin.MapGet("/auth/{provider}/login", (
-    string provider, HttpContext http, AdminOidcProviders providers, IOptions<AdminSessionOptions> session) =>
-{
-    if (!providers.TryGetValue(provider.ToLowerInvariant(), out var scheme))
-        return Results.NotFound();
-    var returnTo = ReturnUrlPolicy.Resolve(
-        http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
-    return Results.Challenge(
-        OidcAuthentication.CreateLoginProperties(returnTo, provider),
-        [scheme]);
-})
-.AllowAnonymous()
-.RequireRateLimiting(AuthRateLimiting.PolicyName)
-    .WithTags("การเข้าสู่ระบบ")
-    .WithName("AdminLogin")
-    .WithSummary("เริ่มเข้าสู่ระบบผู้ดูแลระบบ")
-    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง Microsoft workforce OIDC (Authorization Code + PKCE) callback จะเป็นตัวสร้าง session cookie หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
-    .Produces(StatusCodes.Status302Found)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status429TooManyRequests);
-
-// Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-6.1). The
-// presented cookie identifies the family. AllowAnonymous on purpose: gating this on the "admin" policy made an
-// EXPIRED or already-revoked session 401 here, so the SPA could never reach a signed-out state and the user was
-// stuck until they cleared cookies by hand. The handler is idempotent — no cookie or no matching session simply
-// skips the revoke — and always clears the cookies, so "already signed out" is the same 204 as a real logout.
-// CSRF protection stays mandatory (REQ-7.2): a forced logout is still a cross-site nuisance.
-admin.MapPost("/auth/logout", async (
-    HttpContext http, ISessionStore sessions, SessionCookies cookies,
-    IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
-{
-    var token = cookies.ReadSessionToken(http);
-    if (token is not null)
-    {
-        var session = await sessions.FindByTokenHashAsync(SessionTokens.Hash(token), ct);
-        if (session is not null)
-        {
-            await sessions.RevokeFamilyAsync(session.FamilyId, ct);
-            audit.Append(AuthAudit.For(AuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.AdminUserId));
-            await audit.SaveChangesAsync(ct);
-        }
-    }
-    cookies.Clear(http);
-    return Results.NoContent();
-}).AllowAnonymous()
-    // Anonymous + cookie-driven DB lookup — exactly what the source-IP limiter exists for (AuthRateLimiting).
-    .RequireRateLimiting(AuthRateLimiting.PolicyName)
-    .WithTags("การเข้าสู่ระบบ")
-    .WithName("AdminLogout")
-    .WithSummary("ออกจากระบบเครื่องนี้")
-    .WithDescription("เพิกถอน session family ปัจจุบัน (เฉพาะเครื่องนี้) แล้วล้างคุกกี้ เรียกได้แม้ session หมดอายุหรือถูกเพิกถอนไปแล้ว (idempotent -> 204 เสมอ) แต่ยังต้องผ่าน CSRF")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
-admin.MapPost("/auth/logout-all", async (
-    HttpContext http, IAdminScope scope, ISessionStore sessions, SessionCookies cookies,
-    IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
-{
-    var adminId = scope.Current.AdminId;
-    await sessions.RevokeAllForAdminAsync(adminId, ct);
-    audit.Append(AuthAudit.For(AuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
-    await audit.SaveChangesAsync(ct);
-    cookies.Clear(http);
-    return Results.NoContent();
-}).RequireAuthorization("admin")
-    .WithTags("การเข้าสู่ระบบ")
-    .WithName("AdminLogoutAll")
-    .WithSummary("ออกจากระบบทุกเครื่อง")
-    .WithDescription("เพิกถอนทุก session ของผู้ดูแลระบบคนนี้ในทุกเครื่อง แล้วล้างคุกกี้")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+// --- Admin console (/api/v1/admins route group, REQ-1/7/10) ---
+// The credentialed admin CORS policy is applied to /api/v1/admins/* by PolCorsPolicyProvider. Per-endpoint
+// authorization stays explicit: every route gates on the "admin" policy (employee platform Bearer token). Login,
+// refresh and logout live on /oauth/* and /api/v1/auth/logout (IdentityAccessEndpoints).
+var admin = api.MapGroup("/admins");
 
 // --- Admin-provisioned merchants (/api/v1/merchants, D9) ---
 // Moved out of the /admins group (hierarchical-naming task 8, design §5): mapped DIRECTLY on `api`, like the
@@ -2544,7 +2427,6 @@ api.MapPost("/merchants", async (
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 })
-    .RequireCsrf() // re-attached explicitly — no longer inherited from the /admins group (REQ-7.1)
     .RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super) // provisioning is Super-only (REQ-8.4)
     .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("ProvisionMerchant")
@@ -2572,7 +2454,7 @@ api.MapGet("/merchants/{code}", async (
     return view is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
-}).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView) // GET is CSRF-exempt by design; attached for REQ-7.1
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
     .WithMetadata(new EtagResponseMarker("200"))
     .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("GetMerchant")
@@ -2584,7 +2466,7 @@ api.MapGet("/merchants/{code}", async (
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // --- MerchantUser BFF auth (merchant-user-google-sso REQ-8/9/14) ---
-// Auth is its own /api/v1/merchants/auth group, mirroring /api/v1/admins/auth (provider-scoped OIDC): login here
+// Auth is its own /api/v1/merchants/auth group (provider-scoped OIDC, the former admin BFF shape): login here
 // (anonymous), logout/logout-all on the filtered ref below, and the OIDC callbacks
 // (MerchantAuth:Providers:{Provider}:CallbackPath) under the same prefix — while /merchants/users keeps the real
 // user resources (register + me). NOTE PolCorsPolicyProvider carves BOTH /merchants/users AND /merchants/auth out of
@@ -3272,7 +3154,7 @@ api.MapPost("/admins", async (
     var result = await mediator.Send(new CreateScopedCommand(
         body.ObjectId, body.Email, body.IdentityApprovalReference, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).RequireCsrf().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("ผู้ดูแลระบบ")
     .WithName("CreateScopedAdmin")
     .WithSummary("สร้าง Scoped Microsoft admin แบบ pre-bound")
@@ -3294,17 +3176,8 @@ static Tier? WireToTier(string wire) => wire.ToLowerInvariant() switch
 };
 static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
 
-static string SessionStatusToWire(SessionStatus s) => s switch
-{
-    SessionStatus.Active => "active",
-    SessionStatus.Superseded => "superseded",
-    _ => "revoked",
-};
 static AdminListItemResponse AdminToWire(UserListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound, a.Version);
-static PlatformUserSessionResponse SessionToWire(SessionView v) =>
-    new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
-        v.IpAddress, v.UserAgent, v.IsLive);
 
 // The admin directory (REQ-1). Mapped on `api` (not the admins group): a group empty-string root pattern would
 // render the forbidden trailing slash "/api/v1/admins/", same as POST /admins. Gated user.view — reads use the
@@ -3501,51 +3374,6 @@ admin.MapPost("/{id:guid}/tier", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// List an admin's sessions (REQ-4). Super-gated. Unknown admin -> 404; a real admin with none -> 200 + []. Token
-// hashes never leave the store. isLive is evaluated at read time.
-admin.MapGet("/{id:guid}/sessions", async (Guid id, IMediator mediator, CancellationToken ct) =>
-{
-    var sessions = await mediator.Send(new ListSessionsQuery(id), ct);
-    return sessions is null
-        ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
-        : Results.Ok(sessions.Select(SessionToWire).ToArray());
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("ListPlatformUserSessions")
-    .WithSummary("รายการ session ของผู้ดูแลระบบ")
-    .WithDescription("เฉพาะ Super session ของผู้ดูแลระบบ เรียงใหม่สุดก่อน พร้อม flag isLive ที่คำนวณตอนอ่าน ไม่คืนค่า token จริง หากไม่พบผู้ดูแลระบบ -> 404")
-    .Produces<IReadOnlyList<PlatformUserSessionResponse>>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Revoke a session (REQ-5). Super-gated. Revokes the WHOLE rotation family (a single-row revoke would leave the
-// rotated successor live). Unknown session or one owned by a different admin -> 404. Idempotent 204.
-admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
-    Guid id, Guid sessionId, IAdminScope scope, HttpContext http, IMediator mediator,
-    ILoggerFactory loggerFactory, CancellationToken ct) =>
-{
-    var result = await mediator.Send(
-        new RevokeSessionCommand(
-            id, sessionId, scope.Current.AdminId, http.TraceIdentifier, IdempotencyKeys.Require(http)), ct);
-    // Security-log the specifics the append-only audit table has no column for (REQ-5.2), keyed by correlation id.
-    loggerFactory.CreateLogger("Admin.SessionManagement").LogInformation(
-        "Admin session family revoked: sessionId={SessionId} familyId={FamilyId} targetAdminId={TargetAdminId} correlationId={CorrelationId}",
-        result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithMetadata(new IdempotencyMutationMarker())
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("RevokePlatformUserSession")
-    .WithSummary("เพิกถอน session ของผู้ดูแลระบบ")
-    .WithDescription("เฉพาะ Super เพิกถอนทั้ง rotation family ของ session ไม่พบ session หรือ session เป็นของผู้ดูแลระบบคนอื่น -> 404 idempotent (เพิกถอนไปแล้ว -> 204)")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
 // --- Admin Role RBAC (admin-role-rbac, rf2-iam-rbac) ---
 // Orthogonal to Tier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
 // gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
@@ -3711,7 +3539,7 @@ admin.MapPut("/{id:guid}/roles", async (
 PermissionParity.Assert(app);
 
 // CSRF parity: every unsafe endpoint under a cookie-session policy must carry its own side's CSRF filter —
-// a forgotten .RequireCsrf()/.RequireUserCsrf() is a boot failure here, not a silent runtime gap.
+// a forgotten /.RequireUserCsrf() is a boot failure here, not a silent runtime gap.
 CsrfParity.Assert(app);
 
 app.Run();
@@ -4244,63 +4072,47 @@ internal static class ProvisioningGuards
                 "Set Psp__PublicBaseUrl.");
     }
 
-    /// <summary>Production guard for the fixed Microsoft workforce Admin provider. Microsoft is the only
-    /// supported provider, so enabling any other one is a deployment error rather than a fallback.</summary>
+    /// <summary>Production guard for the Microsoft workforce provider behind employee login (IdentityAccess:Workforce).
+    /// The Authority must pin one workforce tenant (public-cloud HTTPS, /{tenant-guid}/v2.0), the client id and the
+    /// injected secret must be present, the callback path is the redirect URI registered on the Entra app, and
+    /// IdentityAccess:WorkforceTenantId must name the same tenant. The error never echoes a secret value.</summary>
     public static void RequireWorkforceAdminProvider(IConfiguration configuration)
     {
-        var graphBaseUrl = configuration["AdminAuth:GraphBaseUrl"] ?? "https://graph.microsoft.com";
-        if (!string.Equals(graphBaseUrl, "https://graph.microsoft.com", StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                "AdminAuth:GraphBaseUrl must be https://graph.microsoft.com in Production.");
-
-        var providers = configuration.GetSection("AdminAuth:Providers").GetChildren().ToArray();
-        var unsupported = providers.FirstOrDefault(provider =>
-            !string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(provider["ClientId"]));
-        if (unsupported is not null)
-            throw new InvalidOperationException(
-                $"AdminAuth:Providers:{unsupported.Key} is not supported. Microsoft is the only Admin provider — "
-                + "leave the other provider's ClientId blank and configure the Microsoft workforce provider.");
-
-        var microsoft = providers.Where(provider =>
-            string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (microsoft.Length != 1)
-            throw new InvalidOperationException(
-                "AdminAuth:Providers:Microsoft must be configured exactly once in Production.");
-
-        var provider = microsoft[0];
-        var clientId = provider["ClientId"];
+        const string section = "IdentityAccess:Workforce";
+        var clientId = configuration[$"{section}:ClientId"];
         if (string.IsNullOrWhiteSpace(clientId) || clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "AdminAuth:Providers:Microsoft:ClientId is required in Production. Set "
-                + "AdminAuth__Providers__Microsoft__ClientId.");
+                $"{section}:ClientId is required in Production. Set IdentityAccess__Workforce__ClientId.");
 
-        var clientSecret = provider["ClientSecret"];
+        var clientSecret = configuration[$"{section}:ClientSecret"];
         if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "AdminAuth:Providers:Microsoft:ClientSecret is required in Production. Set "
-                + "AdminAuth__Providers__Microsoft__ClientSecret.");
+                $"{section}:ClientSecret is required in Production. Set IdentityAccess__Workforce__ClientSecret.");
 
-        var callbackPath = provider["CallbackPath"];
-        if (!string.Equals(callbackPath, "/api/v1/admins/auth/microsoft/callback", StringComparison.Ordinal))
+        var callbackPath = configuration[$"{section}:CallbackPath"];
+        if (!string.Equals(callbackPath, WorkforceAuthority.CallbackPath, StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "AdminAuth:Providers:Microsoft:CallbackPath must be "
-                + "/api/v1/admins/auth/microsoft/callback in Production.");
+                $"{section}:CallbackPath must be {WorkforceAuthority.CallbackPath} in Production.");
 
+        Guid tenantId;
         try
         {
             // Parse enforces HTTPS public-cloud Authority with exactly one workforce tenant UUID and /v2.0.
-            _ = Api.Admins.AdminMicrosoftTenantSnapshot.Parse(clientId, provider["Authority"]);
+            tenantId = WorkforceAuthority.Parse(configuration[$"{section}:Authority"]);
         }
         catch (InvalidOperationException ex)
         {
             throw new InvalidOperationException(
-                "AdminAuth:Providers:Microsoft:Authority must pin the workforce tenant UUID in Production.", ex);
+                $"{section}:Authority must pin the workforce tenant UUID in Production.", ex);
         }
+
+        if (!Guid.TryParse(configuration["IdentityAccess:WorkforceTenantId"], out var pinned) || pinned != tenantId)
+            throw new InvalidOperationException(
+                "IdentityAccess:WorkforceTenantId must equal the tenant in IdentityAccess:Workforce:Authority.");
     }
 
-    /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "AdminAuth" /
-    /// "MerchantAuth"). For every provider with a non-blank ClientId: the id must not be a committed
+    /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "MerchantAuth";
+    /// the retired "AdminAuth" section shape is still accepted by the tests). For every provider with a non-blank ClientId: the id must not be a committed
     /// placeholder, the secret must be injected (blank or placeholder = never injected), the Authority must be a
     /// real https URL (the committed Microsoft Authority ships a REPLACE_WITH_TENANT_ID placeholder — booting with
     /// it means every login dies at the metadata fetch), the CallbackPath must be set and unique within the side,
@@ -4478,10 +4290,6 @@ internal sealed record AdminListItemResponse(
 internal sealed record AdminDetailResponse(
     Guid AdminId, string? Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
     AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes, long Version);
-// admin-account-management REQ-4.2: one session row; status is a lowercase wire string; NO token material.
-internal sealed record PlatformUserSessionResponse(
-    Guid SessionId, Guid FamilyId, string Status, DateTime IssuedAt, DateTime IdleExpiresAt,
-    DateTime AbsoluteExpiresAt, string? IpAddress, string? UserAgent, bool IsLive);
 internal sealed record PermissionCatalogResponse(
     IReadOnlyCollection<PermissionGroupResponse> Groups, IReadOnlyCollection<PermissionItemResponse> Permissions);
 internal sealed record PermissionGroupResponse(string Key, string Label);

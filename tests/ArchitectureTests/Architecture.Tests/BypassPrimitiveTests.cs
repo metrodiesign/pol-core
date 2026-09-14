@@ -20,7 +20,6 @@ public sealed class BypassPrimitiveTests
     // public order-summary token reader (all SqlQueryRaw against a stored procedure/parameterized SQL).
     private static readonly HashSet<string> AllowedPorts =
     [
-        "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs", // task 8.5.1 mirror of the old Admins.Infrastructure SessionStore (deleted)
         "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/WorkforceTenantBindingStore.cs", // Tier 0 startup: read-only singleton migration state query; user invariant reads remain normal filtered EF queries
         "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs", // admin-employee-profile-sync task 1: one read-only parameterized SELECT TOP (2) of EmpCode/FirstNameTh/LastNameTh from operator-managed dbo.VibEmp; no writable EF entity
         "src/Infrastructure/Persistence/Persistence.ControlPlane/Governance/GovernanceSqlLockManager.cs", // admin-console Task 2: transaction-owned applock + audit-head row lock, both constrained by explicit resource/scope key

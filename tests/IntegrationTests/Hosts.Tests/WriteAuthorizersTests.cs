@@ -13,8 +13,6 @@ using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantUser = Merchants.Domain.Users.User;
 using AdminUser = Admins.Domain.Users.User;
 using AdminAudit = Admins.Domain.Users.Audit;
-using AdminSession = Admins.Domain.Users.Session;
-using AdminAuthAudit = Admins.Domain.Users.AuthAudit;
 using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
 using WorkforceTenantBinding = Admins.Domain.Users.WorkforceTenantBinding;
 using MerchantAccess = Admins.Domain.Users.MerchantAccess;
@@ -154,8 +152,6 @@ public sealed class WriteAuthorizersTests
     [InlineData(typeof(AdminUser), WriteOperation.Update)]           // invite-bind stamps the subject
     [InlineData(typeof(AdminAudit), WriteOperation.Insert)]          // self-provision/bind audit
     [InlineData(typeof(AdminRoleAssignment), WriteOperation.Insert)] // bootstrap platform_admin role
-    [InlineData(typeof(AdminSession), WriteOperation.Insert)]        // session start at callback
-    [InlineData(typeof(AdminAuthAudit), WriteOperation.Insert)]      // login-success/denied audit
     public void Control_plane_admin_unbound_allows_exactly_the_callback_login_writes(Type entity, WriteOperation op)
     {
         var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
@@ -165,8 +161,6 @@ public sealed class WriteAuthorizersTests
 
     [Theory]
     [InlineData(typeof(AdminUser), WriteOperation.Delete)]           // no unbound deletes
-    [InlineData(typeof(AdminSession), WriteOperation.Update)]        // rotation/revoke = bound requests
-    [InlineData(typeof(AdminAuthAudit), WriteOperation.Update)]      // audits are append-only pre-bind
     [InlineData(typeof(Role), WriteOperation.Insert)]                // role catalog stays bound-only
     [InlineData(typeof(MerchantAccess), WriteOperation.Insert)]      // assignments stay bound-only
     public void Control_plane_admin_unbound_denies_everything_outside_the_login_flow(Type entity, WriteOperation op)

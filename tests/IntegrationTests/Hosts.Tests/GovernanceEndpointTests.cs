@@ -64,7 +64,7 @@ public sealed class GovernanceEndpointTests
         Assert.Equal(operationId, operation.GetProperty("operationId").GetString());
         var security = operation.GetProperty("security").EnumerateArray().ToArray();
         Assert.Single(security);
-        Assert.True(security[0].TryGetProperty("AdminSession", out _));
+        Assert.True(security[0].TryGetProperty("PlatformToken", out _));
         return operation;
     }
 
