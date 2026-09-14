@@ -71,7 +71,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/api/v1/admins/me"));
+        var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/api/v1/accounts"));
 
         Assert.Equal(CorsFactory.AdminSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials"))); // cookie XHR (REQ-4.5)
@@ -111,7 +111,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        // The credentialed admin policy is bound only to /api/v1/admins — the split keeps it off the merchant-user surface.
+        // The credentialed admin policy is bound only to the admin plane — the split keeps it off the merchant-user surface.
         var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/health/live"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
@@ -123,7 +123,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight("https://evil.example.com", "/api/v1/admins/me"));
+        var response = await client.SendAsync(Preflight("https://evil.example.com", "/api/v1/accounts"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
     }

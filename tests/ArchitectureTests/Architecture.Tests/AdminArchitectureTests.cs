@@ -43,8 +43,8 @@ public class AdminArchitectureTests
 
     private static System.Reflection.Assembly AssemblyFor(string layer) => layer switch
     {
-        "Domain" => typeof(global::Admins.Domain.Users.User).Assembly,
-        "Application" => typeof(global::Admins.Application.Users.IUserRepository).Assembly,
+        "Domain" => typeof(global::Admins.Domain.Users.Audit).Assembly,
+        "Application" => typeof(global::Admins.Application.IAdminScope).Assembly,
         "Infrastructure" => typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(layer), layer, "Unknown layer"),
     };

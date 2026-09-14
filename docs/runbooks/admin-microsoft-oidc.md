@@ -3,8 +3,8 @@
 คู่มือนี้อธิบาย runtime ของ employee login ที่เป็น credential เดียวของ admin console หลัง 2026-09-14: Microsoft Entra
 workforce OIDC ทำที่ API (`IdentityAccess:Workforce`, scheme `IdentityWorkforceMicrosoft`) แล้ว OpenIddict ออก platform JWT
 ให้ admin SPA (authorization code + PKCE) legacy admin cookie stack (`AdminAuth:*`, admin session cookie, CSRF double-submit,
-ตาราง `admin.Sessions`, Microsoft Graph employee-profile lookup ตอน login) ถูก retire ทั้งหมด ขั้นตอน schema/offline mapping
-โดยละเอียดอยู่ที่ [Tenant-aware identity cutover](admin-workforce-jit-rollout.md) สัญญาฝั่ง SPA ดู
+ตาราง `admin.Sessions`, Microsoft Graph employee-profile lookup ตอน login, ตาราง `admin.Users` และ route `/api/v1/admins/**`)
+ถูก retire ทั้งหมด employee identity เป็น `acct.Accounts` ที่ JIT ตอน login สัญญาฝั่ง SPA ดู
 [`docs/reference/admins.md`](../reference/admins.md)
 
 ## 1. Runtime identity contract
@@ -158,8 +158,7 @@ Super Admin สร้าง invite ผ่าน `POST /api/v1/admins` (Bearer pl
 
 ## 7. Deployment order
 
-1. ผ่าน tenant-aware schema/offline mapping ตาม [cutover runbook](admin-workforce-jit-rollout.md) และคง Admin traffic ปิด
-   ตลอดช่วง incompatible schema
+1. apply migration ล่าสุด (`docker/migrate-entrypoint.sh`) และคง Admin traffic ปิดตลอดช่วง incompatible schema
 2. ตั้ง `IdentityAccess__Workforce*`, `IdentityAccess__WorkforceTenantId` และ `OAUTH_ISSUER` ให้ครบ (ดูข้อ 2)
 3. start new binary ให้ boot guard และ startup tenant/state verifier ผ่าน (migration `RetireAdminSessions` drop `admin.Sessions`)
 4. staging ทดสอบจาก admin SPA: email-less exact login, JIT, pre-bound invite, code exchange ที่ `POST /oauth/token`, Bearer

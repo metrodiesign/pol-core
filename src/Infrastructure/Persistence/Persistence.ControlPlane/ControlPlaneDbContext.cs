@@ -1,4 +1,3 @@
-using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.DataProtection;
@@ -20,7 +19,6 @@ using Accounts.Domain;
 using Access.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
-using AdminMerchantAccess = Admins.Domain.Users.MerchantAccess;
 using AccountMerchantAccess = Access.Domain.MerchantAccess;
 using MerchantAccount = Merchants.Domain.Users.User;
 using MerchantSession = Merchants.Domain.Users.Session;
@@ -85,12 +83,7 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
     /// without an actor is deny-by-default.</summary>
     public Guid CurrentMerchant => _actor is { HasActor: true } actor ? actor.MerchantId : Guid.Empty;
 
-    public DbSet<global::Admins.Domain.Users.User> Users => Set<global::Admins.Domain.Users.User>();
-    public DbSet<WorkforceTenantBinding> WorkforceTenantBindings => Set<WorkforceTenantBinding>();
-    public DbSet<AdminMerchantAccess> MerchantAccess => Set<AdminMerchantAccess>();
     public DbSet<Audit> UserAudits => Set<Audit>();
-    public DbSet<global::Admins.Domain.Users.AuthAudit> AuthAudits => Set<global::Admins.Domain.Users.AuthAudit>();
-    public DbSet<global::Admins.Domain.Roles.RoleAssignment> RoleAssignments => Set<global::Admins.Domain.Roles.RoleAssignment>();
 
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
@@ -181,12 +174,7 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.ApplyConfiguration(new WorkforceTenantBindingConfiguration());
-        modelBuilder.ApplyConfiguration(new UserConfiguration());
-        modelBuilder.ApplyConfiguration(new MerchantAccessConfiguration());
         modelBuilder.ApplyConfiguration(new AuditConfiguration());
-        modelBuilder.ApplyConfiguration(new AuthAuditConfiguration());
-        modelBuilder.ApplyConfiguration(new RoleAssignmentConfiguration());
 
         modelBuilder.ApplyConfiguration(new RoleConfiguration());
         modelBuilder.ApplyConfiguration(new RolePermissionConfiguration());
@@ -288,7 +276,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
             modelBuilder.Entity<MerchantSession>().ToTable("MerchantUserSessions", SchemaNames.Merch);
             modelBuilder.Entity<MerchantAuthAudit>().ToTable("MerchantAuthAudits", SchemaNames.Merch);
             modelBuilder.Entity<MerchantRoleAssignment>().ToTable("MerchantRoleAssignments", SchemaNames.Merch);
-            modelBuilder.Entity<AdminMerchantAccess>().ToTable("AdminMerchantAccess", SchemaNames.Admin);
             modelBuilder.Entity<AccountMerchantAccess>().ToTable("AccountMerchantAccess", SchemaNames.Access);
 
             foreach (var property in modelBuilder.Model.GetEntityTypes().SelectMany(entity => entity.GetProperties()))

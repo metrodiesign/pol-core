@@ -91,7 +91,7 @@ Email ใช้ sender port; SMS ไม่มี provider จริงใน env
 | Transactions | `/api/v1/transactions`, `/api/v1/transactions/{transactionId}`, `/events`, `/verify`, `/review-notes` |
 | PSP webhook | `POST /api/v1/webhooks/{pspConnectionId:guid}` |
 | Identity/access | `/api/v1/accounts...`, `/api/v1/agent-registration...`, `/api/v1/agent-registrations...` |
-| Admin/control | `/api/v1/admins...`, `/api/v1/merchants...`, `/originators...`, `/approvals...`, `/audits...`, `/api-clients...`, `/reports...`, delivery routes |
+| Admin/control | `/api/v1/merchants...`, `/originators...`, `/approvals...`, `/audits...`, `/api-clients...`, `/reports...`, delivery routes |
 
 Audience policy, CSRF, `If-Match` และ `Idempotency-Key` เป็น endpoint metadata; route path ไม่ใช้ legacy audience-first `/api/admin/v1` หรือ `/api/producer/v1`.
 

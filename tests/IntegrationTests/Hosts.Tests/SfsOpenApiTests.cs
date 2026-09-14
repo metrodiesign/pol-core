@@ -91,8 +91,6 @@ public sealed class SfsOpenApiTests
 
     // Every active endpoint carrying SfsQueryParamsMarker must declare all five SFS parameters.
     [Theory]
-    [InlineData("/api/v1/admins/roles")]
-    [InlineData("/api/v1/admins")]
     [InlineData("/api/v1/orders")]
     [InlineData("/api/v1/payments/sessions")]
     public async Task An_sfs_endpoint_declares_the_sfs_query_parameters(string path)

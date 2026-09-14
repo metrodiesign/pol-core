@@ -122,8 +122,8 @@ Orders → Paid. จบ ไม่มี issuance.
   **admin cross-merchant action** ไม่ผ่าน DB principal แยกอีกต่อไป (ไม่มีแล้ว) — ผ่าน named escape-hatch port
   (`ConnectionRepository.ListByTenantAsync`, allowlisted, `IgnoreQueryFilters()`) เท่านั้น + reason/correlation id → audit
 - **Scoped-admin isolation = app-layer floor เต็มรูปแบบอีกครั้ง** (RLS-floor ระยะสั้นของ rf1 REQ-3.2/3.3 ถูก supersede —
-  RLS ทั้งก้อนถอดแล้ว): `IAdminMerchantDirectory` + merchant-role capability (task 4) เช็ค tier ของ `admin.Users` ที่
-  แอป — Super เห็นทุกแถว (`ControlPlaneDbContext` ไม่มี query filter), Scoped ถูกจำกัดผ่าน seam แอป (`IAdminQuery`-style,
+  RLS ทั้งก้อนถอดแล้ว): merchant-role capability (task 4) เช็ค tier จาก `IAdminScope` (`access.PlatformAccess` active = Super;
+  `admin.Users` retire แล้ว 2026-09-14) ที่แอป — Super เห็นทุกแถว (`ControlPlaneDbContext` ไม่มี query filter), Scoped ถูกจำกัดผ่าน seam แอป (`IAdminQuery`-style,
   ฝัง `WHERE MerchantId ∈ accessible`). **authorization lease** (`AuthorizationLease.VerifyAsync`) recheck
   `AuthorizationVersion` ในทรานแซกชันเดียวกับ business write กัน revoke-then-still-commit (concurrency token คู่กับ
   explicit version check) — Architecture.Tests ห้าม handler อื่นส่ง cross-merchant query ตรง + leak/bypass test =

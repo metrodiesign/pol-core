@@ -40,8 +40,8 @@ EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # ---- migrate: one-shot — bootstrap principals + apply docker/migrations/schema.sql (both sqlcmd). Runs from source.
-# Derives from `restore` (NOT `build`) so it never runs the host publish — it only needs source + sqlcmd + the
-# WorkforceIdentityMigrator tool. No dotnet-ef: the schema script is generated at dev time and committed.
+# Derives from `restore` (NOT `build`) so it never runs the host publish — it only needs the bootstrap/schema SQL
+# from source + sqlcmd. No dotnet-ef: the schema script is generated at dev time and committed.
 FROM restore AS migrate
 USER root
 RUN apt-get update \
@@ -53,7 +53,6 @@ RUN apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends mssql-tools18 \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/opt/mssql-tools18/bin:/root/.dotnet/tools:${PATH}"
-RUN dotnet build src/Infrastructure/Infrastructure.csproj -c Release --no-restore
 # DB CA trust for `sqlcmd -N` is installed at RUNTIME by migrate-entrypoint.sh from the mounted
 # db_ca_cert secret — a build-time install can't work because images are built in CI where the
 # operator's CA doesn't exist, and deploy pulls with `--no-build`.

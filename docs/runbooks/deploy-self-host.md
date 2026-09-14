@@ -79,11 +79,9 @@ Use isolated staging DB. Never point rehearsal at production.
 3. Record explicit reset approval.
 4. Stop application traffic and background dispatchers.
 5. DBA resets only approved staging `VCentralPay` target using organization procedure.
-6. Run all 31 migrations in timestamp order through `20260907033444_LegacyVaultExpiryRemediation`.
-7. Run `WorkforceIdentityMigrator`; an existing Admin inventory requires the verified first-run manifest and exact
-   approval inputs from `admin-workforce-jit-rollout.md`. Require exit `0` before API startup.
-8. Run `docker/bootstrap/assert-fresh-db.sql` and the aggregate tenant-aware completion query.
-9. Start API and run smoke path below.
+6. Apply `docker/migrations/schema.sql` (every migration in timestamp order).
+7. Run `docker/bootstrap/assert-fresh-db.sql`.
+8. Start API and run smoke path below.
 10. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.
 11. Delete every ephemeral manifest copy and attach only aggregate logs, catalog assertion, smoke result and rollback
     timing to `STAGING_EVIDENCE_URI`.
@@ -127,8 +125,7 @@ Complete these checks before changing production:
 8. Promote corporate Super through Admin management API before production; Microsoft bootstrap allowlist does not exist.
 9. Tier 1 has a full test identity that can register, wait for approval, receive approval and login again.
 
-Email rename or reuse never transfers authorization because Email is not an identity key. Follow
-`admin-workforce-jit-rollout.md` for manifest, maintenance-window, forward-recovery and multi-tenant blocker rules.
+Email rename or reuse never transfers authorization because Email is not an identity key.
 
 ### 5.2 Runtime configuration
 
@@ -215,25 +212,16 @@ FROM merch.RegistrationAudits ra
 LEFT JOIN merch.Users u ON u.Subject = ra.TargetSubject
 WHERE u.Id IS NULL;
 
-SELECT COUNT_BIG(*) AS OrphanAdminActors
-FROM merch.RegistrationAudits ra
-LEFT JOIN admin.Users a ON a.Subject = ra.ActorSubject
-WHERE ra.Action IN (N'approved', N'rejected', N'revealed', N'suspended')
-  AND a.Id IS NULL;
-
 SELECT COUNT_BIG(*) AS RegistrationAuditRows
 FROM merch.RegistrationAudits;
 ```
 
-Both orphan counts must be `0`. The migration stops before completing if either count is non-zero. Record the audit-row
+The orphan count must be `0`. The migration stops before completing if either count is non-zero. Record the audit-row
 count to size the migration window; the migration backfills `TargetUserId` and `ActorAdminId`, changes identity indexes
 to `(Provider, Subject)`, then adds a foreign key.
 
-Tier 0 tenant-aware cutover has an additional fail-closed preflight in `WorkforceIdentityMigrator`: manifest digest,
-exact target, approval inputs, complete `AdminId` coverage, singleton tenant and exact tuple uniqueness must all pass.
-Any drift returns non-zero without partial mapping. The manifest contains only `AdminId`, `tenantId` and `objectId`;
-Email is never an input. Use `admin-workforce-jit-rollout.md` as the detailed export, manifest, maintenance-window,
-ephemeral-cleanup and recovery procedure.
+Employee identity is JIT-provisioned into `acct.Accounts` on first Entra login (exact `tid`/`oid`); the legacy
+`admin.Users` inventory and its `WorkforceIdentityMigrator` cutover no longer exist, so there is no manifest step.
 
 Rollout order:
 
@@ -292,9 +280,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, applies
 `docker/migrations/schema.sql` (committed idempotent EF script; only migrations missing from
-`__EFMigrationsHistory` run), then runs `WorkforceIdentityMigrator`. An existing inventory's first invocation must use
-the protected manifest command in `admin-workforce-jit-rollout.md`; ordinary `up` may then run the completed no-manifest
-verification before API startup. API never auto-migrates outside Development.
+`__EFMigrationsHistory` run). API never auto-migrates outside Development.
 
 Verify:
 

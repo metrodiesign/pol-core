@@ -139,20 +139,17 @@ file sealed class BridgeFactory : WebApplicationFactory<ApiHost::Program>
 public sealed class IdentityAccessAdminConsoleBridgeTests
 {
     [Fact]
-    public async Task Employee_with_platform_access_reads_the_admin_console_as_an_unrestricted_admin()
+    public async Task Employee_with_platform_access_is_admitted_to_the_admin_console()
     {
         using var factory = new BridgeFactory();
         using var client = factory.CreateBearerClient();
 
-        var response = await client.GetAsync("/api/v1/admins/me");
+        // The employee JWT is ADMITTED by the "admin" policy (IAdminScope materialized) and then stopped only by
+        // the per-endpoint permission gate: it holds txn.view, not the user.manage /accounts requires -> 403, NOT
+        // the 401 a non-employee/system/stale token gets at authentication.
+        var response = await client.GetAsync("/api/v1/accounts");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var me = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(factory.State.Account.Id, me.GetProperty("adminId").GetGuid());
-        Assert.Equal("bridge@example.test", me.GetProperty("email").GetString());
-        Assert.Equal("Super", me.GetProperty("tier").GetString());
-        Assert.True(me.GetProperty("accessibleMerchants").GetProperty("isUnrestricted").GetBoolean());
-        Assert.Equal(["txn.view"], me.GetProperty("permissions").EnumerateArray().Select(x => x.GetString()!).ToArray());
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -162,7 +159,7 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
         factory.State.Account = Account.Create(AccountType.Agent, "Bridge agent", DateTime.UtcNow);
         using var client = factory.CreateBearerClient();
 
-        var response = await client.GetAsync("/api/v1/admins/me");
+        var response = await client.GetAsync("/api/v1/accounts");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -175,7 +172,7 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
         factory.State.ClientId = "system-client";
         using var client = factory.CreateBearerClient();
 
-        var response = await client.GetAsync("/api/v1/admins/me");
+        var response = await client.GetAsync("/api/v1/accounts");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -187,7 +184,7 @@ public sealed class IdentityAccessAdminConsoleBridgeTests
         factory.State.TokenVersion = factory.State.Account.AuthorizationVersion + 1;
         using var client = factory.CreateBearerClient();
 
-        var response = await client.GetAsync("/api/v1/admins/me");
+        var response = await client.GetAsync("/api/v1/accounts");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

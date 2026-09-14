@@ -63,12 +63,7 @@ public sealed class PolDbContext : DbContext, IMerchantFilterContext
         modelBuilder.ApplyConfiguration(new global::Persistence.MerchantUsers.Users.AdminUserOperationRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new global::Persistence.MerchantUsers.Users.MerchantUserManagementAuditConfiguration(this));
         modelBuilder.ApplyConfiguration(new BuildingBlocks.Infrastructure.Outbox.MerchantUserOutboxConfiguration());
-        modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.WorkforceTenantBindingConfiguration());
-        modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.UserConfiguration());
-        modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.MerchantAccessConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.AuditConfiguration());
-        modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.AuthAuditConfiguration());
-        modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.RoleAssignmentConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Admins.ProvisioningOperationConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Governance.ApprovalRequestConfiguration());
         modelBuilder.ApplyConfiguration(new global::Persistence.ControlPlane.Governance.ApprovalEventConfiguration());
@@ -149,23 +144,15 @@ public sealed class PolDbContext : DbContext, IMerchantFilterContext
         modelBuilder.Entity<global::Iam.Domain.Roles.RolePermission>()
             .HasOne<global::Iam.Domain.Permissions.Permission>().WithMany()
             .HasForeignKey(x => x.PermissionKey).OnDelete(DeleteBehavior.Restrict);
-        modelBuilder.Entity<global::Admins.Domain.Roles.RoleAssignment>()
-            .HasOne<global::Iam.Domain.Roles.Role>().WithMany()
-            .HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<global::Merchants.Domain.Users.Roles.RoleAssignment>()
             .HasOne<global::Iam.Domain.Roles.Role>().WithMany()
             .HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<global::Iam.Domain.Roles.RolePermission>()
             .HasIndex(x => x.PermissionKey);
-        modelBuilder.Entity<global::Admins.Domain.Roles.RoleAssignment>()
-            .HasIndex(x => x.RoleId);
         modelBuilder.Entity<global::Merchants.Domain.Users.Roles.RoleAssignment>()
             .HasIndex(x => x.RoleId);
         modelBuilder.Entity<global::Payments.Domain.Psp.Connection>()
             .HasIndex(x => new { x.PaymentProviderId, x.Psp });
-        modelBuilder.Entity<global::Admins.Domain.Users.User>().ToTable("Users", SchemaNames.Admin, table =>
-            table.HasCheckConstraint("CK_Users_TenantId_MicrosoftProvider",
-                "[TenantId] IS NULL OR [Provider] COLLATE Latin1_General_100_BIN2 = N'microsoft'"));
 
         // SQLite ignores SQL schemas and would otherwise collapse the admin and merchant identity tables
         // into duplicate physical names during architecture fixtures. Keep SQL Server names/schema intact;
@@ -177,8 +164,6 @@ public sealed class PolDbContext : DbContext, IMerchantFilterContext
             modelBuilder.Entity<global::Merchants.Domain.Users.AuthAudit>().ToTable("MerchantAuthAudits", SchemaNames.Merch);
             modelBuilder.Entity<global::Merchants.Domain.Users.Roles.RoleAssignment>()
                 .ToTable("MerchantRoleAssignments", SchemaNames.Merch);
-            modelBuilder.Entity<global::Admins.Domain.Users.MerchantAccess>()
-                .ToTable("AdminMerchantAccess", SchemaNames.Admin);
             modelBuilder.Entity<global::Access.Domain.MerchantAccess>()
                 .ToTable("AccountMerchantAccess", SchemaNames.Access);
         }

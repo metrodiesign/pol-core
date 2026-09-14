@@ -15,11 +15,10 @@ using Microsoft.Extensions.Hosting;
 namespace Hosts.Tests;
 
 /// <summary>
-/// The /api/v1/admins/* surface gates on <c>RequireAuthorization("admin")</c>. That policy is the
-/// Session COOKIE scheme — T5 retired the Google id-token Bearer scheme entirely, so there is no
-/// dual-scheme fallback left to test against: it is pinned to that one scheme and refuses anonymous (REQ-7.2). A
-/// live /api/v1/admins request with no session cookie returns 401 — not 500 (missing policy) and not a login
-/// redirect.
+/// The admin console surface (e.g. <c>/api/v1/accounts</c>) gates on <c>RequireAuthorization("admin")</c>. That
+/// policy forwards the admin audience to the employee platform Bearer token scheme — no dual-scheme fallback, so
+/// it is pinned to that one scheme and refuses anonymous (REQ-7.2). A live admin request with no token returns
+/// 401 — not 500 (missing policy) and not a login redirect.
 /// </summary>
 public sealed class AdminProvisioningAuthorizationTests
 {
@@ -45,7 +44,7 @@ public sealed class AdminProvisioningAuthorizationTests
         using var factory = new GateFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/admins/me");
+        var response = await client.GetAsync("/api/v1/accounts");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

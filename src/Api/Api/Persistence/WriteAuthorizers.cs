@@ -6,11 +6,7 @@ using BuildingBlocks.Infrastructure.Provisioning;
 using BuildingBlocks.Infrastructure.Vault;
 using Persistence.MerchantUsers.Outbox;
 using Admins.Application;
-using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
-using AdminUser = Admins.Domain.Users.User;
 using AdminAudit = Admins.Domain.Users.Audit;
-using WorkforceTenantBinding = Admins.Domain.Users.WorkforceTenantBinding;
-using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
 using Iam.Domain.ApiClients;
@@ -319,8 +315,7 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
 {
     private static readonly HashSet<Type> BoundOnlyTypes =
     [
-        typeof(AdminUser), typeof(MerchantAccess), typeof(AdminAudit),
-        typeof(AdminRoleAssignment),
+        typeof(AdminAudit),
         typeof(Role), typeof(RolePermission), typeof(PermissionGroup), typeof(Permission),
         typeof(ApiClient), typeof(OneTimeSecretTicket),
         typeof(WebhookEndpoint), typeof(WebhookDelivery), typeof(NotificationRule),
@@ -358,10 +353,7 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
     // MerchantRequestWriteAuthorizer's accepted pre-bind branch above.
     private static readonly HashSet<(Type, WriteOperation)> UnboundLoginFlowWrites =
     [
-        (typeof(AdminUser), WriteOperation.Insert),
-        (typeof(AdminUser), WriteOperation.Update),
         (typeof(AdminAudit), WriteOperation.Insert),
-        (typeof(AdminRoleAssignment), WriteOperation.Insert),
         (typeof(IdentityAccount), WriteOperation.Insert),
         (typeof(LoginAccount), WriteOperation.Insert),
         // Repeat login observes the provider's current email/display name on the existing LoginAccount.
@@ -419,7 +411,6 @@ internal sealed class ControlPlaneWorkerWriteAuthorizer : IWriteAuthorizer
         (typeof(WebhookDelivery), WriteOperation.Insert),
         (typeof(WebhookDelivery), WriteOperation.Update),
         (typeof(NotificationDelivery), WriteOperation.Insert),
-        (typeof(WorkforceTenantBinding), WriteOperation.Insert),
         (typeof(OpenIddictEntityFrameworkCoreApplication), WriteOperation.Insert),
         (typeof(OpenIddictEntityFrameworkCoreApplication), WriteOperation.Update),
         (typeof(OpenIddictEntityFrameworkCoreAuthorization), WriteOperation.Insert),

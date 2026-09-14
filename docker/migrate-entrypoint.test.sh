@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # migrate-entrypoint.test.sh — script-level tests for docker/migrate-entrypoint.sh's bounded
 # DB-reachability retry loop (now run per DB tier: main + hippo + mammoth), network-vs-TLS failure
-# classification, DB_PORT/TLS sqlcmd wiring, redacted target output and the schema-before-workforce-tool order.
-# The tool now builds its privileged connection in-process from the existing container inputs.
+# classification, DB_PORT/TLS sqlcmd wiring, redacted target output and the sqlcmd-only schema apply.
 # รัน: bash docker/migrate-entrypoint.test.sh   (exit 0 = ผ่านครบ)
 #
 # Approach: stub `sqlcmd` and `dotnet` first on PATH. The sqlcmd stub simulates a configurable
 # number of reachability-probe failures (network or TLS flavored, via env) before succeeding,
-# and always succeeds for the bootstrap (-i ...) invocation. The dotnet stub intercepts the workforce
-# migration tool and logs invocation without printing any composed connection string.
+# and always succeeds for the bootstrap (-i ...) invocation. The dotnet stub only records that the
+# entrypoint never shells out to dotnet at all (no tool, no dotnet-ef).
 set -u
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/migrate-entrypoint.sh"
@@ -55,9 +54,6 @@ chmod +x "$STUB_BIN/sqlcmd"
 cat >"$STUB_BIN/dotnet" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$DOTNET_LOG"
-case "$*" in
-    *"Infrastructure/Infrastructure.csproj"*) exit "${WORKFORCE_TOOL_EXIT:-0}" ;;
-esac
 EOF
 chmod +x "$STUB_BIN/dotnet"
 
@@ -174,8 +170,8 @@ check_not_contains "privacy: core target absent from output" "$out_ok" "dbhost.i
 check_not_contains "privacy: motor source target absent from output" "$out_ok" "hippohost.internal"
 check_not_contains "privacy: non-motor source target absent from output" "$out_ok" "mammothhost.internal"
 check_contains "reachable: single probe attempt (DB_SERVER)" "$(cat "$(probe_file dbhost.internal 1433)" 2>/dev/null)" "1"
-dotnet_log="$(cat "$TMPDIR/dotnet.log")"
-check_contains "workforce tool: invoked" "$dotnet_log" "src/Infrastructure/Infrastructure.csproj"
+dotnet_log="$(cat "$TMPDIR/dotnet.log" 2>/dev/null)"
+check_eq "no dotnet invocation: schema apply is sqlcmd-only" "$dotnet_log" ""
 schema_call="$(grep 'docker/migrations/schema.sql' "$TMPDIR/sqlcmd.log")"
 check_contains "schema script: applied via sqlcmd"           "$schema_call" "-i docker/migrations/schema.sql"
 check_contains "schema script: targets DB_NAME"              "$schema_call" "-d AppDb"
@@ -183,16 +179,6 @@ check_contains "schema script: QUOTED_IDENTIFIER ON (-I)"    "$schema_call" " -I
 check_contains "schema script: exit-on-error (-b)"           "$schema_call" " -b "
 check_contains "schema script: encrypted (-N)"               "$schema_call" " -N "
 check_not_contains "schema script: no dotnet ef in image path" "$dotnet_log" "ef database update"
-check_eq "workforce tool: runs after schema script" \
-    "$([ -n "$schema_call" ] && [ -s "$TMPDIR/dotnet.log" ] && echo yes || echo no)" "yes"
-
-# --- workforce conversion failure is a hard deployment gate ---
-rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log" "$TMPDIR/dotnet.log"
-out_tool_failure="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 WORKFORCE_TOOL_EXIT=23 2>&1)"
-rc_tool_failure=$?
-check_eq "workforce tool failure: non-zero exit" "$rc_tool_failure" "23"
-check_contains "workforce tool failure: reached conversion" "$out_tool_failure" "validating and converting workforce identities"
-check_not_contains "workforce tool failure: deploy not marked done" "$out_tool_failure" "[migrate] done."
 
 # --- unreachable for the whole bounded window: exits non-zero, attempts logged ---
 rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"

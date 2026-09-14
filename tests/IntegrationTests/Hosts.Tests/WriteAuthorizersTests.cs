@@ -12,11 +12,7 @@ using Payments.Domain.Psp;
 using Persistence.MerchantUsers.Outbox;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantUser = Merchants.Domain.Users.User;
-using AdminUser = Admins.Domain.Users.User;
 using AdminAudit = Admins.Domain.Users.Audit;
-using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
-using WorkforceTenantBinding = Admins.Domain.Users.WorkforceTenantBinding;
-using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Role = Iam.Domain.Roles.Role;
 using OrderItem = Orders.Domain.Items.Item;
 using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
@@ -86,7 +82,7 @@ public sealed class WriteAuthorizersTests
     {
         var authorizer = new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(new FakeActor(true, MerchantA));
 
-        Assert.False(authorizer.CanWrite(typeof(AdminUser), WriteOperation.Insert, Guid.Empty));
+        Assert.False(authorizer.CanWrite(typeof(AdminAudit), WriteOperation.Insert, Guid.Empty));
     }
 
     // Direct Order creation and detail-read audit both use merchant request write floor.
@@ -143,18 +139,15 @@ public sealed class WriteAuthorizersTests
     {
         var bound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(true));
 
-        Assert.True(bound.CanWrite(typeof(AdminUser), WriteOperation.Update, Guid.Empty));
+        Assert.True(bound.CanWrite(typeof(AdminAudit), WriteOperation.Insert, Guid.Empty));
         Assert.True(bound.CanWrite(typeof(Role), WriteOperation.Insert, Guid.Empty));
     }
 
-    // Bugfix: every write the OIDC callback makes (bootstrap self-provision, invite-bind, session start, the
-    // login-success AND denied-auth audits) happens BEFORE any admin scope exists — the scope binds from the
-    // session cookie the callback is busy creating. Gating those on IsBound bricked the whole admin login.
+    // The employee login flow's admin audit is the only unbound write the ControlPlane admin authorizer still
+    // allows: the legacy admin identity plane (self-provision/invite-bind/role bootstrap over admin.Users) was
+    // retired, so those unbound writes are gone with it.
     [Theory]
-    [InlineData(typeof(AdminUser), WriteOperation.Insert)]           // allowlist bootstrap
-    [InlineData(typeof(AdminUser), WriteOperation.Update)]           // invite-bind stamps the subject
-    [InlineData(typeof(AdminAudit), WriteOperation.Insert)]          // self-provision/bind audit
-    [InlineData(typeof(AdminRoleAssignment), WriteOperation.Insert)] // bootstrap platform_admin role
+    [InlineData(typeof(AdminAudit), WriteOperation.Insert)]          // login-success/denied audit
     public void Control_plane_admin_unbound_allows_exactly_the_callback_login_writes(Type entity, WriteOperation op)
     {
         var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
@@ -163,9 +156,8 @@ public sealed class WriteAuthorizersTests
     }
 
     [Theory]
-    [InlineData(typeof(AdminUser), WriteOperation.Delete)]           // no unbound deletes
+    [InlineData(typeof(AdminAudit), WriteOperation.Delete)]          // no unbound deletes
     [InlineData(typeof(Role), WriteOperation.Insert)]                // role catalog stays bound-only
-    [InlineData(typeof(MerchantAccess), WriteOperation.Insert)]      // assignments stay bound-only
     public void Control_plane_admin_unbound_denies_everything_outside_the_login_flow(Type entity, WriteOperation op)
     {
         var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
@@ -201,24 +193,6 @@ public sealed class WriteAuthorizersTests
         var bound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(true));
 
         Assert.False(bound.CanWrite(typeof(ProvisioningOperation), WriteOperation.Update, Guid.Empty));
-    }
-
-    [Fact]
-    public void Control_plane_admin_cannot_write_the_workforce_tenant_binding()
-    {
-        var bound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(true));
-
-        Assert.False(bound.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Insert, Guid.Empty));
-    }
-
-    [Fact]
-    public void Control_plane_worker_can_only_insert_the_workforce_tenant_binding()
-    {
-        var worker = new ApiHost::Api.Persistence.ControlPlaneWorkerWriteAuthorizer();
-
-        Assert.True(worker.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Insert, Guid.Empty));
-        Assert.False(worker.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Update, Guid.Empty));
-        Assert.False(worker.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Delete, Guid.Empty));
     }
 
     private sealed class FakeActor(bool hasActor, Guid merchantId) : IActorContext

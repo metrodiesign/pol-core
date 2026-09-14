@@ -88,11 +88,15 @@ public sealed class ProviderDiscriminatorMigrationTests
                     """)));
             }
 
-            // REQ-4.5/6.7: current EF mappings still resolve both legacy identities by (provider, subject).
+            // REQ-4.5/6.7: legacy identities still resolve by (provider, subject). The admin identity plane was
+            // retired (no CLR aggregate), so the admin resolution is verified with raw SQL; the merchant identity
+            // still resolves through the live EF mapping.
             context.ChangeTracker.Clear();
-            var admin = await context.Set<Admins.Domain.Users.User>().AsNoTracking()
-                .SingleOrDefaultAsync(x => x.Provider == "google" && x.Subject == "g-admin-sub-1");
-            Assert.Equal(adminId, admin?.Id);
+            await using (var resolve = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+            {
+                Assert.Equal(adminId.ToString().ToLowerInvariant(), Convert.ToString(await IntegrationDb.ScalarAsync(resolve,
+                    "SELECT LOWER(CONVERT(nvarchar(36), Id)) FROM admin.Users WHERE Provider = N'google' AND Subject = N'g-admin-sub-1';")));
+            }
 
             var merchant = await context.Set<Merchants.Domain.Users.User>().IgnoreQueryFilters().AsNoTracking()
                 .SingleOrDefaultAsync(x => x.Provider == "google" && x.Subject == "g-user-sub-1");

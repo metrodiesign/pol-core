@@ -162,9 +162,6 @@ public sealed class PermissionGateSitesTests
         new("GET", "/api/v1/orders/export", "admin", "txn.export"),
         new("GET", "/api/v1/merchants/users/", "admin", "merchants.users.view"),
         new("GET", "/api/v1/merchants/users/{merchantUserId:guid}", "admin", "merchants.users.view"),
-        new("POST", "/api/v1/admins/merchants/users/{merchantUserId:guid}/approve", "admin", "merchants.users.approve"),
-        new("POST", "/api/v1/admins/merchants/users/{merchantUserId:guid}/reject", "admin", "merchants.users.reject"),
-        new("GET", "/api/v1/admins/merchants/users/{merchantUserId:guid}/registrations", "admin", "merchants.users.view"),
         new("GET", "/api/v1/merchants/{merchantId:guid}/users/{merchantUserId:guid}/edit", "admin", "merchants.users.manage"),
         new("POST", "/api/v1/merchants/{merchantId:guid}/user-invitations", "admin", "merchants.users.manage"),
         new("PUT", "/api/v1/merchants/{merchantId:guid}/users/{merchantUserId:guid}", "admin", "merchants.users.manage"),
@@ -175,13 +172,6 @@ public sealed class PermissionGateSitesTests
         new("PUT", "/api/v1/merchants/{merchantId:guid}/roles/{code}", "admin", "merchants.roles.manage"),
         new("DELETE", "/api/v1/merchants/{merchantId:guid}/roles/{code}", "admin", "merchants.roles.manage"),
         new("PUT", "/api/v1/merchants/{merchantId:guid}/users/{merchantUserId:guid}/roles", "admin", "merchants.roles.manage"),
-        new("GET", "/api/v1/admins", "admin", "user.view"),
-        new("GET", "/api/v1/admins/{id:guid}", "admin", "user.view"),
-        new("GET", "/api/v1/admins/{id:guid}/effective-permissions", "admin", "user.view"),
-        new("POST", "/api/v1/admins/roles", "admin", "user.roles"),
-        new("PUT", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
-        new("DELETE", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
-        new("PUT", "/api/v1/admins/{id:guid}/roles", "admin", "user.roles"),
         new("GET", "/api/v1/approvals", "admin", "settings.manage"),
         new("GET", "/api/v1/approvals/{approvalId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/approvals/{approvalId:guid}/approve", "admin", "settings.manage"),
@@ -321,7 +311,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_220_active_gate_sites_are_pinned() => Assert.Equal(220, Sites.Length);
+    public void Exactly_210_active_gate_sites_are_pinned() => Assert.Equal(210, Sites.Length);
 
     [Fact]
     public void Api078_order_list_carries_the_identity_owner_scope_marker()

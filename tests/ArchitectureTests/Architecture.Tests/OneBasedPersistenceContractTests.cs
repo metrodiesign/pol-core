@@ -61,7 +61,6 @@ public sealed class OneBasedPersistenceContractTests : IDisposable
     {
         Type[] resources =
         [
-            typeof(Admins.Domain.Users.User),
             typeof(Role),
         ];
 

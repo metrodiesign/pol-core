@@ -117,6 +117,6 @@ public sealed class CrossPlaneSessionTests
 
         // The merchant session cookie on an admin route: the admin console only reads a Bearer token -> 401.
         Assert.Equal(HttpStatusCode.Unauthorized,
-            await GetAsync(client, "/api/v1/admins/me", MerchantCookie, Tokens.MerchantToken));
+            await GetAsync(client, "/api/v1/accounts", MerchantCookie, Tokens.MerchantToken));
     }
 }
