@@ -79,5 +79,9 @@ fi
 if [ -n "${MERCHANT_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
     export MerchantAuth__Providers__Microsoft__ClientSecret="$(cat "$MERCHANT_ENTRA_CLIENT_SECRET_FILE")"
 fi
+# Workforce platform login (OpenIddict code+PKCE) shares the Admin Entra app; compose points this at the same file.
+if [ -n "${IDENTITY_ACCESS_WORKFORCE_CLIENT_SECRET_FILE:-}" ]; then
+    export IdentityAccess__Workforce__ClientSecret="$(cat "$IDENTITY_ACCESS_WORKFORCE_CLIENT_SECRET_FILE")"
+fi
 
 exec dotnet "$HOST_DLL"
