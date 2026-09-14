@@ -59,10 +59,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-8.7")]
     public async Task Sql_verified_result_failure_rolls_back_all_rows_and_retry_reuses_evidence()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             var credential = Guid.Parse("a6000000-0000-4000-8000-000000000021");
             var connection = NewConnection(credential);
             await MigrateAndSeedResultAsync(connection.Id, credential);
@@ -139,9 +139,9 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-8.6")]
     public async Task Sql_psp_create_and_fetch_probe_no_active_transaction_after_intent_commit()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAndSeedCheckoutAsync();
             var credential = Guid.Parse("a6000000-0000-4000-8000-000000000031");
             var connection = NewConnection(credential);
@@ -198,10 +198,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-8.1")]
     public async Task Sql_issue_failure_rolls_back_link_replay_idempotency_and_outbox_then_retries()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var actor = new IntegrationActor(MerchantId, Guid.NewGuid());
             var clock = new FixedClock(Now);
@@ -312,10 +312,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-6.8")]
     public async Task Sql_patch_item_replacement_failure_rolls_back_order_and_items()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var actor = new IntegrationActor(MerchantId, Guid.NewGuid());
             var clock = new FixedClock(Now);
@@ -384,10 +384,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-6.8")]
     public async Task Sql_rotate_failure_rolls_back_old_link_new_link_replay_and_claim()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var actor = new IntegrationActor(MerchantId, Guid.NewGuid());
             var clock = new FixedClock(Now);
@@ -450,10 +450,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-6.8")]
     public async Task Sql_revoke_failure_rolls_back_link_order_and_claim()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var actor = new IntegrationActor(MerchantId, Guid.NewGuid());
             var clock = new FixedClock(Now);
@@ -515,10 +515,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-6.8")]
     public async Task Sql_cancel_failure_rolls_back_order_link_and_claim()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var actor = new IntegrationActor(MerchantId, Guid.NewGuid());
             var clock = new FixedClock(Now);
@@ -585,10 +585,10 @@ public sealed class TransactionIntegritySqlIntegrationTests
     [Trait("Requirement", "REQ-6.8")]
     public async Task Sql_cart_to_order_failure_rolls_back_order_items_outbox_and_cart()
     {
-        await ResetDatabaseAsync();
         var triggerInstalled = false;
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             await using var merchant = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(DatabaseName));
             await IntegrationDb.InsertMerchantAsync(merchant, MerchantId, "transaction-integrity-cart");

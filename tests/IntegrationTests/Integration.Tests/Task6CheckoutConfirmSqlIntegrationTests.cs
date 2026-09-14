@@ -37,9 +37,9 @@ public sealed class Task6CheckoutConfirmSqlIntegrationTests
     [Trait("Requirement", "REQ-8.2")]
     public async Task Two_tabs_with_different_idempotency_keys_commit_one_transaction_before_one_provider_call()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAndSeedAsync();
             var secretVersionId = Guid.NewGuid();
             var connection = NewConnection(secretVersionId);
@@ -90,9 +90,9 @@ public sealed class Task6CheckoutConfirmSqlIntegrationTests
     [Trait("Requirement", "REQ-8.3")]
     public async Task Ambiguous_provider_result_is_pending_and_retry_reuses_the_same_reference_and_row()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAndSeedAsync();
             var secretVersionId = Guid.NewGuid();
             var connection = NewConnection(secretVersionId);
@@ -138,9 +138,9 @@ public sealed class Task6CheckoutConfirmSqlIntegrationTests
     [Trait("Requirement", "REQ-8.2")]
     public async Task Confirm_first_then_cancel_sees_the_same_potential_transaction_and_preserves_link()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAndSeedAsync();
             var secretVersionId = Guid.NewGuid();
             var connection = NewConnection(secretVersionId);
@@ -197,9 +197,9 @@ public sealed class Task6CheckoutConfirmSqlIntegrationTests
     [Trait("Requirement", "REQ-8.2")]
     public async Task Cancel_first_order_lock_commit_prevents_confirm_from_creating_transaction_or_calling_provider()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAndSeedAsync();
             var secretVersionId = Guid.NewGuid();
             var connection = NewConnection(secretVersionId);

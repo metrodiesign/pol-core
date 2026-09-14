@@ -19,9 +19,9 @@ public sealed class Task6TransactionsSqlIntegrationTests
     [Trait("Requirement", "REQ-8.9")]
     public async Task Fresh_chain_preserves_task2_to_task5_history_and_enforces_transaction_schema()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var context = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await context.Database.MigrateAsync();
             await using var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(DatabaseName));
@@ -102,9 +102,9 @@ public sealed class Task6TransactionsSqlIntegrationTests
     [Trait("Requirement", "REQ-8.9")]
     public async Task Sql_allows_two_successes_but_rejects_two_potential_transactions_and_invalid_pointer()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var migration = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await migration.Database.MigrateAsync();
             var orderId = Guid.NewGuid();

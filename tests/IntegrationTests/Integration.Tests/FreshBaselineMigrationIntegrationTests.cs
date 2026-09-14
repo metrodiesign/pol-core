@@ -14,9 +14,9 @@ public sealed class FreshBaselineMigrationIntegrationTests
     public async Task Fresh_baseline_applies_and_rolls_back_in_dependency_safe_order()
     {
         var database = $"pol_baseline_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await CreateRuntimePrincipalAsync(database);
             await using var context = CreateContext(database);
             var migrator = context.GetService<IMigrator>();
@@ -122,9 +122,9 @@ public sealed class FreshBaselineMigrationIntegrationTests
     public async Task Audit_hash_survives_sql_roundtrip_and_runtime_principal_cannot_rewrite_history()
     {
         var database = $"pol_audit_floor_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await CreateRuntimePrincipalAsync(database);
             await using var context = CreateContext(database);
             await context.Database.MigrateAsync();
@@ -191,9 +191,9 @@ public sealed class FreshBaselineMigrationIntegrationTests
     public async Task Non_empty_target_is_refused_before_application_ddl()
     {
         var database = $"pol_refusal_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await CreateRuntimePrincipalAsync(database);
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
                 await IntegrationDb.ExecAsync(connection, "CREATE TABLE dbo.LegacyResidue (Id int NOT NULL);");
@@ -222,9 +222,9 @@ public sealed class FreshBaselineMigrationIntegrationTests
     public async Task Legacy_migration_history_is_refused_before_application_ddl()
     {
         var database = $"pol_history_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await CreateRuntimePrincipalAsync(database);
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
                 await IntegrationDb.ExecAsync(connection, """
@@ -297,6 +297,6 @@ public sealed class FreshBaselineMigrationIntegrationTests
     {
         await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
         await IntegrationDb.ExecAsync(master,
-            $"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}];");
+            $"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END");
     }
 }

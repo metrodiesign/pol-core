@@ -135,9 +135,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-12.2")]
     public async Task Fresh_isolated_sql_rehearsal_persists_mapping_transaction_invariants_and_zero_calls()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var input = LegacyMigrationInput.Create(
                 RunId,
@@ -196,9 +196,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-12.3")]
     public async Task Conflict_report_is_durable_and_keeps_cutover_blocked()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var result = new MigrationReadinessRunner().Rehearse(
                 LegacyMigrationInput.Create(
@@ -231,9 +231,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-11.9")]
     public async Task Recovery_inbox_replays_callbacks_after_watermark_and_preserves_post_cutover_target()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var result = new MigrationReadinessRunner().Rehearse(
                 LegacyMigrationInput.Create(RunId, "synthetic-backup-task9-recovery", [], [], []), CapturedAt);
@@ -279,9 +279,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-11.7")]
     public async Task Backfill_maps_failed_transaction_to_unpaid_not_processing()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             // Seed the target order at Processing so the backfill CASE arm is observable.
             await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(DatabaseName)))
@@ -333,9 +333,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-11.8")]
     public async Task Recovery_inbox_replay_stamps_only_the_rows_it_read()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var result = new MigrationReadinessRunner().Rehearse(
                 LegacyMigrationInput.Create(RunId, "synthetic-backup-task9-multi", [], [], []), CapturedAt);
@@ -372,9 +372,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-11.8")]
     public async Task Recovery_inbox_surfaces_pk_collision_when_a_different_callback_reuses_a_sequence()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var result = new MigrationReadinessRunner().Rehearse(
                 LegacyMigrationInput.Create(RunId, "synthetic-backup-task9-pk", [], [], []), CapturedAt);
@@ -425,9 +425,9 @@ public sealed class Task9MigrationReadinessSqlIntegrationTests
     [Trait("Requirement", "REQ-11.8")]
     public async Task Recovery_inbox_dedupes_a_duplicate_callback_id_without_error()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var result = new MigrationReadinessRunner().Rehearse(
                 LegacyMigrationInput.Create(RunId, "synthetic-backup-task9-dupe", [], [], []), CapturedAt);

@@ -39,9 +39,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.3")]
     public async Task Payment_link_notification_materializes_both_channels_once_and_unprotects_only_for_email()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var linkId = Guid.CreateVersion7();
             var orderId = Guid.CreateVersion7();
@@ -148,9 +148,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.4")]
     public async Task Tampered_or_expired_payment_link_notification_ciphertext_never_reaches_sender()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var protector = new DataProtectedPaymentLinkNotificationProtector(
                 new EphemeralDataProtectionProvider());
@@ -259,9 +259,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.10")]
     public async Task Registration_outbox_handoff_materializes_atomic_inbox_notification_and_two_channels_once()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             await using var db = CreateRuntimeDb();
             var materializer = new NotificationMaterializer(
@@ -320,9 +320,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.10")]
     public async Task Control_plane_endpoint_is_snapshotted_into_one_business_webhook_delivery_and_replay_is_deduped()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var endpointId = Guid.NewGuid();
             var secretVersionId = Guid.NewGuid();
@@ -402,9 +402,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.8")]
     public async Task Failed_commerce_materialization_rolls_back_inbox_and_notification_together()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             await using var db = CreateRuntimeDb(DenyDeliveryInsertAuthorizer.Instance);
             var source = new NotificationEvent(
@@ -436,9 +436,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.8")]
     public async Task Fresh_migration_exposes_notification_dedupe_and_attempt_constraints()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             await using var check = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(DatabaseName));
             Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(check,
@@ -481,9 +481,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.5")]
     public async Task Delivery_processor_records_accepted_unknown_and_blocked_sms_without_rolling_back_source_state()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             await using (var seed = CreateRuntimeDb())
             {
@@ -587,9 +587,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.9")]
     public async Task Operations_search_scope_retry_and_review_note_do_not_change_order_financial_state()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var orderId = Guid.NewGuid();
             await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(DatabaseName)))
@@ -694,9 +694,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.5")]
     public async Task Commerce_dispatcher_records_delivered_and_appends_five_failures_before_manual_queue()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             Guid deliveredId;
             Guid failedId;
@@ -797,9 +797,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.3")]
     public async Task Dispatcher_recovers_an_expired_processing_delivery_after_the_previous_worker_crashed()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             Guid deliveryId;
             await using (var seed = CreateRuntimeDb())
@@ -882,9 +882,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.3")]
     public async Task Dispatcher_does_not_steal_an_active_processing_lease()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             Guid deliveryId;
             await using (var seed = CreateRuntimeDb())
@@ -938,9 +938,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.3")]
     public async Task A_stale_worker_cannot_complete_after_a_successor_reclaims_the_expired_lease()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             Guid deliveryId;
             await using (var seed = CreateRuntimeDb())
@@ -1018,9 +1018,9 @@ public sealed class Task7NotificationSqlIntegrationTests
     [Trait("Requirement", "REQ-9.6")]
     public async Task Dispatcher_delivers_email_sms_and_business_webhook_rows_through_their_channel_ports()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await MigrateAsync();
             var endpointId = Guid.NewGuid();
             var secretVersionId = Guid.NewGuid();

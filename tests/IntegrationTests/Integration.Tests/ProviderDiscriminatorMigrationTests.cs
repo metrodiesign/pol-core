@@ -27,9 +27,9 @@ public sealed class ProviderDiscriminatorMigrationTests
     public async Task Upgrade_backfills_google_provider_and_audit_target_user_id_without_dropping_logins()
     {
         var database = $"pol_provider_up_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await using var context = CreateContext(database);
             var migrator = context.GetService<IMigrator>();
             await migrator.MigrateAsync(PreviousMigration);
@@ -116,9 +116,9 @@ public sealed class ProviderDiscriminatorMigrationTests
     public async Task Up_down_up_round_trips_when_no_subject_spans_providers()
     {
         var database = $"pol_provider_rt_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await using var context = CreateContext(database);
             var migrator = context.GetService<IMigrator>();
 
@@ -147,9 +147,9 @@ public sealed class ProviderDiscriminatorMigrationTests
     public async Task Down_throws_before_any_ddl_once_two_providers_share_a_subject()
     {
         var database = $"pol_provider_dup_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await using var context = CreateContext(database);
             var migrator = context.GetService<IMigrator>();
             await migrator.MigrateAsync(HeadBeforeAdminPlaneRetirement);
@@ -222,6 +222,6 @@ public sealed class ProviderDiscriminatorMigrationTests
     {
         await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
         await IntegrationDb.ExecAsync(master,
-            $"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}];");
+            $"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END");
     }
 }

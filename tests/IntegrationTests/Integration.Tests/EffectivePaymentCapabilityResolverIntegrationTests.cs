@@ -206,9 +206,9 @@ public sealed class EffectivePaymentCapabilityResolverIntegrationTests
     private static async Task WithFixtureAsync(Func<Fixture, Task> test)
     {
         var fixture = new Fixture($"pol_resolver_{Guid.NewGuid():N}", Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(fixture.Database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(fixture.Database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(fixture.Database))
                 await migration.GetService<IMigrator>().MigrateAsync();
             await SeedAsync(fixture);

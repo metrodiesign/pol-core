@@ -31,9 +31,9 @@ public sealed class AgentRegistrationSqlIntegrationTests
     [Trait("Requirement", "REQ-4.4")]
     public async Task Sql_draft_submit_replay_and_pending_guard_keep_one_case_and_attempt()
     {
-        var fixture = await CreateFixtureAsync();
         try
         {
+            var fixture = await CreateFixtureAsync();
             await using var db = NewContext();
             var store = NewStore(db);
             var service = new AgentRegistrationService(store);
@@ -72,9 +72,9 @@ public sealed class AgentRegistrationSqlIntegrationTests
     [Trait("Requirement", "REQ-4.12")]
     public async Task Sql_reject_keeps_public_reason_then_resubmit_reuses_case_and_outbox_snapshots_contact()
     {
-        var fixture = await CreateFixtureAsync();
         try
         {
+            var fixture = await CreateFixtureAsync();
             await using var db = NewContext();
             var service = new AgentRegistrationService(NewStore(db));
             var registration = await service.SaveDraftAsync(
@@ -118,9 +118,9 @@ public sealed class AgentRegistrationSqlIntegrationTests
     [Trait("Requirement", "REQ-4.9")]
     public async Task Sql_approval_revalidates_sale_versions_and_bound_sale_and_commits_one_race_winner_atomically()
     {
-        var fixture = await CreateFixtureAsync();
         try
         {
+            var fixture = await CreateFixtureAsync();
             await using var db = NewContext();
             var service = new AgentRegistrationService(NewStore(db));
 
@@ -191,9 +191,9 @@ public sealed class AgentRegistrationSqlIntegrationTests
     [Trait("Requirement", "REQ-4.12")]
     public async Task Sql_approve_success_commits_account_login_agent_access_role_decision_and_contact_outbox_atomically()
     {
-        var fixture = await CreateFixtureAsync();
         try
         {
+            var fixture = await CreateFixtureAsync();
             await using var db = NewContext();
             var service = new AgentRegistrationService(NewStore(db));
             var submitted = await SubmitNewAsync(service, fixture, "approved@example.test", "submit-approved");

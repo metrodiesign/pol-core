@@ -17,9 +17,9 @@ public sealed class MerchantConfigurationMasterIntegrationTests
     public async Task Sql_server_keeps_master_codes_merchant_scoped_and_rejects_cross_merchant_sale_branch_and_provider_refs()
     {
         var database = $"pol_merchant_config_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using var context = CreateContext(database);
             await context.GetService<IMigrator>().MigrateAsync();
             await using var db = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database));

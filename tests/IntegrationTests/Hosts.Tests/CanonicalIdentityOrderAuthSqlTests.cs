@@ -36,46 +36,46 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
     public async Task Employee_identity_platform_account_with_real_sql_access_can_create_a_draft_order()
     {
         var database = $"PolPr253Emp{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var accountId = Guid.CreateVersion7();
         var accessId = Guid.CreateVersion7();
         var roleId = Guid.CreateVersion7();
         var runTag = Guid.NewGuid().ToString("N");
-
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"identity-order-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts
-                    (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Order Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess
-                    (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 1, 1, 1);
-                INSERT iam.Roles
-                    (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @code, N'Order writer', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
-                ("@role", roleId), ("@code", $"identity-order-role-{runTag}"[..24]));
-        }
-
-        using var factory = new ProductionIdentityOrderFactory(
-            new ProductionIdentityOrderAuthState(accountId, merchantId, ProductionActor.Employee, null), database);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"identity-order-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts
+                        (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Order Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess
+                        (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 1, 1, 1);
+                    INSERT iam.Roles
+                        (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @code, N'Order writer', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
+                    ("@role", roleId), ("@code", $"identity-order-role-{runTag}"[..24]));
+            }
+
+            using var factory = new ProductionIdentityOrderFactory(
+                new ProductionIdentityOrderAuthState(accountId, merchantId, ProductionActor.Employee, null), database);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
             var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/orders?merchantId={merchantId:D}")
             {
                 Content = JsonContent.Create(new
@@ -127,40 +127,40 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
     public async Task Commerce_authorization_lease_denies_create_after_revoke_without_business_rows()
     {
         var database = $"PolPr253LeaseCreate{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var accountId = Guid.CreateVersion7();
         var accessId = Guid.CreateVersion7();
         var roleId = Guid.CreateVersion7();
         var runTag = Guid.NewGuid().ToString("N");
-
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"lease-create-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts
-                    (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Lease Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess
-                    (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 1, 1, 1);
-                INSERT iam.Roles
-                    (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @code, N'Lease writer', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
-                ("@role", roleId), ("@code", $"lease-create-role-{runTag}"[..24]));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"lease-create-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts
+                        (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Lease Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess
+                        (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 1, 1, 1);
+                    INSERT iam.Roles
+                        (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @code, N'Lease writer', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
+                    ("@role", roleId), ("@code", $"lease-create-role-{runTag}"[..24]));
+            }
+
             using var factory = new ProductionIdentityOrderFactory(
                 new ProductionIdentityOrderAuthState(accountId, merchantId, ProductionActor.Employee, null), database);
             await using (var revoke = await Integration.Tests.IntegrationDb.OpenAsync(
@@ -215,8 +215,6 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
     public async Task Employee_branch_scope_rejects_another_branch_owner_and_allows_its_single_branch()
     {
         var database = $"PolPr253Branch{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var branchA = Guid.CreateVersion7();
         var branchB = Guid.CreateVersion7();
@@ -226,43 +224,45 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
         var accessId = Guid.CreateVersion7();
         var roleId = Guid.CreateVersion7();
         var runTag = Guid.NewGuid().ToString("N");
-
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"identity-branch-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@branchA, @merchant, @branchACode, N'Branch A', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1),
-                       (@branchB, @merchant, @branchBCode, N'Branch B', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@saleA, @merchant, @branchA, @saleACode, N'Sale A', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1),
-                       (@saleB, @merchant, @branchB, @saleBCode, N'Sale B', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT acct.Accounts
-                    (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Branch Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 3, 1, 1);
-                INSERT access.BranchAccess (Id, MerchantAccessId, MerchantId, BranchId)
-                VALUES (NEWID(), @access, @merchant, @branchA);
-                INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @roleCode, N'Branch Order Role', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create'),
-                       (NEWID(), @role, N'payment.view');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@branchA", branchA), ("@branchB", branchB), ("@merchant", merchantId),
-                ("@branchACode", $"branch-a-{runTag}"[..20]), ("@branchBCode", $"branch-b-{runTag}"[..20]),
-                ("@saleA", saleA), ("@saleB", saleB), ("@saleACode", $"sale-a-{runTag}"[..20]),
-                ("@saleBCode", $"sale-b-{runTag}"[..20]), ("@account", accountId), ("@access", accessId),
-                ("@role", roleId), ("@roleCode", $"branch-order-role-{runTag}"[..24]));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"identity-branch-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@branchA, @merchant, @branchACode, N'Branch A', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1),
+                           (@branchB, @merchant, @branchBCode, N'Branch B', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@saleA, @merchant, @branchA, @saleACode, N'Sale A', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1),
+                           (@saleB, @merchant, @branchB, @saleBCode, N'Sale B', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT acct.Accounts
+                        (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Branch Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 3, 1, 1);
+                    INSERT access.BranchAccess (Id, MerchantAccessId, MerchantId, BranchId)
+                    VALUES (NEWID(), @access, @merchant, @branchA);
+                    INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @roleCode, N'Branch Order Role', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create'),
+                           (NEWID(), @role, N'payment.view');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@branchA", branchA), ("@branchB", branchB), ("@merchant", merchantId),
+                    ("@branchACode", $"branch-a-{runTag}"[..20]), ("@branchBCode", $"branch-b-{runTag}"[..20]),
+                    ("@saleA", saleA), ("@saleB", saleB), ("@saleACode", $"sale-a-{runTag}"[..20]),
+                    ("@saleBCode", $"sale-b-{runTag}"[..20]), ("@account", accountId), ("@access", accessId),
+                    ("@role", roleId), ("@roleCode", $"branch-order-role-{runTag}"[..24]));
+            }
+
             using var factory = new ProductionIdentityOrderFactory(
                 new ProductionIdentityOrderAuthState(accountId, merchantId, ProductionActor.Employee, null), database);
             using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
@@ -374,8 +374,6 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
     public async Task Restricted_identity_owner_omission_fails_before_write_but_explicit_owner_uses_production_source()
     {
         var database = $"PolPr253OwnerOmit{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var branchId = Guid.CreateVersion7();
         var saleId = Guid.CreateVersion7();
@@ -388,45 +386,47 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
             "BKK", "AUTO", "SALE-OWNER", "Owner sale", null, null, "POL-OWNER", "APP-OWNER", null, null,
             DateTime.UtcNow, DateTime.UtcNow.AddYears(1), "Owner policy", 100m, 5m, 20m, 125m, 10m,
             10m, DateTime.UtcNow, "1กก1234", "UNPAID"));
-
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"owner-omit-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@branch, @merchant, N'owner-branch', N'Owner branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@sale, @merchant, @branch, N'SALE-OWNER', N'Owner sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT acct.Accounts
-                    (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Assigned owner', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 4, 1, 1);
-                INSERT access.BranchAccess (Id, MerchantAccessId, MerchantId, BranchId)
-                VALUES (NEWID(), @access, @merchant, @branch);
-                INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @code, N'Owner writer', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@branch", branchId), ("@merchant", merchantId), ("@sale", saleId),
-                ("@account", accountId), ("@access", accessId), ("@role", roleId),
-                ("@code", $"owner-omit-role-{runTag}"[..24]));
-        }
-
-        using var factory = new ProductionIdentityOrderFactory(
-            new ProductionIdentityOrderAuthState(accountId, merchantId, ProductionActor.Employee, null),
-            database, useProductionPricing: true, gateway: gateway);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"owner-omit-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@branch, @merchant, N'owner-branch', N'Owner branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@sale, @merchant, @branch, N'SALE-OWNER', N'Owner sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT acct.Accounts
+                        (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Assigned owner', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 4, 1, 1);
+                    INSERT access.BranchAccess (Id, MerchantAccessId, MerchantId, BranchId)
+                    VALUES (NEWID(), @access, @merchant, @branch);
+                    INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @code, N'Owner writer', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@branch", branchId), ("@merchant", merchantId), ("@sale", saleId),
+                    ("@account", accountId), ("@access", accessId), ("@role", roleId),
+                    ("@code", $"owner-omit-role-{runTag}"[..24]));
+            }
+
+            using var factory = new ProductionIdentityOrderFactory(
+                new ProductionIdentityOrderAuthState(accountId, merchantId, ProductionActor.Employee, null),
+                database, useProductionPricing: true, gateway: gateway);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
             using var omitted = OwnerRequest(merchantId, accountId, $"owner-omit-{runTag}", null, null);
             using var omittedResponse = await client.SendAsync(omitted);
             Assert.Equal(HttpStatusCode.Conflict, omittedResponse.StatusCode);
@@ -493,8 +493,6 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
     public async Task Agent_and_system_identity_platform_accounts_create_with_trusted_scope_and_owner_rules()
     {
         var database = $"PolPr253Agent{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var otherMerchantId = Guid.CreateVersion7();
         var branchId = Guid.CreateVersion7();
@@ -507,46 +505,48 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
         var roleId = Guid.CreateVersion7();
         var runTag = Guid.NewGuid().ToString("N");
         var clientCode = $"system-order-{runTag}"[..Math.Min(128, $"system-order-{runTag}".Length)];
-
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantId, $"agent-order-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, otherMerchantId, $"other-order-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@branch, @merchant, @branchCode, N'Agent Branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@sale, @merchant, @branch, @saleCode, N'Agent Sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@agent, 2, N'Order Agent', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
-                       (@system, 3, N'Order System', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata, Id)
-                VALUES (@agent, @merchant, @sale, N'{}', @agent);
-                INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@agentAccess, @agent, @merchant, 1, 1, 1),
-                       (@systemAccess, @system, @merchant, 1, 1, 1);
-                INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @roleCode, N'Agent Order Role', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @agentAccess, @merchant, @role);
-                INSERT acct.SystemClients
-                    (Id, AccountId, ClientId, MerchantId, Environment, Status, AllowedGrantTypes, CreatedAt, UpdatedAt)
-                VALUES (@systemClient, @system, @clientCode, @merchant, N'SANDBOX', 1, N'client_credentials', SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.SystemClientScopes (Id, SystemClientId, ScopeCode)
-                VALUES (NEWID(), @systemClient, N'order.write');
-                """,
-                ("@branch", branchId), ("@merchant", merchantId), ("@branchCode", $"branch-{runTag}"[..20]),
-                ("@sale", saleId), ("@saleCode", $"sale-{runTag}"[..20]), ("@agent", agentAccountId),
-                ("@system", systemAccountId), ("@agentAccess", agentAccessId), ("@systemAccess", systemAccessId),
-                ("@role", roleId), ("@roleCode", $"agent-order-role-{runTag}"[..24]),
-                ("@systemClient", systemClientId), ("@clientCode", clientCode));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantId, $"agent-order-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, otherMerchantId, $"other-order-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@branch, @merchant, @branchCode, N'Agent Branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@sale, @merchant, @branch, @saleCode, N'Agent Sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@agent, 2, N'Order Agent', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
+                           (@system, 3, N'Order System', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata, Id)
+                    VALUES (@agent, @merchant, @sale, N'{}', @agent);
+                    INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@agentAccess, @agent, @merchant, 1, 1, 1),
+                           (@systemAccess, @system, @merchant, 1, 1, 1);
+                    INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @roleCode, N'Agent Order Role', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @agentAccess, @merchant, @role);
+                    INSERT acct.SystemClients
+                        (Id, AccountId, ClientId, MerchantId, Environment, Status, AllowedGrantTypes, CreatedAt, UpdatedAt)
+                    VALUES (@systemClient, @system, @clientCode, @merchant, N'SANDBOX', 1, N'client_credentials', SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.SystemClientScopes (Id, SystemClientId, ScopeCode)
+                    VALUES (NEWID(), @systemClient, N'order.write');
+                    """,
+                    ("@branch", branchId), ("@merchant", merchantId), ("@branchCode", $"branch-{runTag}"[..20]),
+                    ("@sale", saleId), ("@saleCode", $"sale-{runTag}"[..20]), ("@agent", agentAccountId),
+                    ("@system", systemAccountId), ("@agentAccess", agentAccessId), ("@systemAccess", systemAccessId),
+                    ("@role", roleId), ("@roleCode", $"agent-order-role-{runTag}"[..24]),
+                    ("@systemClient", systemClientId), ("@clientCode", clientCode));
+            }
+
             using var factory = new ProductionIdentityOrderFactory(
                 new ProductionIdentityOrderAuthState(agentAccountId, merchantId, ProductionActor.Agent, null), database);
             using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions

@@ -19,38 +19,38 @@ public sealed class CommerceAuthorizationLeaseIntegrationTests
     public async Task Sql_business_lease_holds_identity_account_lock_until_commit_then_revoke_completes()
     {
         var database = $"PolPr253LeaseRace{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var accountId = Guid.CreateVersion7();
         var accessId = Guid.CreateVersion7();
         var roleId = Guid.CreateVersion7();
         var runTag = Guid.NewGuid().ToString("N");
 
-        await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
-        {
-            await IntegrationDb.InsertMerchantAsync(seed, merchantId, $"lease-race-{runTag}"[..20]);
-            await IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts
-                    (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Lease Race Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess
-                    (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 1, 1, 1);
-                INSERT iam.Roles
-                    (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @code, N'Lease Race Role', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
-                ("@role", roleId), ("@code", $"lease-race-role-{runTag}"[..24]));
-        }
-
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+            {
+                await IntegrationDb.InsertMerchantAsync(seed, merchantId, $"lease-race-{runTag}"[..20]);
+                await IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts
+                        (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Lease Race Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess
+                        (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 1, 1, 1);
+                    INSERT iam.Roles
+                        (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @code, N'Lease Race Role', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
+                    ("@role", roleId), ("@code", $"lease-race-role-{runTag}"[..24]));
+            }
+
             var options = new DbContextOptionsBuilder<CommerceDbContext>()
                 .UseSqlServer(IntegrationDb.AppConnFor(database), sql => sql.UseCompatibilityLevel(170))
                 .Options;
@@ -98,8 +98,6 @@ public sealed class CommerceAuthorizationLeaseIntegrationTests
     public async Task Sql_role_invalidation_waits_for_commerce_lease_then_bumps_account_and_stales_old_proof()
     {
         var database = $"PolPr253RoleRace{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var accountId = Guid.CreateVersion7();
         var accessId = Guid.CreateVersion7();
@@ -107,30 +105,32 @@ public sealed class CommerceAuthorizationLeaseIntegrationTests
         var runTag = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow;
 
-        await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
-        {
-            await IntegrationDb.InsertMerchantAsync(seed, merchantId, $"role-race-{runTag}"[..20]);
-            await IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts
-                    (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Role Race Employee', 1, 0, @now, @now);
-                INSERT access.MerchantAccess
-                    (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 1, 1, 1);
-                INSERT iam.Roles
-                    (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @code, N'Role Race Role', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
-                ("@role", roleId), ("@code", $"role-race-{runTag}"[..24]), ("@now", now));
-        }
-
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+            {
+                await IntegrationDb.InsertMerchantAsync(seed, merchantId, $"role-race-{runTag}"[..20]);
+                await IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts
+                        (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Role Race Employee', 1, 0, @now, @now);
+                    INSERT access.MerchantAccess
+                        (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 1, 1, 1);
+                    INSERT iam.Roles
+                        (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @code, N'Role Race Role', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
+                    ("@role", roleId), ("@code", $"role-race-{runTag}"[..24]), ("@now", now));
+            }
+
             var commerceOptions = new DbContextOptionsBuilder<CommerceDbContext>()
                 .UseSqlServer(IntegrationDb.AppConnFor(database), sql => sql.UseCompatibilityLevel(170))
                 .Options;

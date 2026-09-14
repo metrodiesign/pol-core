@@ -301,10 +301,18 @@ public sealed class PaymentCapabilityMigrationIntegrationTests
         public static async Task<Fixture> CreateAsync()
         {
             var database = $"pol_cap_migration_{Guid.NewGuid():N}";
-            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-            await using var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database);
-            await migration.GetService<IMigrator>().MigrateAsync();
-            return new Fixture(database, Guid.NewGuid(), Guid.NewGuid());
+            try
+            {
+                await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+                await using var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database);
+                await migration.GetService<IMigrator>().MigrateAsync();
+                return new Fixture(database, Guid.NewGuid(), Guid.NewGuid());
+            }
+            catch
+            {
+                await PaymentCapabilitySchemaIntegrationTests.DropScratchDatabaseAsync(database);
+                throw;
+            }
         }
 
         public ControlPlaneDbContext Context() => new(

@@ -134,21 +134,36 @@ public sealed class NativeJsonColumnsIntegrationTests
         public static async Task<FreshJsonDatabase> CreateAsync()
         {
             var name = $"pol_json_{Guid.NewGuid():N}";
-            await using (var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn))
+            try
             {
-                await IntegrationDb.ExecAsync(master,
-                    $"EXEC(N'CREATE DATABASE [{name}] COLLATE Thai_100_CI_AS');");
-                await IntegrationDb.ExecAsync(master,
-                    $"ALTER DATABASE [{name}] SET COMPATIBILITY_LEVEL = 170;");
+                await using (var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn))
+                {
+                    await IntegrationDb.ExecAsync(master,
+                        $"EXEC(N'CREATE DATABASE [{name}] COLLATE Thai_100_CI_AS');");
+                    await IntegrationDb.ExecAsync(master,
+                        $"ALTER DATABASE [{name}] SET COMPATIBILITY_LEVEL = 170;");
+                }
+
+                await using (var bootstrap = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(name)))
+                    await IntegrationDb.ExecAsync(bootstrap, "CREATE USER pol_app WITHOUT LOGIN;");
+
+                await using (var context = CreateContext(name))
+                    await context.GetService<IMigrator>().MigrateAsync();
+
+                return new FreshJsonDatabase(name, await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(name)));
             }
+            catch
+            {
+                await DropDatabaseAsync(name);
+                throw;
+            }
+        }
 
-            await using (var bootstrap = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(name)))
-                await IntegrationDb.ExecAsync(bootstrap, "CREATE USER pol_app WITHOUT LOGIN;");
-
-            await using (var context = CreateContext(name))
-                await context.GetService<IMigrator>().MigrateAsync();
-
-            return new FreshJsonDatabase(name, await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(name)));
+        private static async Task DropDatabaseAsync(string dbName)
+        {
+            await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
+            await IntegrationDb.ExecAsync(master,
+                $"IF DB_ID(N'{dbName}') IS NOT NULL BEGIN ALTER DATABASE [{dbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{dbName}]; END");
         }
 
         private static PolDbContext CreateContext(string database)
@@ -176,9 +191,7 @@ public sealed class NativeJsonColumnsIntegrationTests
         public async ValueTask DisposeAsync()
         {
             await Connection.DisposeAsync();
-            await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
-            await IntegrationDb.ExecAsync(master,
-                $"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");
+            await DropDatabaseAsync(name);
         }
     }
 }
