@@ -19,6 +19,8 @@
 
 `MapOpenApi` และ `MapScalarApiReference` ถูกแสดงในส่วน infrastructure แยกต่างหาก เพราะ framework สร้าง route template ให้; callback ของ OIDC ที่ middleware จัดการเองก็แยกไว้ท้ายเอกสารและไม่ถูกรวมใน 274 operations.
 
+Activity และ Sequence diagram ของทุก endpoint ในเอกสารนี้อยู่ที่ [outputs/diagrams/2026-09-14_api-endpoints_v1/README.md](../../outputs/diagrams/2026-09-14_api-endpoints_v1/README.md); coverage matrix ใน README โยงทุกแถวของตารางด้านล่างไปยัง § ของ diagram.
+
 ประเภท `Canonical` และ `Compatibility` ใช้เมื่อ source หรือเอกสารอ้างสถานะนั้นโดยตรง; `Current` หมายถึง surface ที่ใช้งานอยู่แต่ source ไม่ได้ประกาศว่าเป็น alias หรือ canonical owner.
 
 Policy และ permission ในตารางใช้ชื่อ wire จริง: `admin`, `merchant-user`, `identity-platform`, `identity-bff`, `dual-console` และ `admin-or-identity-order` เป็น policy จาก [ConsoleSessionAuthentication.cs](../../src/Api/Api/Iam/ConsoleSessionAuthentication.cs) และ identity wiring และ BFF CSRF behavior จาก [BffCsrfFilter.cs](../../src/Api/Api/IdentityAccess/BffCsrfFilter.cs); ค่า permission เช่น `payment.create` และ `merchant.view` มาจาก [Keys.cs](../../src/Domain/Modules/Iam.Domain/Permissions/Keys.cs). `identity: order.read|order.write|checkout.write` ระบุ system scope ของ identity-order guard.
