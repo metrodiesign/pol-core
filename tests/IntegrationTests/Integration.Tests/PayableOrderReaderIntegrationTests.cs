@@ -29,9 +29,9 @@ public sealed class PayableOrderReaderIntegrationTests
         var merchantId = Guid.NewGuid();
         var orderId = Guid.NewGuid();
         var orderNo = $"ORD69{Random.Shared.Next(60_000_000, 69_999_999)}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
                 await migration.GetService<IMigrator>().MigrateAsync();
             await using var c = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database));

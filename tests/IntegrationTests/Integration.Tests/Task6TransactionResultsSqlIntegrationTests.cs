@@ -45,9 +45,9 @@ public sealed class Task6TransactionResultsSqlIntegrationTests
     [Trait("Requirement", "REQ-8.11")]
     public async Task Sql_result_reducer_commits_success_once_duplicate_evidence_double_success_and_mismatch()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             var credential = Guid.NewGuid();
             var connection = NewConnection(credential);
             await MigrateAndSeedAsync(connection.Id, credential);
@@ -160,9 +160,9 @@ public sealed class Task6TransactionResultsSqlIntegrationTests
     [Trait("Requirement", "REQ-8.12")]
     public async Task Sql_late_success_after_cancel_sets_paid_review_without_reopening_or_normal_outbox()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             var credential = Guid.NewGuid();
             var connection = NewConnection(credential);
             await MigrateAndSeedAsync(connection.Id, credential);
@@ -213,9 +213,9 @@ public sealed class Task6TransactionResultsSqlIntegrationTests
     [Trait("Requirement", "REQ-8.12")]
     public async Task Sql_unreadable_pinned_credential_keeps_pending_review_without_failover_or_psp_call()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             var credential = Guid.NewGuid();
             var connection = NewConnection(credential);
             await MigrateAndSeedAsync(connection.Id, credential);

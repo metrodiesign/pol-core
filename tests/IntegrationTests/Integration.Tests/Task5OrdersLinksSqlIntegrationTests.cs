@@ -35,9 +35,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-7.3")]
     public async Task Fresh_chain_preserves_legacy_orders_and_creates_hashed_link_contract()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var context = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await context.Database.MigrateAsync("20260910044722_Task4AgentRegistration");
 
@@ -84,9 +84,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-7.1")]
     public async Task Real_sql_create_issue_and_unique_hash_rollback_keep_order_and_link_atomic()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var migrationContext = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await migrationContext.Database.MigrateAsync();
 
@@ -169,9 +169,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-6.1")]
     public async Task Real_sql_two_draft_orders_persist_without_summary_token_index_collision()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var migrationContext = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await migrationContext.Database.MigrateAsync();
 
@@ -250,9 +250,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-10.2")]
     public async Task Real_sql_idempotency_key_is_scoped_by_merchant_and_operation()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using (var migrationContext = CreateContext(IntegrationDb.SaConnFor(DatabaseName)))
                 await migrationContext.Database.MigrateAsync();
 
@@ -304,9 +304,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-6.5")]
     public async Task Real_sql_agent_owner_comes_from_sale_code_and_cross_merchant_owner_is_denied()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var migrationContext = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await migrationContext.Database.MigrateAsync();
 
@@ -402,9 +402,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-7.5")]
     public async Task Real_sql_customer_reader_resolves_hash_and_redacts_internal_order_fields()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var migrationContext = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await migrationContext.Database.MigrateAsync();
 
@@ -486,9 +486,9 @@ public sealed class Task5OrdersLinksSqlIntegrationTests
     [Trait("Requirement", "REQ-7.3")]
     public async Task Real_sql_rotate_revokes_one_link_and_replay_returns_protected_token_without_new_order()
     {
-        await ResetDatabaseAsync();
         try
         {
+            await ResetDatabaseAsync();
             await using var migrationContext = CreateContext(IntegrationDb.SaConnFor(DatabaseName));
             await migrationContext.Database.MigrateAsync();
             await using (var seed = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(DatabaseName)))

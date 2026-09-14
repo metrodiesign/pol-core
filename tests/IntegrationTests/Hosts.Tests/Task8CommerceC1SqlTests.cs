@@ -33,59 +33,59 @@ public sealed class Task8CommerceC1SqlTests
     public async Task Canonical_order_children_and_transaction_support_resolve_parent_and_replay_review()
     {
         var database = NewReviewFixDatabaseName();
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
-        using var factory = new C1SqlFactory(database);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
-        var merchantA = Guid.CreateVersion7();
-        var merchantB = Guid.CreateVersion7();
-        var orderId = Guid.CreateVersion7();
-        var transactionId = Guid.CreateVersion7();
-        var providerAccountId = Guid.CreateVersion7();
-        var now = DateTime.UtcNow;
-        var runTag = Guid.NewGuid().ToString("N");
-
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantA, $"c1a-{Guid.NewGuid():N}"[..20]);
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantB, $"c1b-{Guid.NewGuid():N}"[..20]);
-            await SeedIdentityAccessAsync(seed, merchantA, "c1-parent");
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT shop.Orders
-                    (Id, MerchantId, CreatedByAccountId, OrderNo, Status, PaymentStatus, CreatedAt, UpdatedAt, Version,
-                     IsFrozen, IssuedAt, FrozenAt, SummaryToken, SummaryTokenExpiresAt,
-                     CustomerName, CustomerPhone, AmountAmount, AmountCurrency,
-                     SubtotalAmount, SubtotalCurrency, OrderDiscountAmount, OrderDiscountCurrency,
-                     OrderChargeAmount, OrderChargeCurrency, PaymentChannel, BusinessType)
-                VALUES (@order, @merchant, @actor, @orderNo, 7, 1, @at, @at, 1,
-                        0, NULL, NULL, NULL, NULL, N'C1 customer', N'0800000000',
-                        100.00, 'THB', 100.00, 'THB', 0.00, 'THB', 0.00, 'THB', 'card', N'c1');
-                INSERT txn.Transactions
-                    (Id, MerchantId, OrderId, TransactionNo, AttemptNo,
-                     AmountAmount, AmountCurrency, PaymentMethod, Provider, ProviderAccountId,
-                     Environment, CredentialVersionId, ConfigurationVersion,
-                     ProviderRequestReference, ProviderReference, RedirectUrl, ReturnBinding,
-                     Status, ProviderStatus, OrderSnapshot, SafeProviderMetadata, NeedsReview, ReviewCode,
-                     CreatedAt, UpdatedAt, SucceededAt, LastInquiryAt, NextInquiryAt, InquiryAttempts, Version)
-                VALUES (@transaction, @merchant, @order, @transactionNo, 1,
-                        100.00, 'THB', 'card', 1, @provider,
-                        1, @credential, 1, @requestReference, NULL, NULL, NULL,
-                        1, N'created', N'{"schemaVersion":1,"provenance":"CAPTURED_AT_CONFIRM"}', NULL, 0, NULL,
-                        @at, @at, NULL, NULL, NULL, 0, 1);
-                """,
-                ("@order", orderId), ("@merchant", merchantA), ("@actor", Task8A1SqlFactory.AdminId),
-                ("@orderNo", $"C1{orderId:N}"[..12]), ("@at", now),
-                ("@transaction", transactionId), ("@transactionNo", $"TXN-{transactionId:N}"),
-                ("@provider", providerAccountId), ("@credential", Guid.CreateVersion7()),
-                ("@requestReference", $"request-{transactionId:N}"));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            using var factory = new C1SqlFactory(database);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
+            var merchantA = Guid.CreateVersion7();
+            var merchantB = Guid.CreateVersion7();
+            var orderId = Guid.CreateVersion7();
+            var transactionId = Guid.CreateVersion7();
+            var providerAccountId = Guid.CreateVersion7();
+            var now = DateTime.UtcNow;
+            var runTag = Guid.NewGuid().ToString("N");
+
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantA, $"c1a-{Guid.NewGuid():N}"[..20]);
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantB, $"c1b-{Guid.NewGuid():N}"[..20]);
+                await SeedIdentityAccessAsync(seed, merchantA, "c1-parent");
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT shop.Orders
+                        (Id, MerchantId, CreatedByAccountId, OrderNo, Status, PaymentStatus, CreatedAt, UpdatedAt, Version,
+                         IsFrozen, IssuedAt, FrozenAt, SummaryToken, SummaryTokenExpiresAt,
+                         CustomerName, CustomerPhone, AmountAmount, AmountCurrency,
+                         SubtotalAmount, SubtotalCurrency, OrderDiscountAmount, OrderDiscountCurrency,
+                         OrderChargeAmount, OrderChargeCurrency, PaymentChannel, BusinessType)
+                    VALUES (@order, @merchant, @actor, @orderNo, 7, 1, @at, @at, 1,
+                            0, NULL, NULL, NULL, NULL, N'C1 customer', N'0800000000',
+                            100.00, 'THB', 100.00, 'THB', 0.00, 'THB', 0.00, 'THB', 'card', N'c1');
+                    INSERT txn.Transactions
+                        (Id, MerchantId, OrderId, TransactionNo, AttemptNo,
+                         AmountAmount, AmountCurrency, PaymentMethod, Provider, ProviderAccountId,
+                         Environment, CredentialVersionId, ConfigurationVersion,
+                         ProviderRequestReference, ProviderReference, RedirectUrl, ReturnBinding,
+                         Status, ProviderStatus, OrderSnapshot, SafeProviderMetadata, NeedsReview, ReviewCode,
+                         CreatedAt, UpdatedAt, SucceededAt, LastInquiryAt, NextInquiryAt, InquiryAttempts, Version)
+                    VALUES (@transaction, @merchant, @order, @transactionNo, 1,
+                            100.00, 'THB', 'card', 1, @provider,
+                            1, @credential, 1, @requestReference, NULL, NULL, NULL,
+                            1, N'created', N'{"schemaVersion":1,"provenance":"CAPTURED_AT_CONFIRM"}', NULL, 0, NULL,
+                            @at, @at, NULL, NULL, NULL, 0, 1);
+                    """,
+                    ("@order", orderId), ("@merchant", merchantA), ("@actor", Task8A1SqlFactory.AdminId),
+                    ("@orderNo", $"C1{orderId:N}"[..12]), ("@at", now),
+                    ("@transaction", transactionId), ("@transactionNo", $"TXN-{transactionId:N}"),
+                    ("@provider", providerAccountId), ("@credential", Guid.CreateVersion7()),
+                    ("@requestReference", $"request-{transactionId:N}"));
+            }
+
             await using var versionProbe = await Integration.Tests.IntegrationDb.OpenAsync(
                 Integration.Tests.IntegrationDb.SaConnFor(database));
             var currentOrderVersion = Convert.ToInt64(await Integration.Tests.IntegrationDb.ScalarAsync(
@@ -276,26 +276,26 @@ public sealed class Task8CommerceC1SqlTests
     public async Task Canonical_patch_notification_intent_is_presence_aware_and_issue_enqueues_once()
     {
         var database = NewReviewFixDatabaseName();
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
-        using var factory = new C1SqlFactory(database);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
-        var merchantId = Guid.CreateVersion7();
-        factory.Identity.MerchantId = merchantId;
-        var runTag = Guid.NewGuid().ToString("N");
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"patch-intent-{runTag}"[..20]);
-            await SeedIdentityAccessAsync(seed, merchantId, "c1-patch-intent");
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            using var factory = new C1SqlFactory(database);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
+            var merchantId = Guid.CreateVersion7();
+            factory.Identity.MerchantId = merchantId;
+            var runTag = Guid.NewGuid().ToString("N");
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"patch-intent-{runTag}"[..20]);
+                await SeedIdentityAccessAsync(seed, merchantId, "c1-patch-intent");
+            }
+
             using var create = CanonicalCreateRequest(
                 merchantId, $"patch-intent-true-{runTag}", includeIssueNow: false);
             using var createdResponse = await client.SendAsync(create);
@@ -502,26 +502,26 @@ public sealed class Task8CommerceC1SqlTests
     public async Task Canonical_create_order_request_reaches_the_trusted_order_workflow()
     {
         var database = NewReviewFixDatabaseName();
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
-        using var factory = new C1SqlFactory(database);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
-        var merchantId = Guid.CreateVersion7();
-        factory.Identity.MerchantId = merchantId;
-        var runTag = Guid.NewGuid().ToString("N");
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"canonical-{Guid.NewGuid():N}"[..20]);
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-            await SeedIdentityAccessAsync(seed, merchantId, "c1-draft");
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            using var factory = new C1SqlFactory(database);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
+            var merchantId = Guid.CreateVersion7();
+            factory.Identity.MerchantId = merchantId;
+            var runTag = Guid.NewGuid().ToString("N");
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"canonical-{Guid.NewGuid():N}"[..20]);
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+                await SeedIdentityAccessAsync(seed, merchantId, "c1-draft");
+
             using (var identityProbe = new HttpRequestMessage(HttpMethod.Get, "/api/v1/me"))
             {
                 AddIdentityBearer(identityProbe);
@@ -731,26 +731,26 @@ public sealed class Task8CommerceC1SqlTests
     public async Task Canonical_default_issue_replays_protected_result_and_rejects_forged_quote_without_writing()
     {
         var database = NewReviewFixDatabaseName();
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
-        using var factory = new C1SqlFactory(database);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
-        var merchantId = Guid.CreateVersion7();
-        factory.Identity.MerchantId = merchantId;
-        var runTag = Guid.NewGuid().ToString("N");
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"canonical-replay-{Guid.NewGuid():N}"[..20]);
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-            await SeedIdentityAccessAsync(seed, merchantId, "c1-replay");
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            using var factory = new C1SqlFactory(database);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
+            var merchantId = Guid.CreateVersion7();
+            factory.Identity.MerchantId = merchantId;
+            var runTag = Guid.NewGuid().ToString("N");
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"canonical-replay-{Guid.NewGuid():N}"[..20]);
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+                await SeedIdentityAccessAsync(seed, merchantId, "c1-replay");
+
             var key = $"canonical-true-{runTag}";
             var orderMetadata = new JsonObject
             {
@@ -868,26 +868,26 @@ public sealed class Task8CommerceC1SqlTests
     public async Task Canonical_omitted_and_explicit_zero_adjustments_fail_against_trusted_nonzero_without_writes()
     {
         var database = NewReviewFixDatabaseName();
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
-        using var factory = new C1SqlFactory(database, useNonZeroAdjustments: true);
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
-        var merchantId = Guid.CreateVersion7();
-        factory.Identity.MerchantId = merchantId;
-        var runTag = Guid.NewGuid().ToString("N");
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"canonical-adjustment-{runTag}"[..20]);
-            await SeedIdentityAccessAsync(seed, merchantId, "c1-adjustment");
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            using var factory = new C1SqlFactory(database, useNonZeroAdjustments: true);
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
+            var merchantId = Guid.CreateVersion7();
+            factory.Identity.MerchantId = merchantId;
+            var runTag = Guid.NewGuid().ToString("N");
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"canonical-adjustment-{runTag}"[..20]);
+                await SeedIdentityAccessAsync(seed, merchantId, "c1-adjustment");
+            }
+
             using var omitted = new HttpRequestMessage(
                 HttpMethod.Post, $"/api/v1/orders?merchantId={merchantId:D}")
             {
@@ -954,29 +954,29 @@ public sealed class Task8CommerceC1SqlTests
     public async Task Canonical_notification_failure_rolls_back_order_link_replay_and_outbox(string failure)
     {
         var database = NewReviewFixDatabaseName();
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
-        using var factory = new C1SqlFactory(
-            database,
-            throwNotificationOutbox: failure == "outbox",
-            throwNotificationProtector: failure == "protector");
-        using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
-        var merchantId = Guid.CreateVersion7();
-        factory.Identity.MerchantId = merchantId;
-        var runTag = Guid.NewGuid().ToString("N");
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                seed, merchantId, $"notification-failure-{runTag}"[..20]);
-            await SeedIdentityAccessAsync(seed, merchantId, "c1-notification-failure");
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            using var factory = new C1SqlFactory(
+                database,
+                throwNotificationOutbox: failure == "outbox",
+                throwNotificationProtector: failure == "protector");
+            using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            });
+            var merchantId = Guid.CreateVersion7();
+            factory.Identity.MerchantId = merchantId;
+            var runTag = Guid.NewGuid().ToString("N");
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    seed, merchantId, $"notification-failure-{runTag}"[..20]);
+                await SeedIdentityAccessAsync(seed, merchantId, "c1-notification-failure");
+            }
+
             using var request = CanonicalCreateRequest(
                 merchantId, $"notification-failure-{runTag}", includeIssueNow: null, notify: true);
             using var response = await client.SendAsync(request);

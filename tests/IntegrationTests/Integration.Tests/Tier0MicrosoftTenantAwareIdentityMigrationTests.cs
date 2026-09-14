@@ -483,12 +483,20 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         public static async Task<ScratchDatabase> CreateAsync()
         {
             var database = new ScratchDatabase(Prefix + Guid.NewGuid().ToString("N"));
-            await using var master = await database.OpenAsync("master");
-            await ExecAsync(master, $"EXEC(N'CREATE DATABASE [{database.Name}] COLLATE Thai_100_CI_AS');");
-            await ExecAsync(master, $"ALTER DATABASE [{database.Name}] SET COMPATIBILITY_LEVEL = 170;");
-            await using var connection = await database.OpenAsync();
-            await ExecAsync(connection, "CREATE USER pol_app WITHOUT LOGIN;");
-            return database;
+            try
+            {
+                await using var master = await database.OpenAsync("master");
+                await ExecAsync(master, $"EXEC(N'CREATE DATABASE [{database.Name}] COLLATE Thai_100_CI_AS');");
+                await ExecAsync(master, $"ALTER DATABASE [{database.Name}] SET COMPATIBILITY_LEVEL = 170;");
+                await using var connection = await database.OpenAsync();
+                await ExecAsync(connection, "CREATE USER pol_app WITHOUT LOGIN;");
+                return database;
+            }
+            catch
+            {
+                await database.DisposeAsync();
+                throw;
+            }
         }
 
         public Task MigrateAsync(string migration)

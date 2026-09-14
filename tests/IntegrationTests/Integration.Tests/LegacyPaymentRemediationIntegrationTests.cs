@@ -38,9 +38,9 @@ public sealed class LegacyPaymentRemediationIntegrationTests
     public async Task Backfill_sets_the_global_environment_only_for_merchants_that_never_switched()
     {
         var database = $"pol_legacy_backfill_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using var migrate = PaymentCapabilitySchemaIntegrationTests.CreateContext(database);
             await migrate.GetService<IMigrator>().MigrateAsync();
 
@@ -89,9 +89,9 @@ public sealed class LegacyPaymentRemediationIntegrationTests
     public async Task An_uncharged_legacy_session_is_upgraded_with_the_current_route()
     {
         var database = $"pol_legacy_nocharge_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using var migrate = PaymentCapabilitySchemaIntegrationTests.CreateContext(database);
             await migrate.GetService<IMigrator>().MigrateAsync();
 
@@ -175,9 +175,9 @@ public sealed class LegacyPaymentRemediationIntegrationTests
     private async Task<ChargedResult> RemediateChargedAsync(Func<string, bool> confirms, Money confirmedAmount)
     {
         var database = $"pol_legacy_charged_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using var migrate = PaymentCapabilitySchemaIntegrationTests.CreateContext(database);
             await migrate.GetService<IMigrator>().MigrateAsync();
 
@@ -235,9 +235,9 @@ public sealed class LegacyPaymentRemediationIntegrationTests
     public async Task The_vault_expiry_migration_clears_active_and_retired_expiry_but_not_staged()
     {
         var database = $"pol_legacy_vault_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using var context = PaymentCapabilitySchemaIntegrationTests.CreateContext(database);
             var migrator = context.GetService<IMigrator>();
             await migrator.MigrateAsync(PreviousMigration);

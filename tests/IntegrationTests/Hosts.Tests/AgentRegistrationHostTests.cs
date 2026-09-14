@@ -224,9 +224,9 @@ public sealed class AgentRegistrationHostTests
     private static async Task<HostFixture> CreateFixtureAsync()
     {
         var database = $"PolRegistrationHost_{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = NewMigrationContext(database))
                 await migration.GetService<IMigrator>().MigrateAsync();
 
@@ -307,7 +307,7 @@ public sealed class AgentRegistrationHostTests
     {
         await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
         await IntegrationDb.ExecAsync(master,
-            $"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}];");
+            $"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END");
     }
 
     private sealed record HostFixture(string Database, Guid MerchantA, Guid MerchantB, string SessionA, string SessionB);

@@ -31,35 +31,35 @@ public sealed class CanonicalBearerOrderAuthSqlTests
     public async Task Production_bearer_token_creates_a_canonical_order_and_read_still_needs_its_own_permission()
     {
         var database = $"PolPr253Bff{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var accountId = Guid.CreateVersion7();
         var accessId = Guid.CreateVersion7();
         var roleId = Guid.CreateVersion7();
         var runTag = Guid.NewGuid().ToString("N");
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantId, $"bff-order-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Bff Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 1, 1, 1);
-                INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @roleCode, N'Bff Order Role', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
-                ("@role", roleId), ("@roleCode", $"bff-order-role-{runTag}"[..24]));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantId, $"bff-order-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Bff Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 1, 1, 1);
+                    INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @roleCode, N'Bff Order Role', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@account", accountId), ("@access", accessId), ("@merchant", merchantId),
+                    ("@role", roleId), ("@roleCode", $"bff-order-role-{runTag}"[..24]));
+            }
+
             using var factory = new BffCanonicalFactory(database);
             using var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
             {
@@ -99,8 +99,6 @@ public sealed class CanonicalBearerOrderAuthSqlTests
     public async Task Role_deactivation_bumps_assigned_account_and_stales_old_token_before_refreshed_read_is_forbidden()
     {
         var database = $"PolPr253Role{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var accountId = Guid.CreateVersion7();
         var unrelatedAccountId = Guid.CreateVersion7();
@@ -109,30 +107,32 @@ public sealed class CanonicalBearerOrderAuthSqlTests
         var runTag = Guid.NewGuid().ToString("N");
         var roleCode = $"bff-role-{runTag}"[..24];
 
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantId, $"role-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@account, 1, N'Role BFF Account', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
-                       (@unrelated, 1, N'Unrelated Account', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@access, @account, @merchant, 1, 1, 1);
-                INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@role, @code, N'BFF role', NULL, NULL, 1, 1, 2, @merchant);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @role, N'payment.create'),
-                       (NEWID(), @role, N'payment.view');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @access, @merchant, @role);
-                """,
-                ("@account", accountId), ("@unrelated", unrelatedAccountId), ("@access", accessId),
-                ("@merchant", merchantId), ("@role", roleId), ("@code", roleCode));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantId, $"role-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@account, 1, N'Role BFF Account', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
+                           (@unrelated, 1, N'Unrelated Account', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@access, @account, @merchant, 1, 1, 1);
+                    INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@role, @code, N'BFF role', NULL, NULL, 1, 1, 2, @merchant);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @role, N'payment.create'),
+                           (NEWID(), @role, N'payment.view');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @access, @merchant, @role);
+                    """,
+                    ("@account", accountId), ("@unrelated", unrelatedAccountId), ("@access", accessId),
+                    ("@merchant", merchantId), ("@role", roleId), ("@code", roleCode));
+            }
+
             using var factory = new BffCanonicalFactory(database);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -201,8 +201,6 @@ public sealed class CanonicalBearerOrderAuthSqlTests
     public async Task Sequential_identity_console_and_second_tenant_reads_do_not_reuse_order_filter_state()
     {
         var database = $"PolPr253Filter{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantA = Guid.CreateVersion7();
         var merchantB = Guid.CreateVersion7();
         var accountA = Guid.CreateVersion7();
@@ -222,92 +220,94 @@ public sealed class CanonicalBearerOrderAuthSqlTests
         var runTag = Guid.NewGuid().ToString("N");
         var legacyToken = $"legacy-{Guid.NewGuid():N}";
         var legacyTokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(legacyToken));
-        await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantA, $"filter-a-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantB, $"filter-b-{runTag}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
-                VALUES (@accountA, 1, N'Filter A', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
-                       (@accountB, 1, N'Filter B', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
-                       (@accountC, 1, N'Filter C', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
-                VALUES (@accessA, @accountA, @merchantA, 1, 1, 1),
-                       (@accessB, @accountB, @merchantB, 1, 1, 1);
-                INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
-                VALUES (@roleA, @codeA, N'Filter A role', NULL, NULL, 1, 1, 2, @merchantA),
-                       (@roleB, @codeB, N'Filter B role', NULL, NULL, 1, 1, 2, @merchantB);
-                INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
-                VALUES (NEWID(), @roleA, N'payment.view'),
-                       (NEWID(), @roleA, N'payment.create'),
-                       (NEWID(), @roleB, N'payment.view');
-                INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
-                VALUES (NEWID(), @accessA, @merchantA, @roleA),
-                       (NEWID(), @accessB, @merchantB, @roleB);
-                INSERT merch.Users
-                    (Id, Provider, Subject, Email, Status, MerchantId, Version, CreatedAt,
-                     DisplayName, FirstName, LastName, IdentityType)
-                VALUES (@legacyUser, N'google', @legacySubject, N'legacy@example.test', 2, @merchantA, 1,
-                        SYSUTCDATETIME(), N'Legacy User', N'Legacy', N'User', 1),
-                       (@legacyOther, N'google', @legacyOtherSubject, N'legacy-other@example.test', 2, @merchantA, 1,
-                        SYSUTCDATETIME(), N'Legacy Other', N'Legacy', N'Other', 1);
-                INSERT merch.RoleAssignments
-                    (Id, UserId, RoleId, MerchantId, AssignedById, AssignedAt)
-                VALUES (NEWID(), @legacyUser, @roleA, @merchantA, @legacyUser, SYSUTCDATETIME()),
-                       (NEWID(), @legacyOther, @roleA, @merchantA, @legacyOther, SYSUTCDATETIME());
-                INSERT merch.Sessions
-                    (Id, FamilyId, TokenHash, UserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
-                VALUES (NEWID(), NEWID(), @legacyTokenHash, @legacyUser, 1,
-                        SYSUTCDATETIME(), DATEADD(hour, 1, SYSUTCDATETIME()), DATEADD(day, 1, SYSUTCDATETIME()));
-                INSERT shop.Orders
-                    (Id, MerchantId, CreatedByAccountId, OrderNo, Status, PaymentStatus, CreatedAt, UpdatedAt, Version,
-                     IsFrozen, IssuedAt, FrozenAt, SummaryToken, SummaryTokenExpiresAt,
-                     CustomerName, CustomerPhone, AmountAmount, AmountCurrency,
-                     SubtotalAmount, SubtotalCurrency, OrderDiscountAmount, OrderDiscountCurrency,
-                     OrderChargeAmount, OrderChargeCurrency, PaymentChannel, BusinessType)
-                VALUES (@orderA, @merchantA, @accountA, @orderNoA, 7, 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1,
-                        0, NULL, NULL, NULL, NULL, N'Filter A', N'0800000000', 100.00, 'THB',
-                        100.00, 'THB', 0.00, 'THB', 0.00, 'THB', 'card', N'insurance'),
-                       (@orderB, @merchantB, @accountB, @orderNoB, 7, 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1,
-                        0, NULL, NULL, NULL, NULL, N'Filter B', N'0800000001', 100.00, 'THB',
-                        100.00, 'THB', 0.00, 'THB', 0.00, 'THB', 'card', N'insurance');
-                INSERT shop.Orders
-                    (Id, MerchantId, CreatedByAccountId, InitiatingAudience, InitiatingMerchantUserId,
-                     OrderNo, Status, PaymentStatus, CreatedAt, UpdatedAt, Version,
-                     IsFrozen, IssuedAt, FrozenAt, SummaryToken, SummaryTokenExpiresAt,
-                     CustomerName, CustomerPhone, AmountAmount, AmountCurrency,
-                     SubtotalAmount, SubtotalCurrency, OrderDiscountAmount, OrderDiscountCurrency,
-                     OrderChargeAmount, OrderChargeCurrency, PaymentChannel, BusinessType)
-                VALUES (@orderC, @merchantA, @accountC, NULL, NULL, @orderNoC, 7, 1,
-                        SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 0, NULL, NULL, NULL, NULL,
-                        N'Filter C', N'0800000002', 100.00, 'THB', 100.00, 'THB', 0.00, 'THB',
-                        0.00, 'THB', 'card', N'insurance'),
-                       (@legacyOrder, @merchantA, NULL, 1, @legacyUser, @legacyOrderNo, 7, 1,
-                        SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 0, NULL, NULL, NULL, NULL,
-                        N'Legacy own', N'0800000003', 100.00, 'THB', 100.00, 'THB', 0.00, 'THB',
-                        0.00, 'THB', 'card', N'insurance'),
-                       (@legacyOtherOrder, @merchantA, NULL, 1, @legacyOther, @legacyOtherOrderNo, 7, 1,
-                        SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 0, NULL, NULL, NULL, NULL,
-                        N'Legacy other', N'0800000004', 100.00, 'THB', 100.00, 'THB', 0.00, 'THB',
-                        0.00, 'THB', 'card', N'insurance');
-                """,
-                ("@accountA", accountA), ("@accountB", accountB), ("@accountC", accountC),
-                ("@legacyUser", legacyUserId), ("@legacyOther", legacyOtherUserId),
-                ("@legacySubject", $"legacy-{legacyUserId:N}"), ("@legacyOtherSubject", $"legacy-other-{legacyOtherUserId:N}"),
-                ("@legacyTokenHash", legacyTokenHash),
-                ("@accessA", accessA), ("@accessB", accessB),
-                ("@merchantA", merchantA), ("@merchantB", merchantB), ("@roleA", roleA), ("@roleB", roleB),
-                ("@codeA", $"filter-a-role-{runTag}"[..24]), ("@codeB", $"filter-b-role-{runTag}"[..24]),
-                ("@orderA", orderA), ("@orderB", orderB), ("@orderC", orderC),
-                ("@legacyOrder", legacyOrder), ("@legacyOtherOrder", legacyOtherOrder),
-                ("@orderNoA", $"FA{orderA:N}"[..12]), ("@orderNoB", $"FB{orderB:N}"[..12]),
-                ("@orderNoC", $"FC{orderC:N}"[..12]), ("@legacyOrderNo", $"FL{legacyOrder:N}"[..12]),
-                ("@legacyOtherOrderNo", $"FO{legacyOtherOrder:N}"[..12]));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            await using (var seed = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantA, $"filter-a-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantB, $"filter-b-{runTag}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(seed, """
+                    INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@accountA, 1, N'Filter A', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
+                           (@accountB, 1, N'Filter B', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
+                           (@accountC, 1, N'Filter C', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+                    INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
+                    VALUES (@accessA, @accountA, @merchantA, 1, 1, 1),
+                           (@accessB, @accountB, @merchantB, 1, 1, 1);
+                    INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Version, Scope, MerchantId)
+                    VALUES (@roleA, @codeA, N'Filter A role', NULL, NULL, 1, 1, 2, @merchantA),
+                           (@roleB, @codeB, N'Filter B role', NULL, NULL, 1, 1, 2, @merchantB);
+                    INSERT iam.RolePermissions (Id, RoleId, PermissionKey)
+                    VALUES (NEWID(), @roleA, N'payment.view'),
+                           (NEWID(), @roleA, N'payment.create'),
+                           (NEWID(), @roleB, N'payment.view');
+                    INSERT access.AccessRoles (Id, MerchantAccessId, MerchantId, RoleId)
+                    VALUES (NEWID(), @accessA, @merchantA, @roleA),
+                           (NEWID(), @accessB, @merchantB, @roleB);
+                    INSERT merch.Users
+                        (Id, Provider, Subject, Email, Status, MerchantId, Version, CreatedAt,
+                         DisplayName, FirstName, LastName, IdentityType)
+                    VALUES (@legacyUser, N'google', @legacySubject, N'legacy@example.test', 2, @merchantA, 1,
+                            SYSUTCDATETIME(), N'Legacy User', N'Legacy', N'User', 1),
+                           (@legacyOther, N'google', @legacyOtherSubject, N'legacy-other@example.test', 2, @merchantA, 1,
+                            SYSUTCDATETIME(), N'Legacy Other', N'Legacy', N'Other', 1);
+                    INSERT merch.RoleAssignments
+                        (Id, UserId, RoleId, MerchantId, AssignedById, AssignedAt)
+                    VALUES (NEWID(), @legacyUser, @roleA, @merchantA, @legacyUser, SYSUTCDATETIME()),
+                           (NEWID(), @legacyOther, @roleA, @merchantA, @legacyOther, SYSUTCDATETIME());
+                    INSERT merch.Sessions
+                        (Id, FamilyId, TokenHash, UserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+                    VALUES (NEWID(), NEWID(), @legacyTokenHash, @legacyUser, 1,
+                            SYSUTCDATETIME(), DATEADD(hour, 1, SYSUTCDATETIME()), DATEADD(day, 1, SYSUTCDATETIME()));
+                    INSERT shop.Orders
+                        (Id, MerchantId, CreatedByAccountId, OrderNo, Status, PaymentStatus, CreatedAt, UpdatedAt, Version,
+                         IsFrozen, IssuedAt, FrozenAt, SummaryToken, SummaryTokenExpiresAt,
+                         CustomerName, CustomerPhone, AmountAmount, AmountCurrency,
+                         SubtotalAmount, SubtotalCurrency, OrderDiscountAmount, OrderDiscountCurrency,
+                         OrderChargeAmount, OrderChargeCurrency, PaymentChannel, BusinessType)
+                    VALUES (@orderA, @merchantA, @accountA, @orderNoA, 7, 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1,
+                            0, NULL, NULL, NULL, NULL, N'Filter A', N'0800000000', 100.00, 'THB',
+                            100.00, 'THB', 0.00, 'THB', 0.00, 'THB', 'card', N'insurance'),
+                           (@orderB, @merchantB, @accountB, @orderNoB, 7, 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1,
+                            0, NULL, NULL, NULL, NULL, N'Filter B', N'0800000001', 100.00, 'THB',
+                            100.00, 'THB', 0.00, 'THB', 0.00, 'THB', 'card', N'insurance');
+                    INSERT shop.Orders
+                        (Id, MerchantId, CreatedByAccountId, InitiatingAudience, InitiatingMerchantUserId,
+                         OrderNo, Status, PaymentStatus, CreatedAt, UpdatedAt, Version,
+                         IsFrozen, IssuedAt, FrozenAt, SummaryToken, SummaryTokenExpiresAt,
+                         CustomerName, CustomerPhone, AmountAmount, AmountCurrency,
+                         SubtotalAmount, SubtotalCurrency, OrderDiscountAmount, OrderDiscountCurrency,
+                         OrderChargeAmount, OrderChargeCurrency, PaymentChannel, BusinessType)
+                    VALUES (@orderC, @merchantA, @accountC, NULL, NULL, @orderNoC, 7, 1,
+                            SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 0, NULL, NULL, NULL, NULL,
+                            N'Filter C', N'0800000002', 100.00, 'THB', 100.00, 'THB', 0.00, 'THB',
+                            0.00, 'THB', 'card', N'insurance'),
+                           (@legacyOrder, @merchantA, NULL, 1, @legacyUser, @legacyOrderNo, 7, 1,
+                            SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 0, NULL, NULL, NULL, NULL,
+                            N'Legacy own', N'0800000003', 100.00, 'THB', 100.00, 'THB', 0.00, 'THB',
+                            0.00, 'THB', 'card', N'insurance'),
+                           (@legacyOtherOrder, @merchantA, NULL, 1, @legacyOther, @legacyOtherOrderNo, 7, 1,
+                            SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 0, NULL, NULL, NULL, NULL,
+                            N'Legacy other', N'0800000004', 100.00, 'THB', 100.00, 'THB', 0.00, 'THB',
+                            0.00, 'THB', 'card', N'insurance');
+                    """,
+                    ("@accountA", accountA), ("@accountB", accountB), ("@accountC", accountC),
+                    ("@legacyUser", legacyUserId), ("@legacyOther", legacyOtherUserId),
+                    ("@legacySubject", $"legacy-{legacyUserId:N}"), ("@legacyOtherSubject", $"legacy-other-{legacyOtherUserId:N}"),
+                    ("@legacyTokenHash", legacyTokenHash),
+                    ("@accessA", accessA), ("@accessB", accessB),
+                    ("@merchantA", merchantA), ("@merchantB", merchantB), ("@roleA", roleA), ("@roleB", roleB),
+                    ("@codeA", $"filter-a-role-{runTag}"[..24]), ("@codeB", $"filter-b-role-{runTag}"[..24]),
+                    ("@orderA", orderA), ("@orderB", orderB), ("@orderC", orderC),
+                    ("@legacyOrder", legacyOrder), ("@legacyOtherOrder", legacyOtherOrder),
+                    ("@orderNoA", $"FA{orderA:N}"[..12]), ("@orderNoB", $"FB{orderB:N}"[..12]),
+                    ("@orderNoC", $"FC{orderC:N}"[..12]), ("@legacyOrderNo", $"FL{legacyOrder:N}"[..12]),
+                    ("@legacyOtherOrderNo", $"FO{legacyOtherOrder:N}"[..12]));
+            }
+
             using var factory = new BffCanonicalFactory(database);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
@@ -430,8 +430,6 @@ public sealed class CanonicalBearerOrderAuthSqlTests
     public async Task Marked_order_route_requires_the_console_permission_before_handler_execution()
     {
         var database = $"PolPr253ConsoleSweep{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var orderId = Guid.CreateVersion7();
         var linkId = Guid.CreateVersion7();
         var routes = new (HttpMethod Method, string Path, object? Body)[]
@@ -454,6 +452,8 @@ public sealed class CanonicalBearerOrderAuthSqlTests
 
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
             using var factory = new DenyConsolePermissionFactory(database);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
             foreach (var (method, path, body) in routes)

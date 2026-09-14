@@ -25,9 +25,9 @@ public sealed class PaymentAccountCapabilityIntegrationTests
     public async Task PaymentPolicyAdministration_rechecks_parents_is_idempotent_and_keeps_disabled_children()
     {
         var database = $"pol_policy_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
                 await migration.GetService<IMigrator>().MigrateAsync();
 
@@ -102,9 +102,9 @@ public sealed class PaymentAccountCapabilityIntegrationTests
     public async Task Account_method_and_option_writer_is_scoped_idempotent_audited_and_projects_csv()
     {
         var database = $"pol_account_cap_{Guid.NewGuid():N}";
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
                 await migration.GetService<IMigrator>().MigrateAsync();
 

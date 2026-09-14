@@ -239,8 +239,6 @@ public sealed class IdentityAccessOAuthTests
     public async Task System_client_management_provisions_scope_key_and_canonical_order_uses_production_pricing()
     {
         var database = $"PolPr253OAuthOrder{Guid.NewGuid():N}";
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
-        await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
         var merchantId = Guid.CreateVersion7();
         var branchId = Guid.CreateVersion7();
         var saleId = Guid.CreateVersion7();
@@ -249,22 +247,24 @@ public sealed class IdentityAccessOAuthTests
         using var rsa = RSA.Create(2048);
         var keyId = "task-pr253-order-jwk";
         var gateway = new OAuthOrderDocumentGateway(CreateOrderDocument("DOC-OAUTH", "SALE-OAUTH"));
-        await using (var connection = await Integration.Tests.IntegrationDb.OpenAsync(
-                         Integration.Tests.IntegrationDb.SaConnFor(database)))
-        {
-            await Integration.Tests.IntegrationDb.InsertMerchantAsync(
-                connection, merchantId, $"oauth-order-{Guid.NewGuid():N}"[..20]);
-            await Integration.Tests.IntegrationDb.ExecAsync(connection, """
-                INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@branch, @merchant, N'branch-oauth', N'OAuth branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
-                VALUES (@sale, @merchant, @branch, N'SALE-OAUTH', N'OAuth sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
-                """,
-                ("@branch", branchId), ("@merchant", merchantId), ("@sale", saleId));
-        }
-
         try
         {
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
+            await Integration.Tests.PaymentCapabilitySchemaIntegrationTests.MigrateScratchDatabaseAsync(database);
+            await using (var connection = await Integration.Tests.IntegrationDb.OpenAsync(
+                             Integration.Tests.IntegrationDb.SaConnFor(database)))
+            {
+                await Integration.Tests.IntegrationDb.InsertMerchantAsync(
+                    connection, merchantId, $"oauth-order-{Guid.NewGuid():N}"[..20]);
+                await Integration.Tests.IntegrationDb.ExecAsync(connection, """
+                    INSERT merch.Branches (Id, MerchantId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@branch, @merchant, N'branch-oauth', N'OAuth branch', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    INSERT merch.Sales (Id, MerchantId, BranchId, Code, Name, Status, CreatedAt, UpdatedAt, Version)
+                    VALUES (@sale, @merchant, @branch, N'SALE-OAUTH', N'OAuth sale', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    """,
+                    ("@branch", branchId), ("@merchant", merchantId), ("@sale", saleId));
+            }
+
             using var factory = new IdentityAccessOrderAdminFactory(database, gateway);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 

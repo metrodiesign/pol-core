@@ -14,9 +14,9 @@ public sealed class PaymentCapabilitySchemaIntegrationTests
     public async Task PaymentPolicyTenantIsolation_and_relational_guards_reject_invalid_identity_tenant_and_parent_chains()
     {
         var database = $"pol_capability_{Guid.NewGuid():N}";
-        await CreateScratchDatabaseAsync(database);
         try
         {
+            await CreateScratchDatabaseAsync(database);
             await using var context = CreateContext(database);
             await context.GetService<IMigrator>().MigrateAsync();
             await using var db = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database));
@@ -224,6 +224,6 @@ public sealed class PaymentCapabilitySchemaIntegrationTests
     {
         await using var master = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor("master"));
         await IntegrationDb.ExecAsync(master,
-            $"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}];");
+            $"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END");
     }
 }

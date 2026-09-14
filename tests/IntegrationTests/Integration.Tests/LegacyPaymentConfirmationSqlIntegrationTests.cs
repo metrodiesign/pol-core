@@ -41,9 +41,9 @@ public sealed class LegacyPaymentConfirmationSqlIntegrationTests
         const string chargeId = "legacy-charge-rollback";
         var triggerInstalled = false;
 
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
                 await migration.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync();
 
@@ -121,9 +121,9 @@ public sealed class LegacyPaymentConfirmationSqlIntegrationTests
         const string chargeId = "legacy-charge-expiry";
         var replacementTriggerInstalled = false;
 
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
                 await migration.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync();
 
@@ -234,9 +234,9 @@ public sealed class LegacyPaymentConfirmationSqlIntegrationTests
         const string chargeId = "legacy-charge-ambiguous";
         var triggerInstalled = false;
 
-        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
             await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
                 await migration.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync();
 

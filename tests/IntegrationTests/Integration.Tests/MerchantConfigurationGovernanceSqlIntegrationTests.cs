@@ -20,9 +20,9 @@ public sealed class MerchantConfigurationGovernanceSqlIntegrationTests
     [Fact]
     public async Task Sql_server_allows_one_checker_and_rejects_the_concurrent_loser()
     {
-        await ProvisionDatabaseAsync();
         try
         {
+            await ProvisionDatabaseAsync();
             await using var first = NewContext();
             var approvalId = Guid.NewGuid();
             var makerId = Guid.NewGuid();
