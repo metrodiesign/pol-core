@@ -71,7 +71,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/api/v1/admins/me"));
+        var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/api/v1/accounts"));
 
         Assert.Equal(CorsFactory.AdminSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials"))); // cookie XHR (REQ-4.5)
@@ -105,13 +105,31 @@ public sealed class CorsTests
         Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
     }
 
+    [Theory]
+    [InlineData(CorsFactory.MerchantUserSpaOrigin, "/api/v1/me")]
+    [InlineData(CorsFactory.AdminSpaOrigin, "/api/v1/me")]
+    [InlineData(CorsFactory.MerchantUserSpaOrigin, "/api/v1/auth/logout")]
+    [InlineData(CorsFactory.AdminSpaOrigin, "/api/v1/auth/logout")]
+    public async Task Each_console_origin_is_allowed_with_credentials_on_the_identity_platform_surface(string origin, string path)
+    {
+        using var factory = new CorsFactory();
+        using var client = factory.CreateClient();
+
+        // The canonical /me* and /api/v1/auth/logout routes (identity-platform policy) replaced the retired
+        // /api/v1/admins/** plane, so BOTH consoles must clear preflight on them (dual-console policy).
+        var response = await client.SendAsync(Preflight(origin, path));
+
+        Assert.Equal(origin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
+    }
+
     [Fact]
     public async Task Admin_origin_is_not_allowed_on_a_non_admin_route()
     {
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        // The credentialed admin policy is bound only to /api/v1/admins — the split keeps it off the merchant-user surface.
+        // The credentialed admin policy is bound only to the admin plane — the split keeps it off the merchant-user surface.
         var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/health/live"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
@@ -123,7 +141,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight("https://evil.example.com", "/api/v1/admins/me"));
+        var response = await client.SendAsync(Preflight("https://evil.example.com", "/api/v1/accounts"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
     }

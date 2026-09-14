@@ -32,9 +32,9 @@ public sealed class Task8MerchantB2SqlTests
             await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantA, $"b2a-{runTag}"[..20]);
             await Integration.Tests.IntegrationDb.InsertMerchantAsync(seed, merchantB, $"b2b-{runTag}"[..20]);
             await Integration.Tests.IntegrationDb.ExecAsync(seed, """
-                IF NOT EXISTS (SELECT 1 FROM admin.Users WHERE Id=@actor)
-                    INSERT admin.Users (Id, Subject, Email, Tier, Status, AuthorizationVersion, CreatedAt)
-                    VALUES (@actor, NULL, N'task8-b2@example.test', 2, 1, 0, SYSUTCDATETIME());
+                IF NOT EXISTS (SELECT 1 FROM acct.Accounts WHERE Id=@actor)
+                    INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+                    VALUES (@actor, 1, N'task8-b2@example.test', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
                 """, ("@actor", Task8A1SqlFactory.AdminId));
         }
 
@@ -173,7 +173,7 @@ public sealed class Task8MerchantB2SqlTests
                 DELETE FROM txn.PspConnections WHERE MerchantId IN (@merchantA,@merchantB);
                 DELETE FROM merch.VaultSecretVersions WHERE MerchantId IN (@merchantA,@merchantB);
                 DELETE FROM merch.Merchants WHERE Id IN (@merchantA,@merchantB);
-                DELETE FROM admin.Users WHERE Id=@actor;
+                DELETE FROM acct.Accounts WHERE Id=@actor;
                 """,
                 ("@merchantA", merchantA), ("@merchantB", merchantB), ("@actor", Task8A1SqlFactory.AdminId));
         }

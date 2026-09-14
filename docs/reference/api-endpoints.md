@@ -8,7 +8,7 @@
 
 | รายการ | จำนวน |
 | --- | ---: |
-| Explicit mapped operations (`MapGet`/`MapPost`/`MapPut`/`MapPatch`/`MapDelete`) | **265** |
+| Explicit mapped operations (`MapGet`/`MapPost`/`MapPut`/`MapPatch`/`MapDelete`) | **245** |
 | GET | 132 |
 | POST | 86 |
 | PUT | 31 |
@@ -17,7 +17,7 @@
 | Development infrastructure templates (`MapOpenApi`/`MapScalarApiReference`) | **2** |
 | OIDC middleware callback defaults (แยกจาก explicit map) | **2** |
 
-`MapOpenApi` และ `MapScalarApiReference` ถูกแสดงในส่วน infrastructure แยกต่างหาก เพราะ framework สร้าง route template ให้; callback ของ OIDC ที่ middleware จัดการเองก็แยกไว้ท้ายเอกสารและไม่ถูกรวมใน 265 operations.
+`MapOpenApi` และ `MapScalarApiReference` ถูกแสดงในส่วน infrastructure แยกต่างหาก เพราะ framework สร้าง route template ให้; callback ของ OIDC ที่ middleware จัดการเองก็แยกไว้ท้ายเอกสารและไม่ถูกรวมใน 245 operations.
 
 Activity และ Sequence diagram ของทุก endpoint ในเอกสารนี้อยู่ที่ [outputs/diagrams/2026-09-14_api-endpoints_v1/README.md](../../outputs/diagrams/2026-09-14_api-endpoints_v1/README.md); coverage matrix ใน README โยงทุกแถวของตารางด้านล่างไปยัง § ของ diagram.
 
@@ -172,26 +172,6 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 
 | Method | fullPath | ประเภท | หน้าที่ | caller / auth policy | source |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/admins` | Current | รายการบัญชีผู้ดูแลระบบ | policy `admin` · permission `user.view` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins` | Current | สร้าง Scoped Microsoft admin แบบ pre-bound | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/me` | Current | อ่านข้อมูลผู้ดูแลระบบปัจจุบัน | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/merchants/users/{merchantUserId:guid}/approve` | Current | อนุมัติผู้ใช้ร้านค้าเข้าร้านค้าหนึ่ง | policy `admin` · permission `merchants.users.approve` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/merchants/users/{merchantUserId:guid}/registrations` | Current | ดูประวัติการลงทะเบียนของผู้ใช้ร้านค้ารายคน | policy `admin` · permission `merchants.users.view` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/merchants/users/{merchantUserId:guid}/reject` | Current | ปฏิเสธผู้ใช้ร้านค้าที่รอดำเนินการ | policy `admin` · permission `merchants.users.reject` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/permissions` | Current | แคตตาล็อกสิทธิ์ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/roles` | Current | รายการบทบาท | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/roles` | Current | สร้างบทบาท | policy `admin` · permission `user.roles` | [Program.cs](../../src/Api/Api/Program.cs) |
-| DELETE | `/api/v1/admins/roles/{code}` | Current | ลบบทบาท | policy `admin` · permission `user.roles` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/roles/{code}` | Current | อ่านบทบาทตามรหัส | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| PUT | `/api/v1/admins/roles/{code}` | Current | แก้ไขบทบาท | policy `admin` · permission `user.roles` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/{id:guid}` | Current | อ่านบัญชีผู้ดูแลระบบ | policy `admin` · permission `user.view` | [Program.cs](../../src/Api/Api/Program.cs) |
-| GET | `/api/v1/admins/{id:guid}/effective-permissions` | Current | อ่านสิทธิ์ที่มีผลจริงของผู้ดูแลระบบ | policy `admin` · permission `user.view` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/{id:guid}/merchants` | Current | มอบสิทธิ์ร้านค้าให้ผู้ดูแลระบบ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| DELETE | `/api/v1/admins/{id:guid}/merchants/{merchantId:guid}` | Current | ถอนสิทธิ์ร้านค้าจากผู้ดูแลระบบ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/{id:guid}/reactivate` | Current | เปิดใช้งานผู้ดูแลระบบที่ถูกระงับ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| PUT | `/api/v1/admins/{id:guid}/roles` | Current | กำหนดบทบาทของผู้ดูแลระบบ | policy `admin` · permission `user.roles` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/{id:guid}/suspend` | Current | ระงับใช้งานผู้ดูแลระบบ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/admins/{id:guid}/tier` | Current | เลื่อนหรือลด tier ของผู้ดูแลระบบ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
 | POST | `/api/v1/merchants` | Current | Provision ร้านค้าใหม่ | policy `admin` | [Program.cs](../../src/Api/Api/Program.cs) |
 | POST | `/api/v1/merchants/auth/logout` | Current | ออกจากระบบเครื่องนี้ | สาธารณะ · OIDC/OAuth entry point (metadata `AllowAnonymous`) · CSRF filter · rate limit | [Program.cs](../../src/Api/Api/Program.cs) |
 | POST | `/api/v1/merchants/auth/logout-all` | Current | ออกจากระบบทุกเครื่อง | policy `merchant-user` · CSRF filter | [Program.cs](../../src/Api/Api/Program.cs) |
@@ -367,7 +347,7 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 
 ## OpenAPI และ Scalar (development only) — 2 route templates
 
-สองรายการนี้ถูก map เฉพาะเมื่อ `app.Environment.IsDevelopment()` เป็นจริง; ใช้ named audience documents จาก `OpenApiDocuments` และไม่อยู่ในยอด explicit 265 operations.
+สองรายการนี้ถูก map เฉพาะเมื่อ `app.Environment.IsDevelopment()` เป็นจริง; ใช้ named audience documents จาก `OpenApiDocuments` และไม่อยู่ในยอด explicit 245 operations.
 
 | Method | fullPath | ประเภท | หน้าที่ | caller / auth policy | source |
 | --- | --- | --- | --- | --- | --- |

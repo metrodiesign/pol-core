@@ -1,4 +1,3 @@
-using Iam.Domain.Roles;
 using Microsoft.Data.SqlClient;
 
 namespace Integration.Tests;
@@ -27,18 +26,6 @@ public sealed class IamRoleResolutionTests
         JOIN iam.RolePermissions p ON p.RoleId = r.Id
         WHERE a.UserId = @u AND a.MerchantId = @m
           AND r.Status = 1 AND r.Scope = 2 AND (r.MerchantId IS NULL OR r.MerchantId = @m);
-        """;
-
-    // Mirrors Admins.Infrastructure...RoleRepository.ListEffectivePermissionsAsync (RoleVisibility.For(Platform,null)
-    // + Status=Active): Platform-scope, shared, Active roles only.
-    private const string AdminEffectiveSql =
-        """
-        SELECT DISTINCT p.PermissionKey
-        FROM admin.RoleAssignments a
-        JOIN iam.Roles r ON a.RoleId = r.Id
-        JOIN iam.RolePermissions p ON p.RoleId = r.Id
-        WHERE a.AdminUserId = @u
-          AND r.Status = 1 AND r.Scope = 1 AND r.MerchantId IS NULL;
         """;
 
     [Fact]
@@ -158,116 +145,6 @@ public sealed class IamRoleResolutionTests
             ("@m", IntegrationDb.MerchantA))));
     }
 
-    [Fact]
-    public async Task Platform_admin_role_grants_every_action_key_regardless_of_tier()
-    {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        var user = Guid.NewGuid();
-        var platformAdminId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-
-        try
-        {
-            // Orthogonality (REQ-8.2/8.3): a SCOPED-tier admin (Tier=1) holding platform_admin still resolves the
-            // full 20-key action set (17 Platform + 3 Shared payment) after Admin console permissions land — action comes
-            // from the role, not the Tier. (Its narrow VISIBILITY under fn_merchant_predicate is the separate
-            // axis, covered by RlsIsolationTests.)
-            await IntegrationDb.InsertPlatformUserAsync(admin, user, "orth-" + user.ToString("N")[..8],
-                user.ToString("N")[..8] + "@example.com", tier: 1, status: 1);
-            await InsertAdminAssignment(admin, user, platformAdminId);
-            Assert.Equal(20, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
-        }
-        finally
-        {
-            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE AdminUserId=@u", ("@u", user));
-        }
-    }
-
-    [Fact]
-    public async Task Tier_alone_grants_no_action_and_admin_ignores_merchant_scope_roles()
-    {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        var superNoRole = Guid.NewGuid();
-        var adminWithMerchRole = Guid.NewGuid();
-        var merchRole = Guid.NewGuid();
-
-        try
-        {
-            // A SUPER user with no role assignment has zero effective permissions — no Super-bypass (REQ-8.3).
-            await IntegrationDb.InsertPlatformUserAsync(admin, superNoRole, "sup-" + superNoRole.ToString("N")[..8],
-                superNoRole.ToString("N")[..8] + "@example.com", tier: 2, status: 1);
-            Assert.Empty(await Effective(admin, AdminEffectiveSql, superNoRole, Guid.Empty));
-
-            // And even if a Merchant-scope role were assigned via admin.RoleAssignments (a bypassed write), the
-            // Platform resolution's Scope=1 filter drops it — the platform side can never resolve a merchant role
-            // (REQ-3.4 floor).
-            await IntegrationDb.InsertPlatformUserAsync(admin, adminWithMerchRole, "amr-" + adminWithMerchRole.ToString("N")[..8],
-                adminWithMerchRole.ToString("N")[..8] + "@example.com", tier: 2, status: 1);
-            await InsertMerchRole(admin, merchRole, "amr_" + merchRole.ToString("N")[..6], status: 1, merchantId: null);
-            await Grant(admin, merchRole, "payment.create");
-            await InsertAdminAssignment(admin, adminWithMerchRole, merchRole);
-            Assert.Empty(await Effective(admin, AdminEffectiveSql, adminWithMerchRole, Guid.Empty));
-        }
-        finally
-        {
-            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE AdminUserId IN (@a,@b)",
-                ("@a", superNoRole), ("@b", adminWithMerchRole));
-            await IntegrationDb.ExecAsync(admin, "DELETE iam.Roles WHERE Id=@id", ("@id", merchRole));
-        }
-    }
-
-    [Fact]
-    public async Task Every_assignment_row_points_at_a_same_side_role()
-    {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-
-        // Drift guard (REQ-7.6): the single FK to iam.Roles does not constrain scope, so assert at the data level
-        // that no assignment row escaped the write-path validation — every admin.* assignment points at a
-        // Platform role; every merch.* assignment points at a Merchant role whose MerchantId is NULL or the
-        // assignment's own MerchantId.
-        Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            """
-            SELECT COUNT(*) FROM admin.RoleAssignments a
-            JOIN iam.Roles r ON a.RoleId = r.Id
-            WHERE r.Scope <> 1;
-            """)));
-        Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            """
-            SELECT COUNT(*) FROM merch.RoleAssignments a
-            JOIN iam.Roles r ON a.RoleId = r.Id
-            WHERE r.Scope <> 2 OR (r.MerchantId IS NOT NULL AND r.MerchantId <> a.MerchantId);
-            """)));
-    }
-
-    [Fact]
-    public async Task Bootstrap_binds_platform_admin_by_code_idempotently()
-    {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        var user = Guid.NewGuid();
-
-        try
-        {
-            // Bootstrap resolves the seed anchor BY CODE through the Platform visible set (REQ-8.1), then assigns.
-            var roleId = (Guid)(await IntegrationDb.ScalarAsync(admin,
-                "SELECT Id FROM iam.Roles WHERE Code=@c AND Scope=1 AND MerchantId IS NULL",
-                ("@c", Role.PlatformAdminCode)))!;
-
-            await IntegrationDb.InsertPlatformUserAsync(admin, user, "boot-" + user.ToString("N")[..8],
-                user.ToString("N")[..8] + "@example.com", tier: 2, status: 1);
-            await InsertAdminAssignment(admin, user, roleId);
-
-            // Idempotent: the unique (AdminUserId, RoleId) index rejects a second bind of the same role — the
-            // handler's AssignmentExists check + this DB backstop mean a retry/race never double-assigns.
-            await Assert.ThrowsAsync<SqlException>(() => InsertAdminAssignment(admin, user, roleId));
-
-            // The bootstrap account is usable immediately: platform_admin's full 20-key set (17 Platform + 3 Shared payment) resolves.
-            Assert.Equal(20, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
-        }
-        finally
-        {
-            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE AdminUserId=@u", ("@u", user));
-        }
-    }
-
     // --- helpers ---
 
     private static Task InsertMerchRole(SqlConnection c, Guid id, string code, int status, Guid? merchantId) =>
@@ -287,14 +164,6 @@ public sealed class IamRoleResolutionTests
             VALUES (@id, @u, @r, @m, @by, SYSUTCDATETIME());
             """,
             ("@id", Guid.NewGuid()), ("@u", user), ("@r", role), ("@m", merchant), ("@by", Guid.NewGuid()));
-
-    private static Task InsertAdminAssignment(SqlConnection c, Guid user, Guid role) =>
-        IntegrationDb.ExecAsync(c,
-            """
-            INSERT admin.RoleAssignments (Id, AdminUserId, RoleId, AssignedById, AssignedAt)
-            VALUES (@id, @u, @r, @by, SYSUTCDATETIME());
-            """,
-            ("@id", Guid.NewGuid()), ("@u", user), ("@r", role), ("@by", user));
 
     private static async Task<string[]> Effective(SqlConnection c, string sql, Guid user, Guid merchant)
     {

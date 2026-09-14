@@ -133,24 +133,6 @@ public interface IRegistrationAttemptWriter
 }
 
 /// <summary>
-/// Read side of the admin registration-history endpoint (registration-attempt-history REQ-2). Both reads are
-/// AsNoTracking — the handler saves a reveal audit on the same scoped context in the reveal branch, and must
-/// not accidentally flush tracked history rows with it. Neither table is merchant-filtered, so no
-/// filter-free escape hatch is involved (the USER lookup goes through <see cref="IAccountResolver"/>).
-/// </summary>
-public interface IRegistrationHistoryReader
-{
-    /// <summary>All attempts for the user, ORDER BY AttemptNo ascending (REQ-2.2).</summary>
-    Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken cancellationToken);
-
-    /// <summary>Lifecycle timeline rows for the user (canonical internal id — subjects are not unique across
-    /// providers, microsoft-oidc-ciam-alignment REQ-4.8), ORDER BY OccurredAt ascending, EXCLUDING
-    /// <see cref="RegistrationAuditAction.Revealed"/> — reveal records access, not lifecycle, and keeping it
-    /// would make every reveal grow the unpaginated timeline it returns (REQ-2.3/M2).</summary>
-    Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(Guid targetUserId, CancellationToken cancellationToken);
-}
-
-/// <summary>
 /// Enqueues an integration event onto the SAME keyed pol_admin <see cref="PolDbContext"/> as the registration
 /// write so the row + the event commit atomically (REQ-20.2, critique B1). NOT the stock <c>IOutbox</c>/<c>EfOutbox</c>,
 /// which bind the default pol_app context and throw without a bound merchant — registration runs merchant-less. The row

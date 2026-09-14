@@ -45,7 +45,7 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 49 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 50 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
 grep -qE '20260911160508_ReviewFixOrderVersionedMetadata' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion metadata migration head missing"
@@ -53,46 +53,32 @@ grep -qE '20260911163519_ReviewFixPaymentLinkNotificationIntent' docker/bootstra
   || fail "fresh assertion notification migration head missing"
 grep -qE '20260914051532_RetireAdminSessions' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion BFF retirement migration head missing"
+grep -qE '20260914111802_RetireLegacyAdminIdentityPlane' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion legacy admin identity migration head missing"
 grep -qE 'iam\.Permissions expected 25 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"
 grep -qE 'iam\.RolePermissions expected 36 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM role-permission count missing"
-tenant_identity_assertions_present() { # $1=assertion SQL candidate
+grep -qE 'retired legacy admin identity tables still exist' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion legacy admin identity retirement missing"
+# Mutation check: the legacy admin identity guard must name every retired table, so dropping one token turns the gate red.
+legacy_admin_tables_present() { # $1=assertion SQL candidate
   local candidate="$1"
-  grep -qE '20260902133906_Tier0MicrosoftTenantAwareIdentity' "$candidate" \
-    && grep -qE 'CK_WorkforceTenantBindings_Singleton' "$candidate" \
-    && grep -qE 'WorkforceTenantBindings must be empty before runtime tenant pin initialization' "$candidate" \
-    && grep -qE 'WorkforceTenantIdentityMigrations' "$candidate" \
-    && grep -qE 'WorkforceTenantIdentitySnapshot' "$candidate" \
-    && grep -qE 'tenant-aware identity migration state must start incomplete and empty' "$candidate" \
-    && grep -qF "COL_LENGTH(N'admin.Users', N'WorkforceEmailKey')" "$candidate" \
-    && grep -qF "c.name = N'Email'" "$candidate" \
-    && grep -qE 'IX_Users_Provider_TenantId_Subject' "$candidate" \
-    && grep -qE 'Provider,TenantId,Subject' "$candidate"
+  for table in admin.Users admin.WorkforceTenantBindings admin.WorkforceIdentityMigrations \
+      admin.WorkforceIdentitySubjectRollback admin.WorkforceTenantIdentityMigrations \
+      admin.WorkforceTenantIdentitySnapshot admin.RoleAssignments admin.MerchantAccess admin.AuthAudits; do
+    grep -qF "OBJECT_ID(N'${table}', N'U') IS NOT NULL" "$candidate" || return 1
+  done
 }
-
-tenant_identity_assertions_present docker/bootstrap/assert-fresh-db.sql \
-  || fail "fresh tenant-aware identity assertion set incomplete"
-
-# Mutation checks prove the shell gate turns red when a required tenant-aware metadata assertion is removed.
-# They operate only on temporary copies; no database or tracked file is changed.
-assert_tenant_identity_mutation_detected() { # $1=label $2=unique token to remove
-  local label="$1" token="$2" mutated
-  mutated="$(mktemp)"
-  sed "s|${token}|__REMOVED_BY_MUTATION_TEST__|g" docker/bootstrap/assert-fresh-db.sql >"$mutated"
-  if tenant_identity_assertions_present "$mutated"; then
-    rm -f "$mutated"
-    fail "tenant-aware bootstrap mutation escaped gate: ${label}"
-  fi
+legacy_admin_tables_present docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh legacy admin identity retirement assertion incomplete"
+mutated="$(mktemp)"
+sed "s|admin.WorkforceTenantIdentitySnapshot|__REMOVED_BY_MUTATION_TEST__|g" docker/bootstrap/assert-fresh-db.sql >"$mutated"
+if legacy_admin_tables_present "$mutated"; then
   rm -f "$mutated"
-}
-
-assert_tenant_identity_mutation_detected "migration head" "20260902133906_Tier0MicrosoftTenantAwareIdentity"
-assert_tenant_identity_mutation_detected "email/key absence" "WorkforceEmailKey"
-assert_tenant_identity_mutation_detected "nullable Email shape" "c.name = N'Email'"
-assert_tenant_identity_mutation_detected "state tables" "WorkforceTenantIdentityMigrations"
-assert_tenant_identity_mutation_detected "tuple index" "IX_Users_Provider_TenantId_Subject"
-assert_tenant_identity_mutation_detected "tuple index order" "Provider,TenantId,Subject"
+  fail "legacy admin identity retirement mutation escaped gate"
+fi
+rm -f "$mutated"
 grep -qE 'exactly eleven native json columns required' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion native JSON check missing"
 grep -qE 'shop\.Orders\.Metadata' docker/bootstrap/assert-fresh-db.sql \

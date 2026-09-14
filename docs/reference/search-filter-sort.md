@@ -19,7 +19,7 @@ Parser อยู่ที่ `src/Api/Api/SfsQueryParser.cs` และแปล�
 ตัวอย่าง:
 
 ```text
-GET /api/v1/admins?page=1&limit=25&filters=[{"field":"status","operator":"eq","value":"active"}]&sort=[{"field":"createdAt","order":"DESC"}]&search={"query":"alice","fields":["email"]}
+GET /api/v1/accounts?page=1&limit=25&filters=[{"field":"status","operator":"eq","value":"active"}]&sort=[{"field":"createdAt","order":"DESC"}]&search={"query":"alice","fields":["email"]}
 ```
 
 `filters`, `sort` และ `search` ต้องเป็น JSON ที่ valid. malformed JSON หรือเกิน cap ได้ `400` ผ่าน shared
@@ -55,26 +55,9 @@ dynamic. ค่า filter ถูก parse เป็น type ของ field แ�
 
 ## Current endpoint surfaces
 
-### Admin directory
-
-`GET /api/v1/admins` ใช้ generic SFS:
-
-- filters: `email`, `tier`, `status`
-- sort: `email`, `createdAt`
-- search: `email`
-- authorization: policy `admin` + permission `user.view`
-
 ### Canonical Account directory
 
 `GET /api/v1/accounts` ใช้ SFS สำหรับ business `Account` directory ภายใต้ Admin scope. Field allowlist ของ account/identity ถูกประกาศใน `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/` และ endpoint ไม่คืน token/secret. Account detail ใช้ `ETag` จาก `AuthorizationVersion`; update/revoke session ใช้ `If-Match` หรือ idempotency ตาม operation.
-
-### Admin roles
-
-`GET /api/v1/admins/roles` ใช้ generic SFS. Role implementation รองรับ whitelist:
-
-- filters: `status`, `code`, `name`, `description`
-- operators ต่างกันตาม field; ตรวจที่ `src/Infrastructure/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs`
-- sort/search ใช้ whitelist ใน implementation เดียวกัน
 
 ### Merchant order list
 
@@ -133,7 +116,6 @@ Dashboard และ operations report ใช้ `from`, `to`, `merchantId` แ�
 | Filter operators | `src/Application/BuildingBlocks.Application/FilterOperator.cs` |
 | Sort value/direction | `src/Application/BuildingBlocks.Application/SortOption.cs`, `SortDirection.cs` |
 | Search value | `src/Application/BuildingBlocks.Application/SearchOption.cs` |
-| Admin whitelist | `src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` |
 | Role whitelist | `src/Infrastructure/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` |
 | Products typed filters | `src/Application/Modules/Products.Application/ListProducts.cs` |
 | API route composition | `src/Api/Api/Program.cs` |

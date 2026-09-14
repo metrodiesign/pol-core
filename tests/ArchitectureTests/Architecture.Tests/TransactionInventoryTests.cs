@@ -52,15 +52,6 @@ public sealed class TransactionInventoryTests
         ["src/Application/Modules/Orders.Application/OrderPaidConsumer.cs"] = 1,
         ["src/Application/Modules/Orders.Application/OrderPaymentFailedConsumer.cs"] = 1,
         ["src/Application/Modules/Orders.Application/OrderPaymentExpiredConsumer.cs"] = 1,
-        ["src/Application/Modules/Admins.Application/Users/UnassignMerchant.cs"] = 1,                       // row 9
-        ["src/Application/Modules/Admins.Application/Users/ReactivateAdmin.cs"] = 1,                        // row 4
-        ["src/Application/Modules/Admins.Application/Users/SelfProvisionSuperAdmin.cs"] = 1,                // row 6
-        ["src/Application/Modules/Admins.Application/Users/CreateScopedAdmin.cs"] = 1,                      // row 3
-        ["src/Application/Modules/Admins.Application/Users/BindInvitedAdmin.cs"] = 1,                       // row 2
-        ["src/Application/Modules/Admins.Application/Users/SuspendAdmin.cs"] = 1,                           // row 8
-        ["src/Application/Modules/Admins.Application/Users/AssignMerchant.cs"] = 1,                         // row 1
-        ["src/Application/Modules/Admins.Application/Users/SetAdminRoles.cs"] = 1,                          // row 7
-        ["src/Application/Modules/Admins.Application/Users/ChangeAdminTier.cs"] = 1,                        // row 23 (task 4)
         ["src/Application/Modules/Merchants.Application/Users/ApproveReject.cs"] = 2,                    // rows 17+18
         ["src/Application/Modules/Merchants.Application/Users/SubmitRegistration.cs"] = 1,               // row 20
         ["src/Application/Modules/Merchants.Application/Users/SetUserRoles.cs"] = 1,                     // row 19
@@ -88,7 +79,6 @@ public sealed class TransactionInventoryTests
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/Iam/ApiClientApprovalExecutor.cs"] = 1, // row 42
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/Iam/ApiClientStore.cs"] = 1, // row 43
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs"] = 2, // rows 44-45
-        ["src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/WorkforceTenantBindingStore.cs"] = 1, // boot-time tenant singleton
     };
 
     // The two runtime IUnitOfWork implementations plus the provisioning coordinator —
@@ -117,9 +107,6 @@ public sealed class TransactionInventoryTests
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs"] = 1, // account/access atomic identity flow (BFF ticket rotation retired with the employee JWT flow)
         ["src/Infrastructure/BuildingBlocks.Infrastructure/Migration/SqlMigrationMaintenanceLease.cs"] = 1, // Task9 writer lease
         ["src/Infrastructure/BuildingBlocks.Infrastructure/Migration/SqlMigrationReadinessStore.cs"] = 2, // Task9 durable rehearsal writes
-        // Tier 0 offline cutover tool: separate privileged serializable first-run and completed-verifier paths;
-        // neither is referenced by API runtime.
-        ["src/Infrastructure/Tools/WorkforceIdentityMigrator/Program.cs"] = 2,
     };
 
     private static readonly Regex ExecuteInTransactionAsyncCallSite = new(@"\.ExecuteInTransactionAsync\(", RegexOptions.Compiled);

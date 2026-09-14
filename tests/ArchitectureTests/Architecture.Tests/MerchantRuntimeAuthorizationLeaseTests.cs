@@ -21,8 +21,8 @@ public sealed class MerchantRuntimeAuthorizationLeaseTests : IDisposable
         using var setup = NewContext();
         setup.Database.EnsureCreated();
         setup.Database.ExecuteSqlInterpolated($"""
-            INSERT INTO Users (Id, Provider, Tier, Status, CreatedAt, AuthorizationVersion, Version)
-            VALUES ({Actor}, 'microsoft', 2, 1, {DateTime.UtcNow}, 0, 1)
+            INSERT INTO Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+            VALUES ({Actor}, 1, 'lease-actor', 1, 0, {DateTime.UtcNow}, {DateTime.UtcNow})
             """);
     }
 
@@ -52,7 +52,7 @@ public sealed class MerchantRuntimeAuthorizationLeaseTests : IDisposable
         await using (var stale = NewContext())
         {
             await stale.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE Users SET AuthorizationVersion = {1L} WHERE Id = {Actor}");
+                $"UPDATE Accounts SET AuthorizationVersion = {1L} WHERE Id = {Actor}");
         }
 
         await using var db = NewContext();
@@ -64,7 +64,7 @@ public sealed class MerchantRuntimeAuthorizationLeaseTests : IDisposable
 
         await using var reset = NewContext();
         await reset.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE Users SET AuthorizationVersion = {0L}, Status = {2} WHERE Id = {Actor}");
+            $"UPDATE Accounts SET AuthorizationVersion = {0L}, Status = {2} WHERE Id = {Actor}");
         await using var inactiveDb = NewContext();
         await using var inactiveTransaction = await inactiveDb.Database.BeginTransactionAsync();
         var inactive = await Assert.ThrowsAsync<AccessDeniedException>(() =>
@@ -97,7 +97,7 @@ public sealed class MerchantRuntimeAuthorizationLeaseTests : IDisposable
 
         await using var verify = NewContext();
         Assert.Empty(await verify.OperationRecords.ToListAsync());
-        Assert.Equal(0L, await verify.Users.Where(x => x.Id == Actor)
+        Assert.Equal(0L, await verify.Accounts.Where(x => x.Id == Actor)
             .Select(x => x.AuthorizationVersion).SingleAsync());
     }
 

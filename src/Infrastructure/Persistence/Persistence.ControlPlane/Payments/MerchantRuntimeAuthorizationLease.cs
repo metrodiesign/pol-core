@@ -11,7 +11,7 @@ namespace Persistence.ControlPlane.Payments;
 
 /// <summary>
 /// Verifies the admin authorization lease through one conditional update in the caller's existing
-/// transaction. The runtime model does not add a CLR projection or a second mapping owner for admin.Users:
+/// transaction. The runtime model does not add a CLR projection or a second mapping owner for acct.Accounts:
 /// the predicate both checks the snapshot and takes the row lock, so revoke-before-commit and
 /// business-before-revoke have one deterministic order.
 /// </summary>
@@ -46,9 +46,9 @@ internal sealed class MerchantRuntimeAuthorizationLease(
         command.Transaction = db.Database.CurrentTransaction!.GetDbTransaction();
         var isSqlite = db.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true;
         command.CommandText = isSqlite
-            ? "UPDATE \"Users\" SET \"AuthorizationVersion\" = \"AuthorizationVersion\" " +
+            ? "UPDATE \"Accounts\" SET \"AuthorizationVersion\" = \"AuthorizationVersion\" " +
               "WHERE \"Id\" = @lease_id AND \"Status\" = @active_status AND \"AuthorizationVersion\" = @expected_version"
-            : "UPDATE [admin].[Users] SET [AuthorizationVersion] = [AuthorizationVersion] " +
+            : "UPDATE [acct].[Accounts] SET [AuthorizationVersion] = [AuthorizationVersion] " +
               "WHERE [Id] = @lease_id AND [Status] = @active_status AND [AuthorizationVersion] = @expected_version";
 
         AddParameter(command, "@lease_id", DbType.Guid, access.ActorId);

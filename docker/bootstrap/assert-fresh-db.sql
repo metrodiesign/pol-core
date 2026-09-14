@@ -73,9 +73,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260911160508_ReviewFixOrderVersionedMetadata'),
     (N'20260911163519_ReviewFixPaymentLinkNotificationIntent'),
     (N'20260913174013_RetireBffSessionTickets'),
-    (N'20260914051532_RetireAdminSessions');
+    (N'20260914051532_RetireAdminSessions'),
+    (N'20260914111802_RetireLegacyAdminIdentityPlane');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 49
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 50
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -84,62 +85,22 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 49
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 49 expected migrations through RetireAdminSessions; ';
+    SET @fail += N'migration history must contain exactly 50 expected migrations through RetireLegacyAdminIdentityPlane; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
 IF OBJECT_ID(N'shop.OrderNoSeq', N'SO') IS NULL
     SET @fail += N'shop.OrderNoSeq missing; ';
-IF OBJECT_ID(N'admin.WorkforceTenantBindings', N'U') IS NULL
-   OR NOT EXISTS (SELECT 1 FROM sys.check_constraints
-                  WHERE name = N'CK_WorkforceTenantBindings_Singleton')
-    SET @fail += N'admin.WorkforceTenantBindings singleton missing; ';
-IF EXISTS (SELECT 1 FROM admin.WorkforceTenantBindings)
-    SET @fail += N'admin.WorkforceTenantBindings must be empty before runtime tenant pin initialization; ';
-
-IF OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U') IS NULL
-   OR OBJECT_ID(N'admin.WorkforceTenantIdentitySnapshot', N'U') IS NULL
-    SET @fail += N'tenant-aware identity migration state tables missing; ';
-ELSE IF (SELECT COUNT(*) FROM admin.WorkforceTenantIdentityMigrations) <> 1
-   OR NOT EXISTS
-      (SELECT 1 FROM admin.WorkforceTenantIdentityMigrations
-       WHERE Id = 1 AND CompletedAt IS NULL AND SnapshotCount = 0 AND MappedCount = 0 AND NoOpCount = 0)
-   OR EXISTS (SELECT 1 FROM admin.WorkforceTenantIdentitySnapshot)
-    SET @fail += N'tenant-aware identity migration state must start incomplete and empty; ';
-
-IF COL_LENGTH(N'admin.Users', N'WorkforceEmailKey') IS NOT NULL
-   OR EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'admin.Users')
-              AND name IN (N'IX_Users_WorkforceEmailKey', N'IX_Users_Email', N'IX_Users_Provider_Subject'))
-    SET @fail += N'email ownership columns or indexes remain on admin.Users; ';
-IF NOT EXISTS
-   (SELECT 1 FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
-    WHERE c.object_id = OBJECT_ID(N'admin.Users') AND c.name = N'TenantId'
-      AND t.name = N'uniqueidentifier' AND c.is_nullable = 1)
-   OR NOT EXISTS
-   (SELECT 1 FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
-    WHERE c.object_id = OBJECT_ID(N'admin.Users') AND c.name = N'Email'
-      AND t.name = N'nvarchar' AND c.max_length = 640 AND c.is_nullable = 1)
-    SET @fail += N'admin.Users tenant/email column shape invalid; ';
-IF NOT EXISTS
-   (SELECT 1 FROM sys.indexes
-    WHERE object_id = OBJECT_ID(N'admin.Users') AND name = N'IX_Users_Provider_TenantId_Subject'
-      AND is_unique = 1 AND filter_definition IS NOT NULL)
-   OR (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
-       FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
-       JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
-       WHERE i.object_id = OBJECT_ID(N'admin.Users') AND i.name = N'IX_Users_Provider_TenantId_Subject'
-         AND ic.key_ordinal > 0) <> N'Provider,TenantId,Subject'
-    SET @fail += N'admin.Users tenant-aware identity index invalid; ';
-IF NOT EXISTS (SELECT 1 FROM sys.key_constraints
-               WHERE parent_object_id = OBJECT_ID(N'admin.WorkforceTenantBindings')
-                 AND name = N'AK_WorkforceTenantBindings_TenantId' AND type = N'UQ')
-   OR NOT EXISTS (SELECT 1 FROM sys.foreign_keys
-                  WHERE parent_object_id = OBJECT_ID(N'admin.Users')
-                    AND name = N'FK_Users_WorkforceTenantBindings_TenantId')
-   OR NOT EXISTS (SELECT 1 FROM sys.check_constraints
-                  WHERE parent_object_id = OBJECT_ID(N'admin.Users')
-                    AND name = N'CK_Users_TenantId_MicrosoftProvider')
-    SET @fail += N'admin.Users tenant binding constraints invalid; ';
+IF OBJECT_ID(N'admin.Users', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.WorkforceTenantBindings', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.WorkforceIdentityMigrations', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.WorkforceIdentitySubjectRollback', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.WorkforceTenantIdentitySnapshot', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.RoleAssignments', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.MerchantAccess', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.AuthAudits', N'U') IS NOT NULL
+    SET @fail += N'retired legacy admin identity tables still exist; ';
 
 IF OBJECT_ID(N'shop.CheckoutSessions', N'U') IS NOT NULL
    OR OBJECT_ID(N'shop.OrderItemPolicies', N'U') IS NOT NULL
@@ -210,18 +171,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                     AND p.major_id = OBJECT_ID(N'merch.RegistrationNotices') AND p.permission_name = N'INSERT' AND p.state = N'G')
    OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                   WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'SELECT' AND p.state = N'G')
+                    AND p.major_id = OBJECT_ID(N'admin.UserAudits') AND p.permission_name = N'SELECT' AND p.state = N'G')
    OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                   WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'INSERT' AND p.state = N'G')
-   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
-                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations')
-                    AND p.permission_name = N'SELECT' AND p.state = N'G')
-   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
-                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantIdentitySnapshot')
-                    AND p.permission_name = N'SELECT' AND p.state = N'G')
+                    AND p.major_id = OBJECT_ID(N'admin.UserAudits') AND p.permission_name = N'INSERT' AND p.state = N'G')
     SET @fail += N'pol_app required grant matrix incomplete; ';
 IF EXISTS (SELECT 1 FROM sys.database_permissions p
            WHERE p.grantee_principal_id = USER_ID(N'pol_app')
@@ -230,9 +183,9 @@ IF EXISTS (SELECT 1 FROM sys.database_permissions p
     SET @fail += N'append-only vault audit grants widened; ';
 IF EXISTS (SELECT 1 FROM sys.database_permissions p
            WHERE p.grantee_principal_id = USER_ID(N'pol_app')
-             AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings')
+             AND p.major_id = OBJECT_ID(N'admin.UserAudits')
              AND p.permission_name IN (N'UPDATE', N'DELETE') AND p.state IN (N'G', N'W'))
-    SET @fail += N'workforce tenant binding grants widened; ';
+    SET @fail += N'admin user audit grants widened; ';
 
 IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 7
     SET @fail += N'iam.PermissionGroups expected 7 rows; ';

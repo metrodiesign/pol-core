@@ -158,8 +158,7 @@ DB ว่าง (CI, deploy, scratch database) — script รวมทุก mig
 SQL Server compile ทั้ง batch ก่อนประเมิน guard. batch ของ migration เก่าที่อ้างคอลัมน์ซึ่ง migration ถัดมาลบไปแล้ว
 จึงล้มด้วย `Invalid column name` ทันทีบน DB ที่ apply มาถึงกลางประวัติ และไม่มี DDL ใดถูก apply เลย.
 
-ทางลัด one-command สำหรับ fresh/empty Admin inventory (apply migration แล้วรัน `WorkforceIdentityMigrator` ให้จบ
-ในขั้นตอนเดียว, idempotent, source `.env` ให้เอง):
+ทางลัด one-command (apply migration, idempotent, source `.env` ให้เอง):
 
 ```bash
 ./scripts/dev-db-migrate.sh
@@ -171,11 +170,6 @@ SQL Server compile ทั้ง batch ก่อนประเมิน guard. b
 dotnet ef database update --context PolDbContext \
   --project src/Infrastructure \
   --startup-project src/Api
-
-# Fresh empty Admin inventory: no manifest is required and the tool completes with zero counts.
-# Existing Admin inventory: set the six protected WORKFORCE_* first-run inputs and use the strict manifest
-# procedure in docs/runbooks/admin-workforce-jit-rollout.md; do not print their values.
-dotnet run --project src/Infrastructure/Infrastructure.csproj
 
 dotnet ef migrations list --context PolDbContext \
   --project src/Infrastructure \
@@ -200,11 +194,8 @@ env -u POL_SA_PASSWORD bash docker/bootstrap/assert-fresh-db.test.sh
 bash docker/bootstrap/assert-fresh-db.test.sh
 ```
 
-ผลลัพธ์สุดท้ายต้องเป็น `assert-fresh-db.test: OK`. EF migration ใหม่สร้าง pending tenant-aware identity state;
-ต้องรัน `WorkforceIdentityMigrator` ให้ exit `0` ก่อน start API. Existing rows ต้องใช้ authoritative
-`AdminId + tenantId + objectId` manifest; ห้ามใช้ Email สร้าง mapping. API จะ fail startup เมื่อ old/new state pending,
-configured tenant ไม่ตรง singleton หรือ User ไม่อยู่ final state Production ใช้ `docker/migrate-entrypoint.sh` ซึ่งคง
-ลำดับ schema ก่อน tool; ห้ามพึ่ง Development auto-migrate สำหรับ cutover นี้ ขั้นตอน production อยู่ใน
+ผลลัพธ์สุดท้ายต้องเป็น `assert-fresh-db.test: OK`. Production ใช้ `docker/migrate-entrypoint.sh` (sqlcmd apply
+`docker/migrations/schema.sql`); ห้ามพึ่ง Development auto-migrate ขั้นตอน production อยู่ใน
 [Self-host Deployment Runbook](deploy-self-host.md).
 
 ## 7. ตั้งค่า Microsoft Entra OIDC
@@ -292,16 +283,8 @@ dotnet watch --project src/Api/Api.csproj run
 ```
 
 `dotnet watch` ไม่ apply migration อัตโนมัติ: `PolDbContext` เป็น migration-only composition และไม่ถูก
-สร้างหรือ register ใน API runtime. ให้รัน `./scripts/dev-db-migrate.sh` ก่อน และ API host จะ **ไม่รัน**
-`WorkforceIdentityMigrator` (ตาม design: ห้ามมี migration-completion logic ใน API host). ถ้าข้าม Section 6 มา boot จะ crash-loop ด้วย:
-
-```text
-System.InvalidOperationException: Admin Microsoft historical identity migration is incomplete.
-```
-
-แก้โดยรัน `./scripts/dev-db-migrate.sh` (หรือ migrator ใน Section 6) ให้ exit `0` ก่อน แล้ว restart. ถ้า DB มี
-Admin row เดิมที่ต้องใช้ Entra manifest ให้ทำตาม [admin-workforce-jit-rollout.md](admin-workforce-jit-rollout.md);
-DB demo เก่าที่ไม่มี identity จริงต้องเคลียร์ row ที่ invalid ก่อน.
+สร้างหรือ register ใน API runtime. ให้รัน `./scripts/dev-db-migrate.sh` ก่อน (Section 6) ทุกครั้งหลัง pull migration ใหม่;
+ตรวจด้วย `SELECT COUNT(*) FROM __EFMigrationsHistory` เทียบจำนวนไฟล์ใน `Migrations/`.
 
 ตรวจว่าไม่มี API ตัวเก่าถือ port ก่อน restart:
 
@@ -397,7 +380,7 @@ pre-bind `(provider, subject)`.
 3. Identity ต้องมี validated `tid` และ `oid` อย่างละหนึ่งค่าและ `tid` ตรง tenant-pinned Authority Runtime lookup
    ใช้ exact `(microsoft, tid, oid)`; ไม่บังคับ `roles` และไม่ใช้ Email, UPN, `preferred_username` หรือ `EmployeeId`
    เป็น identity. Email absent ต้อง login/JIT ได้ และ JIT เป็น `Active + Scoped` แบบไม่มี role.
-4. Login สำเร็จต้องกลับมาที่ SPA redirect URI (`https://localhost:3001/auth/callback?code=...`) แล้ว SPA แลก code ที่ `POST /oauth/token` ได้ access JWT + refresh token; ไม่มี admin session cookie ตรวจด้วย `GET /api/v1/admins/me` พร้อม `Authorization: Bearer`.
+4. Login สำเร็จต้องกลับมาที่ SPA redirect URI (`https://localhost:3001/auth/callback?code=...`) แล้ว SPA แลก code ที่ `POST /oauth/token` ได้ access JWT + refresh token; ไม่มี admin session cookie ตรวจด้วย `GET /api/v1/me` พร้อม `Authorization: Bearer`.
 5. Microsoft invite ต้อง pre-bound ด้วย verified `objectId` และ approval reference ก่อน first login; Email optional.
 6. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
 

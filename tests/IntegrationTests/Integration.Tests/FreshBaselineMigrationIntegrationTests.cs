@@ -36,14 +36,12 @@ public sealed class FreshBaselineMigrationIntegrationTests
                     connection, "SELECT OBJECT_ID(N'merch.RegistrationNotices', N'U');"));
                 Assert.NotNull(await IntegrationDb.ScalarAsync(
                     connection, "SELECT OBJECT_ID(N'shop.OrderNoSeq', N'SO');"));
+                // RetireLegacyAdminIdentityPlane (#50) retired admin.WorkforceTenantBindings; admin.UserAudits
+                // is the admin-plane table that survives at HEAD, empty at a fresh baseline.
                 Assert.NotNull(await IntegrationDb.ScalarAsync(
-                    connection, "SELECT OBJECT_ID(N'admin.WorkforceTenantBindings', N'U');"));
-                Assert.NotNull(await IntegrationDb.ScalarAsync(connection, """
-                    SELECT object_id FROM sys.check_constraints
-                    WHERE name = N'CK_WorkforceTenantBindings_Singleton';
-                    """));
+                    connection, "SELECT OBJECT_ID(N'admin.UserAudits', N'U');"));
                 Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(
-                    connection, "SELECT COUNT(*) FROM admin.WorkforceTenantBindings;")));
+                    connection, "SELECT COUNT(*) FROM admin.UserAudits;")));
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
                     SELECT Status FROM merch.Merchants
                     WHERE Id = 'e1000000-0000-4000-8000-000000000001';
@@ -73,17 +71,17 @@ public sealed class FreshBaselineMigrationIntegrationTests
                     """)));
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
                     EXECUTE AS USER = 'pol_app';
-                    SELECT HAS_PERMS_BY_NAME(N'admin.WorkforceTenantBindings', N'OBJECT', N'SELECT');
+                    SELECT HAS_PERMS_BY_NAME(N'admin.UserAudits', N'OBJECT', N'SELECT');
                     REVERT;
                     """)));
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
                     EXECUTE AS USER = 'pol_app';
-                    SELECT HAS_PERMS_BY_NAME(N'admin.WorkforceTenantBindings', N'OBJECT', N'INSERT');
+                    SELECT HAS_PERMS_BY_NAME(N'admin.UserAudits', N'OBJECT', N'INSERT');
                     REVERT;
                     """)));
                 Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
                     EXECUTE AS USER = 'pol_app';
-                    SELECT HAS_PERMS_BY_NAME(N'admin.WorkforceTenantBindings', N'OBJECT', N'UPDATE');
+                    SELECT HAS_PERMS_BY_NAME(N'admin.UserAudits', N'OBJECT', N'UPDATE');
                     REVERT;
                     """)));
                 Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """

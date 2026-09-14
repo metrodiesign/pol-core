@@ -224,22 +224,25 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
         ControlPlaneDbContext db, Guid callerAdminId, long expectedAuthorizationVersion, ISecurityTelemetry telemetry,
         CancellationToken cancellationToken)
     {
-        var table = TableName(db, typeof(Admins.Domain.Users.User));
+        var accounts = TableName(db, typeof(Accounts.Domain.Account));
+        var platformAccess = TableName(db, typeof(Access.Domain.PlatformAccess));
         // WITH (UPDLOCK, HOLDLOCK) is SQL-Server-only syntax — the table hint is real ONLY there; the
-        // Tier/Status/AuthorizationVersion condition (the thing this test suite actually verifies) is
-        // identical on both providers.
+        // Status/AuthorizationVersion + active PlatformAccess condition (the thing this test suite actually
+        // verifies) is identical on both providers. "Super" = the employee account holds active platform access.
         var hint = db.Database.IsSqlServer() ? " WITH (UPDLOCK, HOLDLOCK)" : "";
-        var sql = $"SELECT 1 AS Value FROM {table}{hint} WHERE Id={{0}} AND Tier={{1}} AND Status={{2}} AND AuthorizationVersion={{3}}";
+        var sql = $"SELECT 1 AS Value FROM {accounts} a{hint} WHERE a.Id={{0}} AND a.Status={{1}} AND a.AuthorizationVersion={{2}}"
+            + $" AND EXISTS (SELECT 1 FROM {platformAccess} p WHERE p.EmployeeAccountId=a.Id AND p.Status={{3}})";
 
         var rows = await db.Database.SqlQueryRaw<int>(
-            sql, callerAdminId, (int)Admins.Domain.Users.Tier.Super, (int)Admins.Domain.Users.UserStatus.Active, expectedAuthorizationVersion)
+            sql, callerAdminId, (int)Accounts.Domain.AccountStatus.Active, expectedAuthorizationVersion,
+            (int)Access.Domain.PlatformAccessStatus.Active)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         if (rows.Count == 0)
         {
             telemetry.Emit(new DenialEvent(
                 DenialCategory.AdminRevalidationDenial, "admin", callerAdminId, TargetMerchant: null,
-                nameof(Admins.Domain.Users.User), "ProvisioningCoordinator.VerifyCallerIsActiveSuper",
+                nameof(Accounts.Domain.Account), "ProvisioningCoordinator.VerifyCallerIsActiveSuper",
                 "Provisioning caller is not an active Super admin at the expected authorization version.",
                 CorrelationId.Current, DateTime.UtcNow));
             throw new WriteGuardException(

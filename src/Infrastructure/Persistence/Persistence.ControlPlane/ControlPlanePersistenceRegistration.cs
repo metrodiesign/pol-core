@@ -1,4 +1,3 @@
-using Admins.Application.Roles;
 using Admins.Application.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
@@ -51,7 +50,6 @@ public static class ControlPlanePersistenceRegistration
             var options = new DbContextOptionsBuilder<ControlPlaneDbContext>()
                 .UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(170))
                 .UseApplicationServiceProvider(sp)
-                .AddInterceptors(new UserUpdatedAtInterceptor(sp.GetRequiredService<IClock>()))
                 .Options;
             return new ControlPlaneDbContext(
                 options,
@@ -66,14 +64,6 @@ public static class ControlPlanePersistenceRegistration
                 sp,
                 sp.GetRequiredService<ISecurityTelemetry>()));
 
-        services.AddScoped<IUserRepository>(sp => new UserRepository(
-            sp.GetRequiredService<ControlPlaneDbContext>(),
-            sp.GetRequiredService<ILogger<UserRepository>>(),
-            sp.GetRequiredService<ISecurityTelemetry>(),
-            sp.GetRequiredService<GovernanceSqlLockManager>()));
-        services.AddScoped<IAdminIdentityRecoveryReader, ControlPlaneIdentityRecoveryReader>();
-        services.AddScoped<IEmployeeProfileReader>(sp => new EmployeeProfileReader(
-            sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ILogger<EmployeeProfileReader>>()));
         services.AddScoped<IAuditWriter>(sp => new AuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<IdentityAccessStore>();
         services.AddScoped<IIdentityAuthorizationRoleReader, IdentityAuthorizationRoleReader>();
@@ -90,8 +80,6 @@ public static class ControlPlanePersistenceRegistration
         services.AddScoped<EmployeeJitService>();
         services.AddScoped<RegistrationSessionService>();
         services.AddScoped<SystemClientAssertionService>();
-        services.AddScoped<IRoleRepository>(sp => new RoleRepository(sp.GetRequiredService<ControlPlaneDbContext>()));
-
         services.AddScoped<IamRoleStore>();
         services.AddScoped<IRoleStore>(sp => sp.GetRequiredService<IamRoleStore>());
         services.AddScoped<IRoleAssignmentValidator>(sp => sp.GetRequiredService<IamRoleStore>());
@@ -126,11 +114,6 @@ public static class ControlPlanePersistenceRegistration
         services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) =>
             new ControlPlaneUnitOfWork(
                 sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));
-        services.AddScoped<IWorkforceTenantBindingStore>(sp => new WorkforceTenantBindingStore(
-            sp.GetRequiredService<ControlPlaneDbContext>(),
-            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
-            sp.GetRequiredService<GovernanceSqlLockManager>()));
-
         services.AddScoped<IAdminRoleAssignmentCountReader>(sp =>
             new AdminRoleAssignmentCountReader(sp.GetRequiredService<ControlPlaneDbContext>()));
 

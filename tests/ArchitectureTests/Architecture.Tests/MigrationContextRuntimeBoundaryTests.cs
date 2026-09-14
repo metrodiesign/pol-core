@@ -70,7 +70,6 @@ public sealed class MigrationContextRuntimeBoundaryTests
         Assert.Equal("MerchantUserSessions", context.Model.FindEntityType(typeof(Merchants.Domain.Users.Session))!.GetTableName());
         Assert.Equal("MerchantAuthAudits", context.Model.FindEntityType(typeof(Merchants.Domain.Users.AuthAudit))!.GetTableName());
         Assert.Equal("MerchantRoleAssignments", context.Model.FindEntityType(typeof(Merchants.Domain.Users.Roles.RoleAssignment))!.GetTableName());
-        Assert.Equal("AdminMerchantAccess", context.Model.FindEntityType(typeof(Admins.Domain.Users.MerchantAccess))!.GetTableName());
         Assert.Equal("AccountMerchantAccess", context.Model.FindEntityType(typeof(Access.Domain.MerchantAccess))!.GetTableName());
     }
 

@@ -25,10 +25,9 @@ public sealed class PolCorsOptions
 /// <item>the <b>default</b> policy is the merchant-user SPA — cookie (credentialed) XHR, so it sets
 /// <c>AllowCredentials</c>, which the spec forbids pairing with a wildcard origin: the origins are pinned
 /// explicitly.</item>
-/// <item><see cref="AdminPolicyName"/> is the admin SPA — also cookie (credentialed) XHR, its own pinned origin
-/// set. Applied to <c>/api/v1/admins/*</c>, the Governance areas, PLUS the two admin-provisioned merchant endpoints
-/// that moved out of that group (hierarchical-naming D9): <c>/api/v1/merchants</c> and
-/// <c>/api/v1/merchants/{code}</c> — but NOT
+/// <item><see cref="AdminPolicyName"/> is the admin SPA — its own pinned origin set. Applied to the
+/// Governance/account/role/permission areas, PLUS the two admin-provisioned merchant endpoints
+/// (hierarchical-naming D9): <c>/api/v1/merchants</c> and <c>/api/v1/merchants/{code}</c> — but NOT
 /// <c>/api/v1/merchants/users/*</c>, which is the merchant-user plane and stays on the default policy.</item>
 /// </list>
 /// Console origins come from the validated configuration snapshot (<c>Cors:MerchantOrigins</c> merchant-user,
@@ -113,6 +112,13 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
         // navigation and needs no CORS.
         if (path.StartsWithSegments("/oauth/token") || path.StartsWithSegments("/oauth/revoke"))
             return true;
+        // Canonical identity-platform surface (policy "identity-platform", both Employee and Agent principals):
+        // /me, /me/merchants, /me/access, /me/sessions[/{id}] and POST /api/v1/auth/logout. Both consoles call
+        // these after the legacy /api/v1/admins/** plane was retired. Segment matching keeps /api/v1/me off
+        // /api/v1/merchants, and the logout match is pinned to /auth/logout so the anonymous /auth/agents/login
+        // and /auth/*/callback endpoints keep their own posture.
+        if (path.StartsWithSegments("/api/v1/me") || path.StartsWithSegments("/api/v1/auth/logout"))
+            return true;
         if (path.StartsWithSegments("/api/v1/reports/reconciliation"))
             return true;
         if (path.StartsWithSegments("/api/v1/carts"))
@@ -149,15 +155,13 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
         Guid.TryParse(value, out _)
         || (value?.StartsWith('{') == true && value.EndsWith('}'));
 
-    // admin plane = /api/v1/admins/** + /api/v1/merchants and /api/v1/merchants/{code} (D9) — but NOT
+    // admin plane = /api/v1/merchants and /api/v1/merchants/{code} (D9) — but NOT
     // /api/v1/merchants/users/** or /api/v1/merchants/auth/**, which are the merchant-user plane (REQ-8.2; auth
-    // carries the provider-scoped login/callback/logout). Also the 4 standalone reference
-    // master-data areas (2026-07-20) — they authenticate on the same AdminSession cookie despite living outside
-    // /admins. Backed by a fail-closed guard (AdminCorsGuardTests) that enumerates every "admin"-policy endpoint
-    // and asserts it resolves here.
+    // carries the provider-scoped login/callback/logout) — plus the governance/account/role/permission areas
+    // below. They authenticate on the employee platform Bearer token. Backed by a fail-closed guard
+    // (AdminCorsGuardTests) that enumerates every "admin"-policy endpoint and asserts it resolves here.
     private static bool IsAdminPlane(PathString path) =>
-        path.StartsWithSegments("/api/v1/admins")
-        || (path.StartsWithSegments("/api/v1/merchants", out var rest)
+        (path.StartsWithSegments("/api/v1/merchants", out var rest)
             && !rest.StartsWithSegments("/users") && !rest.StartsWithSegments("/auth"))
         || path.StartsWithSegments("/api/v1/approvals")
         || path.StartsWithSegments("/api/v1/audits")

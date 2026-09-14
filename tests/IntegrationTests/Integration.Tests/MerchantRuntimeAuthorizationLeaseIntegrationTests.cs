@@ -4,7 +4,6 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Payments.Application.AdminControlPlane;
 using Persistence.ControlPlane;
-using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.Payments;
 
 namespace Integration.Tests;
@@ -29,7 +28,7 @@ public sealed class MerchantRuntimeAuthorizationLeaseIntegrationTests
         try
         {
             await IntegrationDb.ExecAsync(setup,
-                "UPDATE admin.Users SET AuthorizationVersion=1 WHERE Id=@id;",
+                "UPDATE acct.Accounts SET AuthorizationVersion=1 WHERE Id=@id;",
                 ("@id", actorId));
 
             await using var business = new ControlPlaneDbContext(
@@ -81,7 +80,7 @@ public sealed class MerchantRuntimeAuthorizationLeaseIntegrationTests
             {
                 revokeStarted.SetResult(true);
                 return await IntegrationDb.ExecAsync(setup,
-                    "UPDATE admin.Users SET AuthorizationVersion=1 WHERE Id=@id;",
+                    "UPDATE acct.Accounts SET AuthorizationVersion=1 WHERE Id=@id;",
                     ("@id", actorId));
             });
             await revokeStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
@@ -92,7 +91,7 @@ public sealed class MerchantRuntimeAuthorizationLeaseIntegrationTests
             await revokeTask.WaitAsync(TimeSpan.FromSeconds(3));
 
             Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(setup,
-                "SELECT AuthorizationVersion FROM admin.Users WHERE Id=@id;",
+                "SELECT AuthorizationVersion FROM acct.Accounts WHERE Id=@id;",
                 ("@id", actorId))));
             Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(setup,
                 "SELECT COUNT_BIG(*) FROM admin.OperationRecords WHERE ActorId=@id AND Operation=N'lease-ordering';",
@@ -107,18 +106,16 @@ public sealed class MerchantRuntimeAuthorizationLeaseIntegrationTests
     private static async Task SeedAdminAsync(SqlConnection connection, Guid actorId, DateTime now) =>
         await IntegrationDb.ExecAsync(connection,
             """
-            INSERT admin.Users
-                (Id, Provider, Subject, Email, Tier, Status, AuthorizationVersion, Version, CreatedAt)
-            VALUES (@id, N'microsoft', @subject, @email, 2, 1, 0, 1, @now);
+            INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
+            VALUES (@id, 1, @name, 1, 0, @now, @now);
             """,
-            ("@id", actorId), ("@subject", $"lease-{actorId:N}"),
-            ("@email", $"lease-{actorId:N}@example.test"), ("@now", now));
+            ("@id", actorId), ("@name", $"lease-{actorId:N}"), ("@now", now));
 
     private static async Task CleanupAsync(SqlConnection connection, Guid actorId) =>
         await IntegrationDb.ExecAsync(connection,
             """
             DELETE FROM admin.OperationRecords WHERE ActorId=@id;
-            DELETE FROM admin.Users WHERE Id=@id;
+            DELETE FROM acct.Accounts WHERE Id=@id;
             """,
             ("@id", actorId));
 

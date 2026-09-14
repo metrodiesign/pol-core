@@ -3,8 +3,8 @@
 คู่มือนี้อธิบาย runtime ของ employee login ที่เป็น credential เดียวของ admin console หลัง 2026-09-14: Microsoft Entra
 workforce OIDC ทำที่ API (`IdentityAccess:Workforce`, scheme `IdentityWorkforceMicrosoft`) แล้ว OpenIddict ออก platform JWT
 ให้ admin SPA (authorization code + PKCE) legacy admin cookie stack (`AdminAuth:*`, admin session cookie, CSRF double-submit,
-ตาราง `admin.Sessions`, Microsoft Graph employee-profile lookup ตอน login) ถูก retire ทั้งหมด ขั้นตอน schema/offline mapping
-โดยละเอียดอยู่ที่ [Tenant-aware identity cutover](admin-workforce-jit-rollout.md) สัญญาฝั่ง SPA ดู
+ตาราง `admin.Sessions`, Microsoft Graph employee-profile lookup ตอน login, ตาราง `admin.Users` และ route `/api/v1/admins/**`)
+ถูก retire ทั้งหมด employee identity เป็น `acct.Accounts` ที่ JIT ตอน login สัญญาฝั่ง SPA ดู
 [`docs/reference/admins.md`](../reference/admins.md)
 
 ## 1. Runtime identity contract
@@ -53,7 +53,8 @@ Merchant Microsoft ใช้ configuration, scheme, cookie และ behavior �
 | token lifetime | `IdentityAccess:AccessTokenMinutes` 15, `IdentityAccess:RefreshTokenMinutes` 480 (dev override 1440) |
 | issuer | `OAuth:Issuer` ต้องเป็น public origin ของ API (dev `https://localhost:5001`) |
 | identity migration | `20260902133906_Tier0MicrosoftTenantAwareIdentity` |
-| session retire migration | `20260914051532_RetireAdminSessions` (drop `admin.Sessions`; `admin.AuthAudits` เหลือเป็น archive) |
+| session retire migration | `20260914051532_RetireAdminSessions` (drop `admin.Sessions`) |
+| legacy admin identity retire migration | `20260914111802_RetireLegacyAdminIdentityPlane` (drop `admin.Users`/`RoleAssignments`/`MerchantAccess`/`AuthAudits`/`WorkforceTenantBindings`; audit ที่เหลือคือ `admin.UserAudits`) |
 
 ไม่มี Graph base URL, ไม่มี `User.Read` และไม่มี `AdminAuth:*` section อีกต่อไป `email` scope เป็น best-effort contact เท่านั้น
 Login แบบไม่มี email ต้องสำเร็จได้เมื่อ exact tuple valid
@@ -134,36 +135,34 @@ REVERT;
 แบบ idempotent (ประมาณ 20 วินาทีเมื่อระบุ `--tables VibEmp,branch`; โหลดครบสี่ตารางประมาณ 4 นาที และห้ามรันซ้อน เพราะ Docker VM
 8GB ต่อ SQL Server สามตัวอาจทำให้ `pol-db` ถูก OOM kill exit 137; สคริปต์กัน run ซ้อนด้วย `/tmp/load-hr-mirror.lock`)
 
-## 6. Pre-bound Microsoft invite
+## 6. Grant platform access ให้ employee
 
-Super Admin สร้าง invite ผ่าน `POST /api/v1/admins` (Bearer platform token; ไม่มี CSRF):
+legacy admin identity plane (`POST /api/v1/admins` invite/bind) ถูก retire แล้ว flow ปัจจุบันคือ employee login
+ด้วย Microsoft ก่อน (JIT สร้าง `acct.Accounts` จาก verified tenant tuple) จากนั้น Super Admin grant platform access
+ให้ account นั้นผ่าน `PUT /api/v1/accounts/{accountId}/platform-access` (Bearer platform token; identity-platform CSRF):
 
 ```json
 {
-  "objectId": "<verified-entra-object-guid>",
-  "identityApprovalReference": "<non-sensitive-reference>",
-  "email": "<contact-email>"
+  "status": "Active",
+  "roleIds": ["<role-guid>", "..."]
 }
 ```
 
-- `objectId` ต้องมาจาก verified Entra export ของ persisted tenant
-- `identityApprovalReference` ต้อง non-empty, trimmed และไม่เกิน 128 characters; ถูกเก็บเป็น correlation ของ
-  `create-scoped` audit
-- Email **บังคับ** ที่ endpoint นี้ (deliverable contact); blank/overlength/invalid ถูก reject เป็น `400` แต่ Email ยัง
-  ไม่ unique จึงซ้ำกันได้ (email-optional/`NULL` ใช้กับ JIT login path เท่านั้น)
-- account ถูก persist ด้วย final tuple ตั้งแต่สร้าง First login resolve `AdminId` เดิมโดย exact tuple
-- ไม่มี Microsoft invite ที่รอ bind ด้วย Email และไม่มี identity-mutation endpoint ภายหลัง
+- employee ต้อง JIT login สำเร็จอย่างน้อยหนึ่งครั้งก่อน จึงจะมี `acct.Accounts` row (และ `accountId`) ให้ grant;
+  ไม่มี pre-bound invite ที่รอ bind ด้วย Email อีกต่อไป
+- `status` เป็น `Active` เพื่อเปิดสิทธิ์ หรือ `Revoked` เพื่อปิด; `roleIds` แทนที่ role set ทั้งชุดแบบ idempotent
+- `accountId` มาจาก `GET /api/v1/accounts` (ค้นด้วย identity tuple/email ที่ JIT บันทึกไว้)
+- account ถูก persist ด้วย final tuple ตั้งแต่ JIT สร้าง login ครั้งถัดไป resolve account เดิมโดย exact tuple
 
 ห้ามใส่ raw approval evidence, `tid`, `oid`, Email หรือ `EmployeeId` ลง audit payload
 
 ## 7. Deployment order
 
-1. ผ่าน tenant-aware schema/offline mapping ตาม [cutover runbook](admin-workforce-jit-rollout.md) และคง Admin traffic ปิด
-   ตลอดช่วง incompatible schema
+1. apply migration ล่าสุด (`docker/migrate-entrypoint.sh`) และคง Admin traffic ปิดตลอดช่วง incompatible schema
 2. ตั้ง `IdentityAccess__Workforce*`, `IdentityAccess__WorkforceTenantId` และ `OAUTH_ISSUER` ให้ครบ (ดูข้อ 2)
 3. start new binary ให้ boot guard และ startup tenant/state verifier ผ่าน (migration `RetireAdminSessions` drop `admin.Sessions`)
-4. staging ทดสอบจาก admin SPA: email-less exact login, JIT, pre-bound invite, code exchange ที่ `POST /oauth/token`, Bearer
-   `GET /api/v1/admins/me`, refresh และ `POST /api/v1/auth/logout`
+4. staging ทดสอบจาก admin SPA: email-less exact login, JIT, grant ผ่าน `PUT /api/v1/accounts/{id}/platform-access`,
+   code exchange ที่ `POST /oauth/token`, Bearer `GET /api/v1/me` + `GET /api/v1/me/access`, refresh และ `POST /api/v1/auth/logout`
 5. Production smoke ใช้ approved existing pre-mapped account เท่านั้น ห้ามสร้าง JIT/invite mutation เพื่อ smoke
 6. เปิด traffic แล้ว monitor fixed aggregate categories โดยไม่มี identity values
 

@@ -39,6 +39,28 @@ public sealed class RetiredCommerceRoutesTests
         { "PUT", $"/api/v1/admins/orders/{Guid.NewGuid()}/items/{Guid.NewGuid()}/policy" },
         { "GET", "/api/v1/admins/reports/policies" },
         { "PUT", $"/api/v1/admins/{Guid.NewGuid()}/microsoft-identity" },
+        // Legacy admin identity plane (admin.Users): the canonical surface is /accounts, /roles, /permissions,
+        // /me and /agent-registrations.
+        { "POST", "/api/v1/admins" },
+        { "GET", "/api/v1/admins" },
+        { "GET", "/api/v1/admins/me" },
+        { "GET", $"/api/v1/admins/{Guid.NewGuid()}" },
+        { "GET", $"/api/v1/admins/{Guid.NewGuid()}/effective-permissions" },
+        { "POST", $"/api/v1/admins/{Guid.NewGuid()}/merchants" },
+        { "DELETE", $"/api/v1/admins/{Guid.NewGuid()}/merchants/{Guid.NewGuid()}" },
+        { "POST", $"/api/v1/admins/{Guid.NewGuid()}/suspend" },
+        { "POST", $"/api/v1/admins/{Guid.NewGuid()}/reactivate" },
+        { "POST", $"/api/v1/admins/{Guid.NewGuid()}/tier" },
+        { "PUT", $"/api/v1/admins/{Guid.NewGuid()}/roles" },
+        { "GET", "/api/v1/admins/permissions" },
+        { "GET", "/api/v1/admins/roles" },
+        { "POST", "/api/v1/admins/roles" },
+        { "GET", "/api/v1/admins/roles/platform_admin" },
+        { "PUT", "/api/v1/admins/roles/platform_admin" },
+        { "DELETE", "/api/v1/admins/roles/platform_admin" },
+        { "GET", $"/api/v1/admins/merchants/users/{Guid.NewGuid()}/registrations" },
+        { "POST", $"/api/v1/admins/merchants/users/{Guid.NewGuid()}/approve" },
+        { "POST", $"/api/v1/admins/merchants/users/{Guid.NewGuid()}/reject" },
     };
 
     [Theory]
@@ -70,5 +92,6 @@ public sealed class RetiredCommerceRoutesTests
         Assert.DoesNotContain(paths, path => path.Contains("/reports/policies", StringComparison.Ordinal));
         Assert.DoesNotContain(paths, path => path.EndsWith("/policy", StringComparison.Ordinal));
         Assert.DoesNotContain(paths, path => path.Contains("/microsoft-identity", StringComparison.Ordinal));
+        Assert.DoesNotContain(paths, path => path.StartsWith("/api/v1/admins", StringComparison.Ordinal));
     }
 }

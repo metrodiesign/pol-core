@@ -60,8 +60,8 @@ public sealed class AudienceOpenApiDocumentTests
 
         Assert.Contains("get /api/v1/products", merchantOperations);
         Assert.DoesNotContain("get /api/v1/products", adminOperations);
-        Assert.Contains("get /api/v1/admins", adminOperations);
-        Assert.DoesNotContain("get /api/v1/admins", merchantOperations);
+        Assert.Contains("get /api/v1/accounts", adminOperations);
+        Assert.DoesNotContain("get /api/v1/accounts", merchantOperations);
         Assert.Contains("post /api/v1/carts", merchantOperations);
         Assert.Contains("post /api/v1/carts", adminOperations);
         Assert.Contains("post /api/v1/orders", merchantOperations);
@@ -155,35 +155,6 @@ public sealed class AudienceOpenApiDocumentTests
         Assert.Contains("\"url\":\"openapi/admin.json\"", scalar, StringComparison.Ordinal);
         Assert.Contains("\"url\":\"openapi/integration.json\"", scalar, StringComparison.Ordinal);
         Assert.DoesNotContain("\"url\":\"openapi/v1.json\"", scalar, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Admin_prebound_invite_requires_email_and_read_contracts_publish_nullable_email()
-    {
-        using var factory = new OpenApiDocumentFactory();
-        using var client = factory.CreateClient();
-        var document = await DocumentAsync(client, "admin");
-        var schemas = document.GetProperty("components").GetProperty("schemas");
-        var request = schemas.GetProperty("CreateAdminRequest");
-        var requestRequired = request.GetProperty("required").EnumerateArray()
-            .Select(value => value.GetString()).ToHashSet(StringComparer.Ordinal);
-        var requestProperties = request.GetProperty("properties");
-
-        Assert.Contains("objectId", requestRequired);
-        Assert.Contains("identityApprovalReference", requestRequired);
-        Assert.Contains("email", requestRequired);
-        Assert.Equal("string", requestProperties.GetProperty("objectId").GetProperty("type").GetString());
-        Assert.Equal("uuid", requestProperties.GetProperty("objectId").GetProperty("format").GetString());
-        Assert.Equal("string", requestProperties.GetProperty("email").GetProperty("type").GetString());
-        Assert.False(requestProperties.GetProperty("email").TryGetProperty("nullable", out _));
-
-        foreach (var schemaName in new[]
-                 {
-                     "CreateScopedResult", "AdminMeResponse", "AdminListItemResponse", "AdminDetailResponse",
-                 })
-        {
-            AssertNullableString(schemas.GetProperty(schemaName).GetProperty("properties").GetProperty("email"));
-        }
     }
 
     [Fact]

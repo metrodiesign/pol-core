@@ -18,6 +18,10 @@ public sealed class ProviderDiscriminatorMigrationTests
 {
     private const string PreviousMigration = "20260811024015_AdminDeliveryRuntimeGrants";
     private const string ThisMigration = "20260816162306_MicrosoftOidcProviderDiscriminator";
+    // migration HEAD (RetireLegacyAdminIdentityPlane) drops admin.Users, which this historical discriminator
+    // test still seeds and asserts. Pin the upgrade target to the last migration that still carries admin.Users
+    // — RetireAdminSessions (#49) — so the (provider, subject) discriminator on admin.Users stays observable.
+    private const string HeadBeforeAdminPlaneRetirement = "20260914051532_RetireAdminSessions";
 
     [Fact]
     public async Task Upgrade_backfills_google_provider_and_audit_target_user_id_without_dropping_logins()
@@ -50,7 +54,7 @@ public sealed class ProviderDiscriminatorMigrationTests
                     """);
             }
 
-            await migrator.MigrateAsync();
+            await migrator.MigrateAsync(HeadBeforeAdminPlaneRetirement);
 
             await using (var verify = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
             {
@@ -88,11 +92,15 @@ public sealed class ProviderDiscriminatorMigrationTests
                     """)));
             }
 
-            // REQ-4.5/6.7: current EF mappings still resolve both legacy identities by (provider, subject).
+            // REQ-4.5/6.7: legacy identities still resolve by (provider, subject). The admin identity plane was
+            // retired (no CLR aggregate), so the admin resolution is verified with raw SQL; the merchant identity
+            // still resolves through the live EF mapping.
             context.ChangeTracker.Clear();
-            var admin = await context.Set<Admins.Domain.Users.User>().AsNoTracking()
-                .SingleOrDefaultAsync(x => x.Provider == "google" && x.Subject == "g-admin-sub-1");
-            Assert.Equal(adminId, admin?.Id);
+            await using (var resolve = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+            {
+                Assert.Equal(adminId.ToString().ToLowerInvariant(), Convert.ToString(await IntegrationDb.ScalarAsync(resolve,
+                    "SELECT LOWER(CONVERT(nvarchar(36), Id)) FROM admin.Users WHERE Provider = N'google' AND Subject = N'g-admin-sub-1';")));
+            }
 
             var merchant = await context.Set<Merchants.Domain.Users.User>().IgnoreQueryFilters().AsNoTracking()
                 .SingleOrDefaultAsync(x => x.Provider == "google" && x.Subject == "g-user-sub-1");
@@ -114,14 +122,14 @@ public sealed class ProviderDiscriminatorMigrationTests
             await using var context = CreateContext(database);
             var migrator = context.GetService<IMigrator>();
 
-            await migrator.MigrateAsync();
+            await migrator.MigrateAsync(HeadBeforeAdminPlaneRetirement);
             await migrator.MigrateAsync(PreviousMigration); // Down: clean data -> guard passes, DDL reversed
             await using (var down = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
                 Assert.Null(await IntegrationDb.ScalarAsync(down, """
                     SELECT 1 FROM sys.columns
                     WHERE object_id = OBJECT_ID(N'merch.Users') AND name = N'Provider';
                     """));
-            await migrator.MigrateAsync(); // Up again
+            await migrator.MigrateAsync(HeadBeforeAdminPlaneRetirement); // Up again
 
             await using var verify = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database));
             Assert.NotNull(await IntegrationDb.ScalarAsync(verify, """
@@ -144,7 +152,7 @@ public sealed class ProviderDiscriminatorMigrationTests
         {
             await using var context = CreateContext(database);
             var migrator = context.GetService<IMigrator>();
-            await migrator.MigrateAsync();
+            await migrator.MigrateAsync(HeadBeforeAdminPlaneRetirement);
 
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
                 await IntegrationDb.ExecAsync(connection, $"""

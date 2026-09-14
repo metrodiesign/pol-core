@@ -51,7 +51,7 @@ Effective permissions คำนวณจาก account/session assignments แ�
 | `merch` | `RoleAssignments` สำหรับ Merchant-user console |
 | `acct`/`access` | `Accounts`, `LoginAccounts`, `Agents`, `Employees`, `SystemClients`, `MerchantAccess`, `PlatformAccess`, branch/role/method grants |
 
-Canonical admin identity/access routes อยู่ใต้ `/api/v1/accounts...`, `/api/v1/accounts/{accountId}/merchant-access...`, `/api/v1/accounts/{accountId}/platform-access...` และ registration routes อยู่ `/api/v1/agent-registration...`/`/api/v1/agent-registrations...`. Legacy catalog routes `/api/v1/admins/permissions`, `/roles` และ merchant-user `/api/v1/merchants/users/permissions`, `/roles` ยังคงสำหรับ console adapters.
+Canonical admin identity/access routes อยู่ใต้ `/api/v1/accounts...`, `/api/v1/accounts/{accountId}/merchant-access...`, `/api/v1/accounts/{accountId}/platform-access...` และ registration routes อยู่ `/api/v1/agent-registration...`/`/api/v1/agent-registrations...`. Legacy admin catalog routes `/api/v1/admins/permissions`, `/roles` ถูก retire (ใช้ `/api/v1/permissions`, `/api/v1/roles`); merchant-user `/api/v1/merchants/users/permissions`, `/roles` ยังคงสำหรับ merchant console adapter.
 
 Mutation ของ account/access/role ใช้ Bearer platform token, `If-Match` และ `Idempotency-Key` ตาม endpoint metadata (ไม่มี CSRF บน route admin แล้ว); session revoke จะ bump `AuthorizationVersion` และ lease ที่เปิดอยู่ต้อง recheck ก่อน business write.
 

@@ -40,30 +40,6 @@ Migration `20260808161508_OneBasedPersistedEnumStorage` (`OneBasedPersistedEnumS
 
 ## `admin` schema
 
-### `admin.AuthAudits`
-
-Archive ของ admin cookie login เดิม: ไม่มี writer หลัง 2026-09-14 (legacy admin cookie stack และ `admin.Sessions` ถูก retire ด้วย migration `20260914051532_RetireAdminSessions`) คงตารางไว้อ่านย้อนหลังเท่านั้น
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | audit row id |
-| `EventType` | `nvarchar(32)` | NN | authentication event |
-| `AdminUserId` | `uniqueidentifier` | NULL | resolved admin, ถ้าไม่มี account จะว่าง |
-| `Subject` | `nvarchar(256)` | NULL | external identity subject |
-| `Reason` | `nvarchar(128)` | NULL | เหตุผลของผลลัพธ์ |
-| `CorrelationId` | `nvarchar(128)` | NN | request correlation |
-| `OccurredAt` | `datetime2` | NN | เวลาเกิด event |
-
-### `admin.MerchantAccess`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | assignment id |
-| `AdminUserId` | `uniqueidentifier` | NN | admin ที่ได้รับสิทธิ์ |
-| `MerchantId` | `uniqueidentifier` | NN | merchant ที่เข้าถึงได้ |
-| `AssignedByAdminId` | `uniqueidentifier` | NN | ผู้มอบสิทธิ์ |
-| `AssignedAt` | `datetime2` | NN | เวลามอบสิทธิ์ |
-
 ### `admin.ProvisioningOperations`
 
 | Field | SQL type | Null | ความหมาย |
@@ -76,16 +52,6 @@ Archive ของ admin cookie login เดิม: ไม่มี writer หล
 | `MerchantId` | `uniqueidentifier` | NN | merchant ที่กำลัง provision |
 | `Result` | `json` | NULL | closed provisioning result payload |
 | `CreatedAt` | `datetime2` | NN | เวลาสร้าง operation |
-
-### `admin.RoleAssignments`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | assignment id |
-| `AdminUserId` | `uniqueidentifier` | NN | admin ที่ได้รับ role |
-| `RoleId` | `uniqueidentifier` | NN, FK | อ้าง `iam.Roles.Id` |
-| `AssignedById` | `uniqueidentifier` | NN | ผู้มอบ role |
-| `AssignedAt` | `datetime2` | NN | เวลามอบ role |
 
 ### `admin.UserAudits`
 
@@ -100,25 +66,6 @@ Archive ของ admin cookie login เดิม: ไม่มี writer หล
 | `TargetRoleId` | `uniqueidentifier` | NULL | role เป้าหมายถ้ามี |
 | `CorrelationId` | `nvarchar(128)` | NN | request correlation |
 | `OccurredAt` | `datetime2` | NN | เวลาเกิด action |
-
-### `admin.Users`
-
-| Field | SQL type | Null | ความหมาย |
-|---|---|---|---|
-| `Id` | `uniqueidentifier` | NN, PK | admin user id |
-| `Subject` | `nvarchar(256)` | NULL | external identity subject; unique เมื่อมีค่า |
-| `Email` | `nvarchar(320)` | NN | email contact; unique |
-| `Provider` | `nvarchar(64)` | NN | provider discriminator; current workforce provider is Microsoft |
-| `TenantId` | `uniqueidentifier` | NULL | workforce tenant binding |
-| `EmployeeId` | `nvarchar(128)` | NULL | normalized HR employee id |
-| `FirstName` | `nvarchar(200)` | NULL | HR profile snapshot |
-| `LastName` | `nvarchar(200)` | NULL | HR profile snapshot |
-| `Tier` | `int` | NN | `Scoped=1`, `Super=2` |
-| `Status` | `int` | NN | `Active=1`, `Suspended=2` |
-| `AuthorizationVersion` | `bigint` | NN | invalidation version |
-| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
-| `UpdatedAt` | `datetime2` | NULL | เวลาแก้ไขล่าสุด |
-| `Version` | `bigint` | NN | application-managed optimistic concurrency |
 
 ### `admin.ApprovalRequests`
 
@@ -1060,12 +1007,6 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 **Owner**: `ControlPlaneDbContext`
 **Fields**: `Id` (`Guid`), `AccountId` (`Guid`), `AllowedGrantTypes` (`string`), `ClientId` (`string`), `CreatedAt` (`DateTime`), `Environment` (`string`), `MerchantId` (`Guid`), `Status` (`int`), `UpdatedAt` (`DateTime`).
 
-### `admin.WorkforceTenantBindings`
-
-**Entity**: `Admins.Domain.Users.WorkforceTenantBinding`
-**Owner**: `ControlPlaneDbContext`
-**Fields**: `Id` (`byte`), `TenantId` (`Guid`).
-
 ### `checkout.PaymentLinks`
 
 **Entity**: `Checkouts.Domain.PaymentLink`
@@ -1249,8 +1190,6 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `FK_CartItems_Carts_CartId_MerchantId` | `shop.CartItems (CartId, MerchantId)` | `shop.Carts (Id, MerchantId)` | `CASCADE` |
 | `FK_OrderItems_Orders_OrderId_MerchantId` | `shop.OrderItems (OrderId, MerchantId)` | `shop.Orders (Id, MerchantId)` | `CASCADE` |
 | `FK_Permissions_PermissionGroups_GroupKey` | `iam.Permissions.GroupKey` | `iam.PermissionGroups.Key` | `RESTRICT` |
-| `FK_RoleAssignments_Roles_RoleId` | `admin.RoleAssignments.RoleId` | `iam.Roles.Id` | `RESTRICT` |
-| `FK_RoleAssignments_Roles_RoleId` | `merch.RoleAssignments.RoleId` | `iam.Roles.Id` | `RESTRICT` |
 | `FK_RegistrationAttempts_Users_UserId` | `merch.RegistrationAttempts.UserId` | `merch.Users.Id` | `RESTRICT` |
 | `FK_RolePermissions_Permissions_PermissionKey` | `iam.RolePermissions.PermissionKey` | `iam.Permissions.Key` | `RESTRICT` |
 | `FK_RolePermissions_Roles_RoleId` | `iam.RolePermissions.RoleId` | `iam.Roles.Id` | `CASCADE` |
@@ -1271,11 +1210,7 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 
 | Table | Name | Columns / filter |
 |---|---|---|
-| `admin.MerchantAccess` | `IX_MerchantAccess_AdminUserId_MerchantId` | `(AdminUserId, MerchantId)` unique |
 | `admin.ProvisioningOperations` | `UX_ProvisioningOperations_Key` | `OperationKey` unique |
-| `admin.RoleAssignments` | `IX_RoleAssignments_AdminUserId_RoleId` | `(AdminUserId, RoleId)` unique |
-| `admin.Users` | `IX_Users_Email` | `Email` unique |
-| `admin.Users` | `IX_Users_Subject` | `Subject` unique, filter `Subject IS NOT NULL` |
 | `iam.RolePermissions` | `IX_RolePermissions_RoleId_PermissionKey` | `(RoleId, PermissionKey)` unique |
 | `iam.Roles` | `IX_Roles_MerchantId_Code` | `(MerchantId, Code)` unique |
 | `merch.ExternalLogins` | `IX_ExternalLogins_Provider_Subject` | `(Provider, Subject)` unique |
@@ -1323,9 +1258,6 @@ Non-unique lookup indexes:
 
 | Table | Indexes |
 |---|---|
-| `admin.AuthAudits` | `IX_AuthAudits_AdminUserId` |
-| `admin.RoleAssignments` | `IX_RoleAssignments_RoleId` |
-| `admin.Users` | employee identity/profile indexes from current Admin configuration |
 | `iam.Permissions` | `IX_Permissions_GroupKey` |
 | `iam.RolePermissions` | `IX_RolePermissions_PermissionKey` |
 | `merch.AuthAudits` | `IX_AuthAudits_UserId` |

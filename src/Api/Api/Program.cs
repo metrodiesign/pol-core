@@ -14,9 +14,7 @@ using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Admins.Application;
 using Accounts.Application;
-using Admins.Application.Roles;
 using Admins.Application.Users;
-using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using Admins.Infrastructure;
 using Accounts.Infrastructure;
@@ -85,8 +83,6 @@ using PhotoValidation = Merchants.Application.Users.PhotoValidation;
 using ApproveCommand = Merchants.Application.Users.ApproveCommand;
 using RejectCommand = Merchants.Application.Users.RejectCommand;
 using SubmitRegistrationCommand = Merchants.Application.Users.SubmitRegistrationCommand;
-using GetRegistrationHistoryQuery = Merchants.Application.Users.GetRegistrationHistoryQuery;
-using RegistrationHistoryResult = Merchants.Application.Users.RegistrationHistoryResult;
 using ResolveInvitationByIdQuery = Merchants.Application.Users.ResolveInvitationByIdQuery;
 using ListMerchantUsersQuery = Merchants.Application.Users.ListMerchantUsersQuery;
 using MerchantUserListItem = Merchants.Application.Users.MerchantUserListItem;
@@ -598,15 +594,6 @@ var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
     UserInvitationOptions.RequireProduction(app.Configuration);
-
-// Pin the workforce tenant (IdentityAccess:WorkforceTenantId) so admin provisioning can bind Entra identities to it.
-if (Guid.TryParse(app.Services.GetRequiredService<IOptions<IdentityAccessOptions>>().Value.WorkforceTenantId,
-        out var workforceTenantId) && workforceTenantId != Guid.Empty)
-{
-    await using var tenantPinScope = app.Services.CreateAsyncScope();
-    await tenantPinScope.ServiceProvider.GetRequiredService<IWorkforceTenantBindingStore>()
-        .EnsureAsync(workforceTenantId, CancellationToken.None);
-}
 
 // Fail-fast: build the vault keyring now so a missing/short/invalid master key crash-loops the host at
 // boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
@@ -2372,12 +2359,6 @@ api.MapGet("/reports/reconciliation", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-// --- Admin console (/api/v1/admins route group, REQ-1/7/10) ---
-// The credentialed admin CORS policy is applied to /api/v1/admins/* by PolCorsPolicyProvider. Per-endpoint
-// authorization stays explicit: every route gates on the "admin" policy (employee platform Bearer token). Login,
-// refresh and logout live on /oauth/* and /api/v1/auth/logout (IdentityAccessEndpoints).
-var admin = api.MapGroup("/admins");
-
 // --- Admin-provisioned merchants (/api/v1/merchants, D9) ---
 // Moved out of the /admins group (hierarchical-naming task 8, design §5): mapped DIRECTLY on `api`, like the
 // admins-root create above it, so each endpoint re-attaches its own controls explicitly instead of inheriting
@@ -2391,18 +2372,14 @@ api.MapPost("/merchants", async (
     HttpContext http,
     IMediator mediator,
     IAdminScope adminScope,
-    IUserRepository adminUsers,
     CancellationToken ct) =>
 {
     // Merchant metadata binds through an explicit allowlist contract; non-secret PSP config still rides
     // alongside "psp"/"secrets" and is captured via JsonExtensionData (reference 2.4).
     var t = body.Merchant ?? throw new ArgumentException("The 'merchant' object is required.");
 
-    // The caller's CURRENT AuthorizationVersion, read fresh right before dispatch (task 8.5.4) — this IS the
+    // The caller's AuthorizationVersion as verified by the platform token handler on this request — the
     // "pinned at the request boundary" snapshot the provisioning UoW re-verifies in-transaction under lock.
-    var caller = await adminUsers.GetByIdAsync(adminScope.Current.AdminId, ct)
-        ?? throw new InvalidOperationException("The authenticated admin no longer exists.");
-
     var command = new ProvisionMerchantCommand(
         new MerchantSpec(t.Code, t.Name, t.Note, t.Country, t.Currency,
             t.EnabledChannels ?? [], new MerchantMetadata(t.Branding, t.Routing, t.Session, t.Timezone, t.Locale)),
@@ -2418,7 +2395,7 @@ api.MapPost("/merchants", async (
         $"admin:{adminScope.Current.AdminId:D}",
         http.TraceIdentifier,
         adminScope.Current.AdminId,
-        caller.AuthorizationVersion);
+        adminScope.Current.AuthorizationVersion);
 
     var result = await mediator.Send(command, ct);
     return Results.Created($"/api/v1/merchants/{t.Code}", result);
@@ -3020,519 +2997,6 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// --- Admin approves/rejects a merchant-user (cross-plane, merchant-user-google-sso REQ-6/18) ---
-// The Admin permission (merchant-user.approve/reject) + the accessible-merchant floor (IAdminQuery) run HERE, at the host,
-// before crossing into the MerchantUser module (critique B3) — the dispatched command receives an already-validated
-// merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + Session policy apply.
-// Route contract is the INTERNAL id (microsoft-oidc-ciam-alignment REQ-4.7/R1): Entra oids are GUIDs, so a
-// subject-or-id dual dispatch would eat a Microsoft subject as an internal id -> 404. A non-GUID value now
-// 404s at the route constraint; the admin SPA sends merchantUserId (rollout phase 1 done before this shipped).
-admin.MapPost("/merchants/users/{merchantUserId:guid}/approve", async (
-    Guid merchantUserId, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
-    HttpContext http, IActorScope actorScope, IMediator mediator, CancellationToken ct) =>
-{
-    if (string.IsNullOrWhiteSpace(body.MerchantCode))
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "A merchant code is required to approve.");
-
-    // The accessible-merchant floor: a Scoped admin sees only its assigned merchants, a Super is unrestricted. An
-    // unknown code OR a merchant outside the admin's scope returns null -> 404 (no existence leak, REQ-6.3/22.3).
-    var merchant = await adminQuery.GetMerchantByCodeAsync(body.MerchantCode, ct);
-    if (merchant is null)
-        return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Merchant not found or not in your scope.");
-    if (!string.Equals(merchant.Status, "Active", StringComparison.OrdinalIgnoreCase))
-        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The selected merchant is not active.");
-
-    using var binding = actorScope.Begin(merchant.Id, scope.Current.AdminId);
-    var result = await mediator.Send(new ApproveCommand(
-        merchantUserId, merchant.Id, body.RoleCodes ?? [],
-        $"admin:{scope.Current.AdminId:D}", scope.Current.AdminId, http.TraceIdentifier,
-        VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Ok(new ApproveMerchantUserResponse(result.UserId, result.Status.ToString(), result.AlreadyActive));
-}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserApprove)
-    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
-    .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
-    .WithName("ApproveMerchantUser")
-    .WithSummary("อนุมัติผู้ใช้ร้านค้าเข้าร้านค้าหนึ่ง")
-    .WithDescription("ต้องมีสิทธิ์ merchants.users.approve ผูกผู้ใช้ร้านค้าเข้ากับร้านค้าที่อยู่ใน accessible set ของ admin + กำหนดบทบาท + เปิดใช้งาน ในทรานแซกชันเดียว หาก Active อยู่แล้ว -> idempotent 200; ไม่พบเป้าหมาย -> 404; ร้านค้าไม่ active/นอก scope -> 409/404; role ไม่รู้จัก/ไม่ active หรือเป้าหมายไม่ใช่ Pending -> 409")
-    .Produces<ApproveMerchantUserResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-admin.MapPost("/merchants/users/{merchantUserId:guid}/reject", async (
-    Guid merchantUserId, RejectMerchantUserRequest body, IAdminScope scope, HttpContext http,
-    IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new RejectCommand(
-        merchantUserId, body.Reason, $"admin:{scope.Current.AdminId:D}", http.TraceIdentifier,
-        scope.Current.AdminId, VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Ok(new RejectMerchantUserResponse(result.UserId, result.Status.ToString()));
-}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserReject)
-    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
-    .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
-    .WithName("RejectMerchantUser")
-    .WithSummary("ปฏิเสธผู้ใช้ร้านค้าที่รอดำเนินการ")
-    .WithDescription("ต้องมีสิทธิ์ merchants.users.reject ตั้งสถานะผู้ใช้ร้านค้าเป็น Rejected และเพิกถอน session ที่ยัง live อยู่ ไม่พบเป้าหมาย -> 404; เป้าหมายไม่ใช่ Pending -> 409")
-    .Produces<RejectMerchantUserResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// registration-attempt-history REQ-2/3/4: per-attempt form snapshots + lifecycle timeline for ONE merchant
-// user. PII masked by default; ?reveal=true returns full values and the handler persists a `revealed` audit
-// BEFORE building the response (fail-closed). `reveal` must keep its default — without one, a request that
-// omits ?reveal= would 400 and kill the primary masked path (B4). Returns the Application record directly:
-// enums serialize as strings via the global JsonStringEnumConverter, nothing needs reshaping (m4).
-admin.MapGet("/merchants/users/{merchantUserId:guid}/registrations", async (
-    Guid merchantUserId, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct,
-    bool reveal = false) =>
-{
-    // Accessible-merchant floor (REQ-2.7): threaded as primitives —
-    // a merchant-bound target outside the admin's scope reads as 404 inside the handler (no existence leak).
-    var result = await mediator.Send(new GetRegistrationHistoryQuery(
-        merchantUserId, reveal, $"admin:{scope.Current.AdminId:D}", scope.Current.AdminId, http.TraceIdentifier,
-        scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
-    return result is null ? Results.NotFound() : Results.Ok(result);
-}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
-    .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
-    .WithName("GetMerchantUserRegistrationHistory")
-    .WithSummary("ดูประวัติการลงทะเบียนของผู้ใช้ร้านค้ารายคน")
-    .WithDescription("ต้องมีสิทธิ์ merchants.users.view คืน snapshot ฟอร์มทุกครั้ง (เรียงตาม AttemptNo) + timeline จาก RegistrationAudits โดย mask PII เป็นค่าเริ่มต้น ส่ง ?reveal=true เพื่อดูค่าเต็ม (ระบบบันทึก audit ว่าเปิดดูทุกครั้ง) ไม่พบเป้าหมาย หรือเป้าหมายผูกกับ merchant นอก scope ของ admin -> 404")
-    .Produces<RegistrationHistoryResult>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// --- Admin identity foundation management (REQ-3..10) + SPA bootstrap (REQ-13) ---
-
-// The Admin SPA reads its own resolved identity to render the right scope/navigation (REQ-13). adminId/tier/
-// accessible come from the per-request IAdminScope the middleware materialized; a Super returns an
-// unrestricted flag (never the full merchant list), a Scoped admin gets its assigned {id, code} pairs.
-admin.MapGet("/me", async (IAdminScope scope, IAdminMerchantDirectory merchants, CancellationToken ct) =>
-{
-    if (!scope.IsBound)
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your admin account is not active.");
-
-    var me = scope.Current;
-    AdminAccessibleResponse accessible;
-    if (me.Accessible.IsUnrestricted)
-    {
-        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Merchants: null);
-    }
-    else
-    {
-        var codes = await merchants.GetCodesByIdsAsync(me.Accessible.Merchants, ct);
-        accessible = new AdminAccessibleResponse(
-            IsUnrestricted: false,
-            Merchants: me.Accessible.Merchants
-                .Select(id => new AdminAccessibleMerchantResponse(id, codes.GetValueOrDefault(id))).ToArray());
-    }
-
-    // permissions = effective action permissions (admin-role-rbac REQ-9.1)
-    return Results.Ok(new AdminMeResponse(me.AdminId, me.Email, me.Tier.ToString(), accessible, me.Permissions));
-}).RequireAuthorization("admin")
-    .WithTags("การเข้าสู่ระบบ")
-    .WithName("GetAdminMe")
-    .WithSummary("อ่านข้อมูลผู้ดูแลระบบปัจจุบัน")
-    .WithDescription("ให้ SPA อ่านตัวตนของตัวเอง: tier, ร้านค้าที่เข้าถึงได้ (หรือไม่จำกัด) และสิทธิ์ที่มีผลจริง (effective permissions) หากบัญชีถูกปิดใช้งาน -> 403")
-    .Produces<AdminMeResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status403Forbidden)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
-
-// Super creates a pre-bound Scoped Microsoft admin from an approved Entra object ID. This is
-// the admins-area ROOT (POST /api/v1/admins): mapped on `api` with AdminCsrfFilter applied per-endpoint — a group's
-// empty-string root pattern would render the trailing-slash "/api/v1/admins/" (REQ-1.4). Same CSRF + auth as the group.
-api.MapPost("/admins", async (
-    CreateAdminRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new CreateScopedCommand(
-        body.ObjectId, body.Email, body.IdentityApprovalReference, scope.Current.AdminId, http.TraceIdentifier), ct);
-    return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("CreateScopedAdmin")
-    .WithSummary("สร้าง Scoped Microsoft admin แบบ pre-bound")
-    .WithDescription("เฉพาะ Super ใช้ ObjectId จาก Entra export ที่ตรวจสอบแล้ว, approval reference และอีเมลติดต่อ (บังคับ) -> อีเมลว่าง/ผิดรูปแบบ 400")
-    .Produces<CreateScopedResult>(StatusCodes.Status201Created)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// --- Admin account management (admin-account-management) ---
-// tier/status cross the wire as stable lowercase strings via explicit projection — there is no global
-// string-enum converter (B2), mirroring RoleToWire.
-static string TierToWire(Tier t) => t == Tier.Super ? "super" : "scoped";
-static Tier? WireToTier(string wire) => wire.ToLowerInvariant() switch
-{
-    "super" => Tier.Super,
-    "scoped" => Tier.Scoped,
-    _ => null,
-};
-static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
-
-static AdminListItemResponse AdminToWire(UserListItem a) =>
-    new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound, a.Version);
-
-// The admin directory (REQ-1). Mapped on `api` (not the admins group): a group empty-string root pattern would
-// render the forbidden trailing slash "/api/v1/admins/", same as POST /admins. Gated user.view — reads use the
-// permission axis (a user.roles holder needs the directory to assign roles; see the role-composition note).
-api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var p = SfsQueryParser.Parse(http.Request.Query);
-    var result = await mediator.Send(new ListAdminsQuery
-    {
-        Page = p.Page,
-        Limit = p.Limit,
-        Filters = p.Filters,
-        Sort = p.Sort,
-        Search = p.Search,
-    }, ct);
-    // Re-wrap into a new PagedResult — a record with-expression cannot change T (mirrors ListRoles).
-    return Results.Ok(new PagedResult<AdminListItemResponse>(
-        [.. result.Items.Select(AdminToWire)], result.Page, result.Limit, result.Total));
-})
-    .RequireAuthorization("admin")
-    .RequirePermission(Keys.UserView)
-    .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("ListAdmins")
-    .WithSummary("รายการบัญชีผู้ดูแลระบบ")
-    .WithDescription("ต้องมีสิทธิ์ user.view ทำเนียบผู้ดูแลระบบแบบแบ่งหน้า รองรับ SFS: page, limit, filters (email/tier/status), sort (email/createdAt), search (email) ค่า filter tier/status เป็น wire form ตัวพิมพ์เล็ก ค่านอกโดเมน -> 400")
-    .Produces<PagedResult<AdminListItemResponse>>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// One admin's full detail (REQ-2). Accessible merchants are mapped id->code in the host, byte-for-byte the /me
-// pattern, so the query handler stays free of the merchant directory. Unknown id -> 404.
-admin.MapGet("/{id:guid}", async (
-    Guid id, HttpContext http, IAdminMerchantDirectory merchants, IMediator mediator, CancellationToken ct) =>
-{
-    var detail = await mediator.Send(new GetAdminByIdQuery(id), ct);
-    if (detail is null)
-        return Results.Problem(statusCode: StatusCodes.Status404NotFound);
-
-    AdminAccessibleResponse accessible;
-    if (detail.Accessible.IsUnrestricted)
-    {
-        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Merchants: null);
-    }
-    else
-    {
-        var codes = await merchants.GetCodesByIdsAsync(detail.Accessible.Merchants, ct);
-        accessible = new AdminAccessibleResponse(
-            IsUnrestricted: false,
-            Merchants: detail.Accessible.Merchants
-                .Select(tid => new AdminAccessibleMerchantResponse(tid, codes.GetValueOrDefault(tid))).ToArray());
-    }
-
-    var response = new AdminDetailResponse(
-        detail.AdminId, detail.Email, TierToWire(detail.Tier), AccountStatusToWire(detail.Status),
-        detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes, detail.Version);
-    VersionEtags.Set(http, detail.Version);
-    return Results.Ok(response);
-}).RequireAuthorization("admin").RequirePermission(Keys.UserView)
-    .WithMetadata(new EtagResponseMarker("200"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("GetAdmin")
-    .WithSummary("อ่านบัญชีผู้ดูแลระบบ")
-    .WithDescription("ต้องมีสิทธิ์ user.view คืน tier, status, ร้านค้าที่เข้าถึงได้ (ไม่จำกัดสำหรับ Super) และ role code ที่กำหนดให้ทั้งหมด หากไม่พบ id -> 404")
-    .Produces<AdminDetailResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden)
-    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
-
-// The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
-admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>
-{
-    var permissions = await mediator.Send(new GetEffectivePermissionsQuery(id), ct);
-    return permissions is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(permissions);
-}).RequireAuthorization("admin").RequirePermission(Keys.UserView)
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("GetAdminEffectivePermissions")
-    .WithSummary("อ่านสิทธิ์ที่มีผลจริงของผู้ดูแลระบบ")
-    .WithDescription("ต้องมีสิทธิ์ user.view union แบบไม่ซ้ำ เรียงตาม ordinal ของ permission key จากบทบาทที่ ACTIVE ของผู้ดูแลระบบ (กฎเดียวกับ /me) ใช้ได้แม้บัญชีถูก suspend หากไม่พบ id -> 404")
-    .Produces<IReadOnlyList<string>>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Super assigns a merchant to a Scoped admin (REQ-4.1). Inactive/unknown merchant or duplicate -> 409.
-admin.MapPost("/{id:guid}/merchants", async (
-    Guid id, AssignMerchantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new AssignMerchantCommand(
-        id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Ok(result);
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithMetadata(new IfMatchMutationMarker("200"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("AssignMerchantToAdmin")
-    .WithSummary("มอบสิทธิ์ร้านค้าให้ผู้ดูแลระบบ")
-    .WithDescription("เฉพาะ Super ให้สิทธิ์ Scoped admin เข้าถึงร้านค้าหนึ่ง ร้านค้าไม่ active/ไม่รู้จัก หรือซ้ำ -> 409")
-    .Produces<AssignMerchantResult>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Super unassigns a merchant — a hard delete of the assignment row (REQ-4.2). Unknown assignment -> 404.
-admin.MapDelete("/{id:guid}/merchants/{merchantId:guid}", async (
-    Guid id, Guid merchantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new UnassignMerchantCommand(
-        id, merchantId, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithMetadata(new IfMatchMutationMarker("204"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("UnassignMerchantFromAdmin")
-    .WithSummary("ถอนสิทธิ์ร้านค้าจากผู้ดูแลระบบ")
-    .WithDescription("เฉพาะ Super ลบแถว merchant assignment แบบถาวร ไม่พบ assignment -> 404")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Super suspends another admin; suspending your OWN account is rejected so oversight is never locked out (REQ-8.2).
-admin.MapPost("/{id:guid}/suspend", async (
-    Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    if (id == scope.Current.AdminId)
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot suspend their own account.");
-    var result = await mediator.Send(new SuspendCommand(
-        id, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithMetadata(new IfMatchMutationMarker("204"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("SuspendAdmin")
-    .WithSummary("ระงับใช้งานผู้ดูแลระบบ")
-    .WithDescription("เฉพาะ Super ระงับใช้งานผู้ดูแลระบบคนอื่น ระงับบัญชีตัวเองไม่ได้ (403) เพื่อไม่ให้ oversight ถูกล็อกออก")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status403Forbidden)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
-
-// Super reactivates a suspended admin (REQ-3). Idempotent 204; unknown id -> 404. On the Suspended->Active
-// transition the target's sessions are revoked (a fresh login is required); the already-Active case revokes nothing.
-admin.MapPost("/{id:guid}/reactivate", async (
-    Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new ReactivateCommand(
-        id, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithMetadata(new IfMatchMutationMarker("204"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("ReactivateAdmin")
-    .WithSummary("เปิดใช้งานผู้ดูแลระบบที่ถูกระงับ")
-    .WithDescription("เฉพาะ Super คืนสถานะผู้ดูแลระบบที่ถูกระงับกลับเป็น Active และเพิกถอน session เดิม (ต้อง login ใหม่) idempotent ถ้า Active อยู่แล้ว หากไม่พบ id -> 404")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Super promotes/demotes another admin's tier; changing your OWN tier is rejected (mirrors REQ-8.2 — a lone
-// Super demoting itself could strand oversight). Idempotent: setting the current tier is a no-op.
-admin.MapPost("/{id:guid}/tier", async (
-    Guid id, ChangeAdminTierRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    if (id == scope.Current.AdminId)
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot change their own tier.");
-    if (WireToTier(body.Tier) is not { } newTier)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: $"Unknown tier '{body.Tier}'.");
-    var result = await mediator.Send(new ChangeAdminTierCommand(
-        id, newTier, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Ok(result);
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithMetadata(new IfMatchMutationMarker("200"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("ChangeAdminTier")
-    .WithSummary("เลื่อนหรือลด tier ของผู้ดูแลระบบ")
-    .WithDescription("เฉพาะ Super เปลี่ยน tier ผู้ดูแลระบบระหว่าง scoped กับ super เปลี่ยน tier ตัวเองไม่ได้ (403) เพื่อไม่ให้ oversight ค้าง idempotent ถ้า tier ตรงกับที่ขออยู่แล้ว หากไม่พบ id -> 404")
-    .Produces<ChangeAdminTierResult>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// --- Admin Role RBAC (admin-role-rbac, rf2-iam-rbac) ---
-// Orthogonal to Tier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
-// gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
-// "active"/"inactive" via explicit projection — there is no global string-enum converter (B2). Backed by the
-// SAME Iam.Application.Roles handlers the merchant-user console uses (rf2) — RoleSideContextResolver.ForAdmin
-// is the one place that turns the bound scope into RoleSideContext.Platform() (design.md).
-static RoleResponse RoleToWire(RoleListItem r) => new(
-    r.Code, r.Name, r.Description, r.Color,
-    r.Status == RoleStatus.Active ? "active" : "inactive",
-    r.PermissionKeys, r.UserCount, r.Version);
-// Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active (B2).
-static RoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
-{
-    "active" => RoleStatus.Active,
-    "inactive" => RoleStatus.Inactive,
-    _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
-};
-
-// Permission catalog for the matrix (REQ-1.5): resource = the permission's group key.
-admin.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
-{
-    var catalog = await mediator.Send(new GetPermissionCatalogQuery(Scope.Platform), ct);
-    return Results.Ok(new PermissionCatalogResponse(
-        catalog.Groups.Select(g => new PermissionGroupResponse(g.Key, g.Name)).ToArray(),
-        catalog.Permissions.Select(p => new PermissionItemResponse(p.Key, p.Name, p.Resource)).ToArray()));
-}).RequireAuthorization("admin")
-    .WithTags("บทบาท (ผู้ดูแลระบบ)")
-    .WithName("ListPermissions")
-    .WithSummary("แคตตาล็อกสิทธิ์")
-    .WithDescription("แคตตาล็อกสิทธิ์/กลุ่มที่ใช้เป็นฐานของ role matrix (resource = group key ของสิทธิ์)")
-    .Produces<PermissionCatalogResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
-
-admin.MapGet("/roles", async (HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct) =>
-{
-    var p = SfsQueryParser.Parse(http.Request.Query);
-    var result = await mediator.Send(new ListRolesQuery
-    {
-        Context = RoleSideContextResolver.ForAdmin(scope),
-        Page = p.Page,
-        Limit = p.Limit,
-        Filters = p.Filters,
-        Sort = p.Sort,
-        Search = p.Search,
-    }, ct);
-    // Map items to the wire DTO by constructing a NEW PagedResult — a record with-expression cannot change T (REQ-12.2).
-    return Results.Ok(new PagedResult<RoleResponse>(
-        [.. result.Items.Select(RoleToWire)], result.Page, result.Limit, result.Total));
-})
-    .RequireAuthorization("admin")
-    .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("บทบาท (ผู้ดูแลระบบ)")
-    .WithName("ListRoles")
-    .WithSummary("รายการบทบาท")
-    .WithDescription("บทบาทผู้ดูแลระบบแบบแบ่งหน้า พร้อมสิทธิ์และจำนวนผู้ใช้ที่ผูกอยู่ รองรับ SFS: page, limit, filters, sort, search")
-    .Produces<PagedResult<RoleResponse>>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
-
-admin.MapGet("/roles/{code}", async (
-    string code, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct) =>
-{
-    var role = await mediator.Send(new GetRoleQuery(RoleSideContextResolver.ForAdmin(scope), code), ct);
-    if (role is null)
-        return Results.Problem(statusCode: StatusCodes.Status404NotFound);
-    VersionEtags.Set(http, role.Version);
-    return Results.Ok(RoleToWire(role));
-}).RequireAuthorization("admin")
-    .WithMetadata(new EtagResponseMarker("200"))
-    .WithTags("บทบาท (ผู้ดูแลระบบ)")
-    .WithName("GetRole")
-    .WithSummary("อ่านบทบาทตามรหัส")
-    .WithDescription("คืนบทบาทหนึ่งรายการพร้อมสิทธิ์ หากไม่พบรหัส -> 404")
-    .Produces<RoleResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
-
-// Create: duplicate code -> 409; permission key outside catalog -> 400 (REQ-2.3/3.3).
-admin.MapPost("/roles", async (
-    CreateRoleRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new CreateRoleCommand(
-        RoleSideContextResolver.ForAdmin(scope), body.Code ?? "", body.Name ?? "", body.Description, body.Color,
-        ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Created($"/api/v1/admins/roles/{result.Code}", RoleToWire(result));
-}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithMetadata(new EtagResponseMarker("201"))
-    .WithTags("บทบาท (ผู้ดูแลระบบ)")
-    .WithName("CreateRole")
-    .WithSummary("สร้างบทบาท")
-    .WithDescription("ต้องมีสิทธิ์ user.roles รหัสซ้ำ -> 409; permission key ที่ไม่อยู่ในแคตตาล็อก -> 400")
-    .Produces<RoleResponse>(StatusCodes.Status201Created)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Update: code is immutable (taken from the route, never the body); deactivating platform_admin -> 409 (REQ-2.4/8.3).
-admin.MapPut("/roles/{code}", async (
-    string code, UpdateRoleRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new UpdateRoleCommand(
-        RoleSideContextResolver.ForAdmin(scope), code, body.Name ?? "", body.Description, body.Color,
-        ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Ok(RoleToWire(result));
-}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithMetadata(new IfMatchMutationMarker("200"))
-    .WithTags("บทบาท (ผู้ดูแลระบบ)")
-    .WithName("UpdateRole")
-    .WithSummary("แก้ไขบทบาท")
-    .WithDescription("ต้องมีสิทธิ์ user.roles รหัส (code จาก route) แก้ไขไม่ได้; ปิดใช้งาน platform_admin -> 409")
-    .Produces<RoleResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Delete: a role with bound users is undeletable (409, REQ-4.4).
-admin.MapDelete("/roles/{code}", async (
-    string code, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    await mediator.Send(new DeleteRoleCommand(
-        RoleSideContextResolver.ForAdmin(scope), code, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithMetadata(new IfMatchMutationMarker("204", EmitsEtag: false))
-    .WithTags("บทบาท (ผู้ดูแลระบบ)")
-    .WithName("DeleteRole")
-    .WithSummary("ลบบทบาท")
-    .WithDescription("ต้องมีสิทธิ์ user.roles บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// Set an admin's roles to exactly the given set (REQ-4.2). Unknown role code -> 400; unknown admin -> 404.
-admin.MapPut("/{id:guid}/roles", async (
-    Guid id, SetAdminRolesRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new SetRolesCommand(
-        id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithMetadata(new IfMatchMutationMarker("204"))
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("SetAdminRoles")
-    .WithSummary("กำหนดบทบาทของผู้ดูแลระบบ")
-    .WithDescription("ต้องมีสิทธิ์ user.roles แทนที่บทบาทของผู้ดูแลระบบด้วยชุดที่ระบุมาทั้งหมด หากไม่รู้จัก role code -> 400; ไม่พบผู้ดูแลระบบ -> 404")
-    .Produces(StatusCodes.Status204NoContent)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
 // rf2-iam-rbac REQ-5: fail fast at boot if any RequirePermission gate references a key absent from the catalog,
 // or a key whose side does not match the endpoint's own auth policy (side-aware, REQ-5.4) — one guard now covers
 // both consoles, incl. the cross-catalog merchant-user.approve/reject keys gated under the "admin" policy.
@@ -3893,12 +3357,6 @@ static IReadOnlyList<CommerceCapabilityResponse> OrderCapabilities(string status
     new("receipt", false, false, "capability_unavailable"),
 ];
 
-internal sealed record CreateRoleRequest(
-    string? Code, string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
-internal sealed record UpdateRoleRequest(
-    string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
-internal sealed record SetAdminRolesRequest(IReadOnlyList<string>? RoleCodes);
-
 // --- MerchantUser BFF request/response bodies (merchant-user-google-sso REQ-15/16/17). ActingMerchant/ActingMerchantUserId are
 // taken from the resolved IMerchantUserScope, never the body. ---
 internal sealed record CreateMerchantUserRoleRequest(
@@ -3923,11 +3381,6 @@ internal sealed record MerchantUserPermissionCatalogResponse(
     IReadOnlyCollection<MerchantUserPermissionGroupResponse> Groups, IReadOnlyCollection<MerchantUserPermissionItemResponse> Permissions);
 internal sealed record MerchantUserPermissionGroupResponse(string Key, string Label);
 internal sealed record MerchantUserPermissionItemResponse(string Key, string Label, string Resource);
-// Admin approve/reject of a merchant-user (REQ-6). The admin subject + correlation id are taken server-side, never the body.
-internal sealed record ApproveMerchantUserRequest(string? MerchantCode, IReadOnlyList<string>? RoleCodes);
-internal sealed record RejectMerchantUserRequest(string? Reason);
-internal sealed record ApproveMerchantUserResponse(Guid UserId, string Status, bool AlreadyActive);
-internal sealed record RejectMerchantUserResponse(Guid UserId, string Status);
 
 // No Amount: the charge is priced from the order row server-side (a body that still sends "amount" is
 // simply ignored — the platform never mints a charge the order does not back).
@@ -4182,13 +3635,6 @@ internal static class ProvisioningGuards
     }
 }
 
-// Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
-// the host sets them from the resolved IAdminScope + the authenticated request.
-internal sealed record CreateAdminRequest(
-    Guid ObjectId, string IdentityApprovalReference, string Email);
-internal sealed record AssignMerchantRequest(Guid MerchantId);
-internal sealed record ChangeAdminTierRequest(string Tier);
-
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -4270,33 +3716,6 @@ internal sealed record AdminProductPage(
 }
 internal sealed record StartRedirectResponse(string RedirectUrl);
 internal sealed record WebhookResponse(string Outcome);
-
-// Admin read responses — named records (not anonymous objects) so the OpenAPI doc carries a response schema
-// Scalar can render. Wire shape matches the previous anonymous objects (camelCase via the web JSON defaults).
-internal sealed record AdminMeResponse(
-    Guid AdminId, string? Email, string Tier, AdminAccessibleResponse AccessibleMerchants,
-    IReadOnlySet<string> Permissions);
-internal sealed record AdminAccessibleResponse(
-    bool IsUnrestricted,
-    // Omitted entirely (not null) for a Super, matching the prior shape.
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyCollection<AdminAccessibleMerchantResponse>? Merchants);
-internal sealed record AdminAccessibleMerchantResponse(Guid Id, string? Code);
-// admin-account-management REQ-1.2/1.6: one admin directory row; tier/status are lowercase wire strings.
-internal sealed record AdminListItemResponse(
-    Guid AdminId, string? Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound, long Version);
-// admin-account-management REQ-2.1: full detail. The accessible-merchants field is named AccessibleMerchants to match
-// GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
-internal sealed record AdminDetailResponse(
-    Guid AdminId, string? Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
-    AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes, long Version);
-internal sealed record PermissionCatalogResponse(
-    IReadOnlyCollection<PermissionGroupResponse> Groups, IReadOnlyCollection<PermissionItemResponse> Permissions);
-internal sealed record PermissionGroupResponse(string Key, string Label);
-internal sealed record PermissionItemResponse(string Key, string Label, string Resource);
-internal sealed record RoleResponse(
-    string Code, string Name, string? Description, string? Color, string Status,
-    IReadOnlyList<string> Permissions, int UserCount, long Version);
 
 // Bridges PspCode <-> its stable wire code via the domain's single-source-of-truth PspCodes mapping,
 // so the host owns the serialization concern and the domain enum stays attribute-free.

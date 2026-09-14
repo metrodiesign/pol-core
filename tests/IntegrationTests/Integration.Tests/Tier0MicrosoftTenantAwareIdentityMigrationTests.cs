@@ -27,19 +27,22 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         await database.ExecuteBatchesAsync(script);
 
         await using var verify = await database.OpenAsync();
-        // The committed migration lineage contains the complete 49-entry chain; the script must apply
+        // The committed migration lineage contains the complete 50-entry chain; the script must apply
         // every recorded migration exactly once and remain idempotent on the second pass.
-        Assert.Equal(49, Convert.ToInt32(await ScalarAsync(
+        Assert.Equal(50, Convert.ToInt32(await ScalarAsync(
             verify, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
-        Assert.Equal(4, Convert.ToInt32(await ScalarAsync(verify, """
+        Assert.Equal(5, Convert.ToInt32(await ScalarAsync(verify, """
             SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
             WHERE MigrationId IN
                 (N'20260911160508_ReviewFixOrderVersionedMetadata',
                  N'20260911163519_ReviewFixPaymentLinkNotificationIntent',
                  N'20260913174013_RetireBffSessionTickets',
-                 N'20260914051532_RetireAdminSessions');
+                 N'20260914051532_RetireAdminSessions',
+                 N'20260914111802_RetireLegacyAdminIdentityPlane');
             """)));
-        Assert.NotEqual(DBNull.Value, await ScalarAsync(
+        // RetireLegacyAdminIdentityPlane (#50) drops the raw workforce-identity bookkeeping tables, so after a
+        // full schema apply admin.WorkforceTenantIdentityMigrations no longer exists.
+        Assert.Equal(DBNull.Value, await ScalarAsync(
             verify, "SELECT OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U');"));
     }
 

@@ -19,8 +19,7 @@ public sealed class SaleCodeRenameCompletenessTests
         "src/Api/Api/Merchants/UserRegistration.cs",                        // producerCode -> SaleCode mapper
         "src/Application/Modules/Merchants.Application/Users/ManageMerchantUsers.cs", // manager edit wire DTO
         "tests/IntegrationTests/Hosts.Tests/UserRegistrationFormTests.cs",                     // canonical key + legacy key rejection
-        "tests/IntegrationTests/Hosts.Tests/SfsOpenApiTests.cs",                               // published multipart schema
-        "tests/IntegrationTests/Hosts.Tests/RegistrationHistoryEndpointTests.cs"               // history stays saleCode
+        "tests/IntegrationTests/Hosts.Tests/SfsOpenApiTests.cs"                                // published multipart schema
     ];
 
     [Fact]

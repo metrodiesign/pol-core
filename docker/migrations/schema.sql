@@ -8300,3 +8300,79 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    DROP TABLE IF EXISTS admin.WorkforceIdentitySubjectRollback;
+    DROP TABLE IF EXISTS admin.WorkforceTenantIdentitySnapshot;
+    DROP TABLE IF EXISTS admin.WorkforceIdentityMigrations;
+    DROP TABLE IF EXISTS admin.WorkforceTenantIdentityMigrations;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    DROP TABLE [admin].[AuthAudits];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    DROP TABLE [admin].[MerchantAccess];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    DROP TABLE [admin].[RoleAssignments];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    DROP TABLE [admin].[Users];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    DROP TABLE [admin].[WorkforceTenantBindings];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914111802_RetireLegacyAdminIdentityPlane'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260914111802_RetireLegacyAdminIdentityPlane', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

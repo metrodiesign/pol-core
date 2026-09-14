@@ -12,7 +12,7 @@ using OpenIddict.Server.AspNetCore;
 
 namespace Hosts.Tests;
 
-file sealed class TokenFlowFactory : WebApplicationFactory<ApiHost::Program>
+internal sealed class TokenFlowFactory : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

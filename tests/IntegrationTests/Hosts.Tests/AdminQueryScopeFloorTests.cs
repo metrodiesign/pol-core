@@ -1,9 +1,6 @@
 extern alias ApiHost;
 using Admins.Application;
-using Admins.Application.Roles;
 using Admins.Application.Users;
-using Admins.Domain.Roles;
-using Admins.Domain.Users;
 using Mediator;
 
 namespace Hosts.Tests;
