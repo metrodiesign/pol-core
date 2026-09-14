@@ -257,7 +257,7 @@ Tier 0 staging must prove:
 3. Verify malformed/duplicate claims and tenant/issuer mismatch are rejected before DB resolution or the `pol_login` sign-in.
 4. Verify exact existing resolution, roleless JIT and a pre-bound invite; two tuples may share one optional Email.
 5. Verify the SPA receives the code at `<ADMIN_FRONTEND_ORIGIN>/auth/callback`, exchanges it at `POST /oauth/token`, and a
-   Bearer call to `/api/v1/admins/me` returns the permission-scoped response (no admin cookie is set).
+   Bearer call to `/api/v1/me` returns the permission-scoped response (no admin cookie is set).
 
 Capture only status, fixed browser reason, correlation ID and timestamp. Do not capture claims or tokens.
 

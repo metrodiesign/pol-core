@@ -112,6 +112,13 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
         // navigation and needs no CORS.
         if (path.StartsWithSegments("/oauth/token") || path.StartsWithSegments("/oauth/revoke"))
             return true;
+        // Canonical identity-platform surface (policy "identity-platform", both Employee and Agent principals):
+        // /me, /me/merchants, /me/access, /me/sessions[/{id}] and POST /api/v1/auth/logout. Both consoles call
+        // these after the legacy /api/v1/admins/** plane was retired. Segment matching keeps /api/v1/me off
+        // /api/v1/merchants, and the logout match is pinned to /auth/logout so the anonymous /auth/agents/login
+        // and /auth/*/callback endpoints keep their own posture.
+        if (path.StartsWithSegments("/api/v1/me") || path.StartsWithSegments("/api/v1/auth/logout"))
+            return true;
         if (path.StartsWithSegments("/api/v1/reports/reconciliation"))
             return true;
         if (path.StartsWithSegments("/api/v1/carts"))

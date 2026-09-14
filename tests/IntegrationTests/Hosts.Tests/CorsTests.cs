@@ -105,6 +105,24 @@ public sealed class CorsTests
         Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
     }
 
+    [Theory]
+    [InlineData(CorsFactory.MerchantUserSpaOrigin, "/api/v1/me")]
+    [InlineData(CorsFactory.AdminSpaOrigin, "/api/v1/me")]
+    [InlineData(CorsFactory.MerchantUserSpaOrigin, "/api/v1/auth/logout")]
+    [InlineData(CorsFactory.AdminSpaOrigin, "/api/v1/auth/logout")]
+    public async Task Each_console_origin_is_allowed_with_credentials_on_the_identity_platform_surface(string origin, string path)
+    {
+        using var factory = new CorsFactory();
+        using var client = factory.CreateClient();
+
+        // The canonical /me* and /api/v1/auth/logout routes (identity-platform policy) replaced the retired
+        // /api/v1/admins/** plane, so BOTH consoles must clear preflight on them (dual-console policy).
+        var response = await client.SendAsync(Preflight(origin, path));
+
+        Assert.Equal(origin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
+    }
+
     [Fact]
     public async Task Admin_origin_is_not_allowed_on_a_non_admin_route()
     {

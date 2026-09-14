@@ -380,7 +380,7 @@ pre-bind `(provider, subject)`.
 3. Identity ต้องมี validated `tid` และ `oid` อย่างละหนึ่งค่าและ `tid` ตรง tenant-pinned Authority Runtime lookup
    ใช้ exact `(microsoft, tid, oid)`; ไม่บังคับ `roles` และไม่ใช้ Email, UPN, `preferred_username` หรือ `EmployeeId`
    เป็น identity. Email absent ต้อง login/JIT ได้ และ JIT เป็น `Active + Scoped` แบบไม่มี role.
-4. Login สำเร็จต้องกลับมาที่ SPA redirect URI (`https://localhost:3001/auth/callback?code=...`) แล้ว SPA แลก code ที่ `POST /oauth/token` ได้ access JWT + refresh token; ไม่มี admin session cookie ตรวจด้วย `GET /api/v1/admins/me` พร้อม `Authorization: Bearer`.
+4. Login สำเร็จต้องกลับมาที่ SPA redirect URI (`https://localhost:3001/auth/callback?code=...`) แล้ว SPA แลก code ที่ `POST /oauth/token` ได้ access JWT + refresh token; ไม่มี admin session cookie ตรวจด้วย `GET /api/v1/me` พร้อม `Authorization: Bearer`.
 5. Microsoft invite ต้อง pre-bound ด้วย verified `objectId` และ approval reference ก่อน first login; Email optional.
 6. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
 
