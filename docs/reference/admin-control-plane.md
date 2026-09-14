@@ -4,7 +4,7 @@
 
 ## Boundary
 
-Admin control plane ใช้ route root `/api/v1` และ `AdminSession` เดียวกับ Admin Console. ทุก operation ตรวจ `admin` authorization policy, permission key และ merchant scope ที่ backend; client ห้ามเลือก scope แทนการตรวจของ server.
+Admin control plane ใช้ route root `/api/v1` และ credential เดียวกับ Admin Console คือ platform JWT ใน `Authorization: Bearer` (scheme `PlatformToken`; ไม่มี cookie/CSRF ฝั่ง admin). ทุก operation ตรวจ `admin` authorization policy, permission key และ merchant scope ที่ backend; client ห้ามเลือก scope แทนการตรวจของ server.
 
 - `Super` อ่าน aggregate ได้โดยไม่เลือก merchant แต่ mutation ที่มี merchant scope ต้องส่ง `merchantId` ชัดเจน
 - `Scoped` อ่านและแก้ได้เฉพาะ merchant ที่ถูก assign
@@ -17,7 +17,7 @@ Admin control plane ใช้ route root `/api/v1` และ `AdminSession` เ�
 
 | Capability | Routes | Permission | พฤติกรรมสำคัญ |
 |---|---|---|---|
-| Provision merchant | `POST /merchants` | `Super` tier | สร้าง merchant พร้อม PSP connection; รับ CSRF, ใช้ captive code allowlist และเก็บ secret ใน vault โดยไม่คืน plaintext |
+| Provision merchant | `POST /merchants` | `Super` tier | สร้าง merchant พร้อม PSP connection; ใช้ captive code allowlist และเก็บ secret ใน vault โดยไม่คืน plaintext |
 | Merchant lookup | `GET /merchants/{code}` | `merchant.view` | Scoped admin เห็นเฉพาะ merchant ที่ assign; นอก scope หรือไม่พบคืน `404`, response คืน `ETag` |
 | Merchant | `GET /merchants` · `PUT /merchants/{merchantId}` · `POST /merchants/{merchantId}/suspend` · `POST /merchants/{merchantId}/reactivate` | `merchant.view` / `merchant.manage` | list แบ่งหน้า; mutation ใช้ `If-Match` และ `Idempotency-Key` |
 | Originator | `GET|POST /originators` · `GET|PUT|DELETE /originators/{originatorId}` · `POST /originators/{originatorId}/enable` · `POST /originators/{originatorId}/disable` | `merchant.view` / `merchant.manage` | รองรับ `branch`, `agent`, `broker`, `staff`, `app`; `code` เปลี่ยนไม่ได้; รายการที่ถูกอ้างอิงลบไม่ได้ |
@@ -35,7 +35,7 @@ Admin control plane ใช้ route root `/api/v1` และ `AdminSession` เ�
 - `/api/v1/merchants/{merchantId}/payment-setting-requests...` ใช้ Governance maker-checker ก่อนเปลี่ยน active settings
 - `/api/v1/payments/...` เดิมยังอยู่เป็น compatibility/control surface; ให้ดู endpoint metadata/OpenAPI ว่า resource ใดใช้ `PspConnection` หรือ provider account canonical contract
 
-Business identity/account administration อยู่ที่ `/api/v1/accounts...` และ `/api/v1/accounts/{accountId}/merchant-access...`/`platform-access`; route เหล่านี้ตรวจ `Account` authorization version และ `DataScope` แยกจาก `AdminSession` tier.
+Business identity/account administration อยู่ที่ `/api/v1/accounts...` และ `/api/v1/accounts/{accountId}/merchant-access...`/`platform-access`; route เหล่านี้ตรวจ `Account` authorization version และ `DataScope` แยกจาก Admin tier ของ `IAdminScope`.
 
 ## Merchant users และ Merchant roles
 
@@ -109,11 +109,11 @@ Development เปิดเอกสาร 4 ชุด:
 | Document | ขอบเขต |
 |---|---|
 | `v1` | ทุก operation เพื่อ backward compatibility |
-| `admin` | `AdminSession` และ Admin auth/control plane |
+| `admin` | `PlatformToken` (Bearer) และ Admin control plane |
 | `merchant` | `MerchantUserSession`, merchant auth/register และ customer payment capability |
 | `integration` | customer payment capability และ inbound PSP webhook |
 
-`admin` ใช้เฉพาะ `AdminSession`; ไม่โฆษณา `MerchantUserSession` หรือ Bearer flow. Scalar แสดง named documents และซ่อน combined `v1`.
+`admin` โฆษณา security scheme `PlatformToken` (http bearer JWT) และ `IdentityPlatform`; ไม่โฆษณา `MerchantUserSession` cookie. Scalar แสดง named documents และซ่อน combined `v1`.
 
 ## Source of truth
 

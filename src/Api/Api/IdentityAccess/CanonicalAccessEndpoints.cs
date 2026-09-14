@@ -34,12 +34,12 @@ internal static class CanonicalAccessEndpoints
             .WithName("GetAccount").WithSummary("อ่าน business account")
             .WithDescription("คืน account และ identity linkage ที่ปิดข้อมูลอ่อนไหว พร้อม ETag authorization version");
         admin.MapPatch("/accounts/{accountId:guid}", PatchAccount)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithName("PatchAccount").WithSummary("แก้ไขสถานะ business account")
             .WithDescription("แก้ displayName/status เท่านั้น; ห้ามเปลี่ยน account type หรือ stable identity; ต้องส่ง If-Match และ Idempotency-Key");
         admin.MapPost("/accounts/{accountId:guid}/session-revocations", RevokeAccountSessions)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IdempotencyMutationMarker())
             .WithName("RevokeAccountSessions").WithSummary("เพิกถอน sessions ของ account")
             .WithDescription("เพิกถอน BFF sessions ทุกอุปกรณ์และ bump authorization version แบบ idempotent");
@@ -53,7 +53,7 @@ internal static class CanonicalAccessEndpoints
             .WithName("ListCanonicalRoles").WithSummary("ค้นหา Platform roles")
             .WithDescription("คืน role ที่มองเห็นใน Platform scope ด้วย SFS");
         admin.MapPost("/roles", CreateRole)
-            .RequireCsrf().RequirePermission(Keys.UserRoles)
+            .RequirePermission(Keys.UserRoles)
             .WithMetadata(new IdempotencyMutationMarker(), new EtagResponseMarker("201"))
             .WithName("CreateCanonicalRole").WithSummary("สร้าง Platform role")
             .WithDescription("สร้าง role ผ่าน Iam handler เดิม ตรวจ permission side และบันทึก audit correlation");
@@ -62,7 +62,7 @@ internal static class CanonicalAccessEndpoints
             .WithName("GetCanonicalRole").WithSummary("อ่าน Platform role")
             .WithDescription("อ่าน role ตาม immutable role id ภายใน Platform visibility");
         admin.MapPut("/roles/{roleId:guid}", UpdateRole)
-            .RequireCsrf().RequirePermission(Keys.UserRoles)
+            .RequirePermission(Keys.UserRoles)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithName("UpdateCanonicalRole").WithSummary("แก้ Platform role")
             .WithDescription("แก้ role ผ่าน Iam handler เดิม ตรวจ version, seed anchor และ permission side");
@@ -72,12 +72,12 @@ internal static class CanonicalAccessEndpoints
             .WithSummary("รายการ Merchant access ของ account")
             .WithDescription("คืน active/revoked access, roles, branches และ payment methods โดยใช้ Account ownership");
         admin.MapPut("/accounts/{accountId:guid}/merchant-access/{merchantId:guid}", ReplaceMerchantAccess)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithName("ReplaceMerchantAccess").WithSummary("แทนที่ Merchant access")
             .WithDescription("บังคับ Merchant/role/branch binding และ authorization version; stale version เป็น 412 semantics");
         admin.MapDelete("/accounts/{accountId:guid}/merchant-access/{merchantId:guid}", RevokeMerchantAccess)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IfMatchMutationMarker("204", EmitsEtag: false), new IdempotencyMutationMarker())
             .WithName("RevokeMerchantAccess").WithSummary("เพิกถอน Merchant access")
             .WithDescription("เพิกถอน access ที่เลือกโดยไม่ลบประวัติ และ bump authorization version");
@@ -86,7 +86,7 @@ internal static class CanonicalAccessEndpoints
             .WithName("GetPlatformAccess").WithSummary("อ่าน Platform access")
             .WithDescription("คืน Platform access เฉพาะ Employee account พร้อม role ids และ version");
         admin.MapPut("/accounts/{accountId:guid}/platform-access", ReplacePlatformAccess)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithName("ReplacePlatformAccess").WithSummary("แทนที่ Platform access")
             .WithDescription("อนุญาตเฉพาะ Employee และ role scope ที่ grant ได้; stale version ไม่เขียนทับ");

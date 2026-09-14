@@ -89,7 +89,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
     public DbSet<WorkforceTenantBinding> WorkforceTenantBindings => Set<WorkforceTenantBinding>();
     public DbSet<AdminMerchantAccess> MerchantAccess => Set<AdminMerchantAccess>();
     public DbSet<Audit> UserAudits => Set<Audit>();
-    public DbSet<global::Admins.Domain.Users.Session> Sessions => Set<global::Admins.Domain.Users.Session>();
     public DbSet<global::Admins.Domain.Users.AuthAudit> AuthAudits => Set<global::Admins.Domain.Users.AuthAudit>();
     public DbSet<global::Admins.Domain.Roles.RoleAssignment> RoleAssignments => Set<global::Admins.Domain.Roles.RoleAssignment>();
 
@@ -186,7 +185,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
         modelBuilder.ApplyConfiguration(new UserConfiguration());
         modelBuilder.ApplyConfiguration(new MerchantAccessConfiguration());
         modelBuilder.ApplyConfiguration(new AuditConfiguration());
-        modelBuilder.ApplyConfiguration(new SessionConfiguration());
         modelBuilder.ApplyConfiguration(new AuthAuditConfiguration());
         modelBuilder.ApplyConfiguration(new RoleAssignmentConfiguration());
 

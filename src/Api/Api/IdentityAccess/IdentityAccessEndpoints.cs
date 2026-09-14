@@ -126,7 +126,7 @@ internal static class IdentityAccessEndpoints
             .RequirePermission(Keys.UserManage).WithName("ListSystemClients")
             .WithSummary("รายการ SYSTEM clients").WithDescription("คืน metadata ของ SYSTEM clients ใน Admin merchant scope โดยไม่คืน secret");
         system.MapPost("", CreateSystemClient)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IdempotencyMutationMarker(), new EtagResponseMarker("201"))
             .WithName("CreateSystemClient").WithSummary("สร้าง SYSTEM client")
             .WithDescription("สร้าง Account SYSTEM และ client_credentials client ที่ผูก Merchant/environment เดียว; ต้องส่ง Idempotency-Key");
@@ -135,12 +135,12 @@ internal static class IdentityAccessEndpoints
             .WithName("GetSystemClient").WithSummary("อ่าน SYSTEM client")
             .WithDescription("คืน client metadata, scopes และ public key policy โดยไม่คืน secret");
         system.MapPatch("/{clientId:guid}", UpdateSystemClient)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithName("UpdateSystemClient").WithSummary("แก้ไข SYSTEM client")
             .WithDescription("แก้ displayName/status เท่านั้น; Merchant, clientId และ grant type เปลี่ยนไม่ได้; ต้องส่ง If-Match และ Idempotency-Key");
         system.MapPut("/{clientId:guid}/access", ReplaceSystemClientAccess)
-            .RequireCsrf().RequirePermission(Keys.SettingsManage)
+            .RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithName("ReplaceSystemClientAccess").WithSummary("แทนที่สิทธิ์ SYSTEM client")
             .WithDescription("แทนที่ scopes หลังตรวจ grant registry และ Account authorization version; ต้องส่ง If-Match และ Idempotency-Key");
@@ -148,12 +148,12 @@ internal static class IdentityAccessEndpoints
             .RequirePermission(Keys.UserManage).WithName("ListSystemClientKeys")
             .WithSummary("รายการ public keys ของ SYSTEM client").WithDescription("คืน public key policy และ validity เท่านั้น");
         system.MapPost("/{clientId:guid}/keys", CreateClientKey)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IdempotencyMutationMarker(), new EtagResponseMarker("201"))
             .WithName("CreateSystemClientKey").WithSummary("ลงทะเบียน SYSTEM public key")
             .WithDescription("รับเฉพาะ public JWK metadata; private material ถูกปฏิเสธ; ต้องส่ง Idempotency-Key");
         system.MapDelete("/{clientId:guid}/keys/{keyId:guid}", DeleteClientKey)
-            .RequireCsrf().RequirePermission(Keys.UserManage)
+            .RequirePermission(Keys.UserManage)
             .WithMetadata(new IdempotencyMutationMarker())
             .WithName("RevokeSystemClientKey").WithSummary("เพิกถอน SYSTEM public key")
             .WithDescription("เพิกถอน key policy และทำให้ authorization version ของ client ใช้ต่อไม่ได้");

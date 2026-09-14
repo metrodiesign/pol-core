@@ -32,7 +32,7 @@ internal static class InboundWebhookEndpoints
             {
                 throw new InvalidRequestException(ex.Message, "invalid_filter");
             }
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.AuditView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.AuditView)
             .WithTags("เว็บฮุก")
             .WithName("ListInboundWebhookEvents")
             .WithSummary("รายการ PSP callback ที่ผ่านการลดข้อมูลอ่อนไหวแล้ว")
@@ -50,7 +50,7 @@ internal static class InboundWebhookEndpoints
         {
             var result = await reader.GetAsync(eventId, Access(scope), ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.AuditView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.AuditView)
             .WithTags("เว็บฮุก")
             .WithName("GetInboundWebhookEvent")
             .WithSummary("รายละเอียด PSP callback โดยไม่คืน raw payload หรือลายเซ็น")

@@ -9,38 +9,6 @@ namespace Architecture.Tests;
 public sealed partial class Tier0WorkforceArchitectureTests
 {
     [Fact]
-    public void Tier0_production_path_requires_tenant_object_claims_without_mutable_identity_fallbacks()
-    {
-        var root = FindRepoRoot();
-        var claims = File.ReadAllText(Path.Combine(root, "src/Api/Api/Admins/MicrosoftWorkforceClaims.cs"));
-        var resolver = File.ReadAllText(Path.Combine(
-            root, "src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs"));
-        var files = new[]
-        {
-            "src/Api/Api/Admins/MicrosoftWorkforceClaims.cs",
-            "src/Api/Api/Admins/OidcAuthentication.cs",
-            "src/Api/Api/Admins/LoginService.cs",
-            "src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs",
-            "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/ControlPlaneIdentityRecoveryReader.cs",
-        };
-        var source = string.Join('\n', files.Select(path => File.ReadAllText(Path.Combine(root, path))));
-
-        Assert.Contains("TrySingleUuid(principal, \"tid\"", claims, StringComparison.Ordinal);
-        Assert.Contains("TrySingleUuid(principal, \"oid\"", claims, StringComparison.Ordinal);
-        Assert.Contains("GetByMicrosoftIdentityAsync", source, StringComparison.Ordinal);
-        Assert.True(
-            resolver.IndexOf("GetByMicrosoftIdentityAsync", StringComparison.Ordinal)
-            < resolver.IndexOf("GetByEmployeeIdAsync", StringComparison.Ordinal),
-            "EmployeeId may be evaluated as profile data only after exact Microsoft tuple resolution.");
-        Assert.DoesNotContain("vcp.employee", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("preferred_username", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("WorkforceEmailKey", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("GetByEmailAsync", source, StringComparison.Ordinal);
-        Assert.DoesNotMatch(ForbiddenRoleClaimRead(), source);
-        Assert.DoesNotContain("JitProvisionMicrosoftAdminCommand", source, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void Admin_create_wire_is_prebound_and_nullable_without_an_identity_mutation_route()
     {
         var root = FindRepoRoot();
@@ -53,7 +21,7 @@ public sealed partial class Tier0WorkforceArchitectureTests
         var route = program[routeStart..routeEnd];
 
         Assert.Contains("body.ObjectId, body.Email, body.IdentityApprovalReference", route, StringComparison.Ordinal);
-        Assert.Contains("RequireCsrf().RequireAuthorization(\"admin\").RequirePlatformUserTier(Tier.Super)",
+        Assert.Contains("RequireAuthorization(\"admin\").RequirePlatformUserTier(Tier.Super)",
             route, StringComparison.Ordinal);
         Assert.DoesNotContain("BindInvited", route, StringComparison.Ordinal);
         Assert.DoesNotContain("Email is required", route, StringComparison.Ordinal);
@@ -111,7 +79,8 @@ public sealed partial class Tier0WorkforceArchitectureTests
         var root = FindRepoRoot();
         var compose = File.ReadAllText(Path.Combine(root, "docker-compose.prod.yml"));
 
-        Assert.Contains("AdminAuth__Providers__Microsoft__ClientId", compose, StringComparison.Ordinal);
+        Assert.Contains("IdentityAccess__Workforce__ClientId", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("AdminAuth__", compose, StringComparison.Ordinal);
         Assert.Contains("ADMIN_ENTRA_CLIENT_ID:?", compose, StringComparison.Ordinal);
         Assert.DoesNotContain("AdminAuth__Providers__Google", compose, StringComparison.Ordinal);
         Assert.DoesNotContain("MerchantAuth__Providers__Google", compose, StringComparison.Ordinal);
@@ -120,8 +89,6 @@ public sealed partial class Tier0WorkforceArchitectureTests
     }
 
     [Theory]
-    [InlineData("src/Api/Api/Admins/LoginService.cs")]
-    [InlineData("src/Api/Api/Admins/MicrosoftGraphEmployeeIdReader.cs")]
     [InlineData("src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs")]
     public void Tier0_catch_paths_never_pass_exception_objects_to_logger(string path)
     {
@@ -129,27 +96,6 @@ public sealed partial class Tier0WorkforceArchitectureTests
         var source = File.ReadAllText(Path.Combine(root, path));
 
         Assert.DoesNotMatch(LogExceptionObject(), source);
-    }
-
-    /// <summary>tier0-graph-employee-profile REQ-1.4-1.6, 9.1-9.6: the access token is never persisted by the
-    /// framework and no Tier 0 log call names a token, employeeId, name, legacy key or Graph body.</summary>
-    [Fact]
-    public void Tier0_employee_profile_path_never_saves_tokens_or_logs_pii()
-    {
-        var root = FindRepoRoot();
-        var oidc = File.ReadAllText(Path.Combine(root, "src/Api/Api/Admins/OidcAuthentication.cs"));
-        Assert.DoesNotMatch(SaveTokensEnabled(), oidc);
-
-        var files = new[]
-        {
-            "src/Api/Api/Admins/OidcAuthentication.cs",
-            "src/Api/Api/Admins/LoginService.cs",
-            "src/Api/Api/Admins/MicrosoftGraphEmployeeIdReader.cs",
-            "src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs",
-            "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs",
-        };
-        foreach (var path in files)
-            Assert.DoesNotMatch(LogPii(), File.ReadAllText(Path.Combine(root, path)));
     }
 
     [Fact]
@@ -162,8 +108,6 @@ public sealed partial class Tier0WorkforceArchitectureTests
         {
             "src/Application/Modules/Admins.Application/Users/EmployeeProfile.cs",
             "src/Application/Modules/Admins.Application/Users/ResolveAdmin.cs",
-            "src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs",
-            "src/Api/Api/Admins/LoginService.cs",
         }.Select(path => File.ReadAllText(Path.Combine(root, path))));
 
         Assert.Contains("SELECT TOP (2) EmpCode, FirstNameTh, LastNameTh", reader, StringComparison.Ordinal);
@@ -186,31 +130,6 @@ public sealed partial class Tier0WorkforceArchitectureTests
         }
 
         Assert.Equal("employee-profile-sync", AuditAction.EmployeeProfileSync);
-    }
-
-    [Fact]
-    public void Admin_graph_is_mandatory_only_at_new_oidc_callback_and_has_no_runtime_switch()
-    {
-        var root = FindRepoRoot();
-        var oidc = File.ReadAllText(Path.Combine(root, "src/Api/Api/Admins/OidcAuthentication.cs"));
-        var options = File.ReadAllText(Path.Combine(root, "src/Api/Api/OidcProviderOptions.cs"));
-        var session = File.ReadAllText(Path.Combine(root, "src/Api/Api/Admins/SessionAuthenticationHandler.cs"));
-        var config = string.Join('\n', new[]
-        {
-            ".env.example",
-            "docker-compose.prod.yml",
-            "docs/runbooks/admin-microsoft-oidc.md",
-        }.Select(path => File.ReadAllText(Path.Combine(root, path))));
-
-        Assert.Contains("options.Scope.Add(\"User.Read\")", oidc, StringComparison.Ordinal);
-        Assert.Single(Regex.Matches(
-            oidc, @"\breader\.ReadAsync\(", RegexOptions.CultureInvariant).Cast<Match>());
-        Assert.Contains("context.ProtocolMessage.Error, \"consent_required\"", oidc, StringComparison.Ordinal);
-        Assert.DoesNotContain("ProtocolMessage.ErrorDescription", oidc, StringComparison.Ordinal);
-        Assert.DoesNotContain("Exception.Message", oidc, StringComparison.Ordinal);
-        Assert.DoesNotContain("RequireEmployeeProfile", options + oidc + config, StringComparison.Ordinal);
-        Assert.DoesNotContain("MicrosoftGraphEmployeeIdReader", session, StringComparison.Ordinal);
-        Assert.DoesNotContain("graph", session, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -296,14 +215,8 @@ public sealed partial class Tier0WorkforceArchitectureTests
         foreach (var symbol in retired)
             Assert.DoesNotContain(symbol, source, StringComparison.Ordinal);
 
-        var exactPath = string.Join('\n', new[]
-        {
-            "src/Api/Api/Admins/MicrosoftWorkforceClaims.cs",
-            "src/Api/Api/Admins/OidcAuthentication.cs",
-            "src/Api/Api/Admins/LoginService.cs",
-            "src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs",
-            "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/ControlPlaneIdentityRecoveryReader.cs",
-        }.Select(path => File.ReadAllText(Path.Combine(root, path))));
+        var exactPath = File.ReadAllText(Path.Combine(
+            root, "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/ControlPlaneIdentityRecoveryReader.cs"));
         Assert.DoesNotContain("GetByEmailAsync", exactPath, StringComparison.Ordinal);
         Assert.DoesNotContain("BindSubject(", exactPath, StringComparison.Ordinal);
         Assert.DoesNotContain("preferred_username", exactPath, StringComparison.Ordinal);
@@ -344,10 +257,7 @@ public sealed partial class Tier0WorkforceArchitectureTests
         var root = FindRepoRoot();
         var paths = new[]
         {
-            "src/Api/Api/Admins/OidcAuthentication.cs",
-            "src/Api/Api/Admins/LoginService.cs",
-            "src/Api/Api/Admins/MicrosoftGraphEmployeeIdReader.cs",
-            "src/Application/Modules/Admins.Application/Users/ResolveMicrosoftAdmin.cs",
+            "src/Api/Api/IdentityAccess/IdentityAccessWiring.cs",
             "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/ControlPlaneIdentityRecoveryReader.cs",
             "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/EmployeeProfileReader.cs",
             "src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/WorkforceTenantBindingStore.cs",
@@ -438,9 +348,6 @@ public sealed partial class Tier0WorkforceArchitectureTests
         foreach (var phrase in staleGuidance)
             Assert.DoesNotContain(phrase, documentation, StringComparison.OrdinalIgnoreCase);
     }
-
-    [GeneratedRegex(@"SaveTokens\s*=\s*true", RegexOptions.CultureInvariant)]
-    private static partial Regex SaveTokensEnabled();
 
     [GeneratedRegex(@"Log(?:Error|Warning|Information|Debug|Trace|Critical)\s*\([^;]*\b(?:accessToken|employeeId|EmployeeId|FirstName|LastName|LegacyKey|legacyKey|branchCode|departmentId|raw|body)\b", RegexOptions.CultureInvariant)]
     private static partial Regex LogPii();

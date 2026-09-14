@@ -32,8 +32,8 @@ internal sealed class MerchantDirectory : IAdminMerchantDirectory
         _reader.GetIdByCodeAsync(code, cancellationToken);
 }
 
-/// <summary>Per-request holder of the resolved admin (REQ-6.3). The admin authentication handler
-/// (<see cref="PlatformUserSessionAuthenticationHandler"/>) calls <see cref="Set"/> once per request; readers consume
+/// <summary>Per-request holder of the resolved admin (REQ-6.3). The platform token authentication handler
+/// (<c>PlatformTokenAuthenticationHandler</c>) calls <see cref="Set"/> once per request; readers consume
 /// <see cref="IAdminScope"/>.</summary>
 internal sealed class AdminScope : IAdminScope
 {
@@ -93,15 +93,16 @@ internal sealed class AdminQuery : IAdminQuery
     }
 }
 
-/// <summary>Tier gate for Super-only admin actions (REQ-8.1): 403 unless the resolved <c>admin_tier</c> claim
-/// is in the allowed set. Mirrors <see cref="MerchantRoleAuthorization"/>.</summary>
+/// <summary>Tier gate for Super-only admin actions (REQ-8.1): 403 unless the tier of the admin bound to this
+/// request (<see cref="IAdminScope"/>, resolved fresh by the auth handler — never a claim) is in the allowed set.
+/// Fail-closed: no bound admin is denied.</summary>
 internal static class TierAuthorization
 {
     public static RouteHandlerBuilder RequirePlatformUserTier(this RouteHandlerBuilder builder, params Tier[] allowed)
     {
         var allowedNames = allowed.Select(t => t.ToString()).ToArray();
         return builder.AddEndpointFilter(async (context, next) =>
-            IsTierAllowed(context.HttpContext.User.FindFirst("admin_tier")?.Value, allowedNames)
+            IsTierAllowed(TierOf(context.HttpContext.RequestServices.GetRequiredService<IAdminScope>()), allowedNames)
                 ? await next(context)
                 : Results.Problem(statusCode: StatusCodes.Status403Forbidden,
                     title: "Your admin tier is not permitted for this action.",
@@ -111,6 +112,8 @@ internal static class TierAuthorization
                         ["traceId"] = context.HttpContext.TraceIdentifier,
                     }));
     }
+
+    internal static string? TierOf(IAdminScope scope) => scope.IsBound ? scope.Current.Tier.ToString() : null;
 
     internal static bool IsTierAllowed(string? tierClaim, string[] allowedTierNames) =>
         tierClaim is not null && allowedTierNames.Contains(tierClaim, StringComparer.Ordinal);
@@ -127,10 +130,6 @@ internal static class HostWiring
     public static IServiceCollection AddAdminIdentity(this IServiceCollection services)
     {
         services.AddScoped<IAdminMerchantDirectory, MerchantDirectory>();
-
-        // Admin BFF session cookie service (stateless, singleton).
-        services.AddSingleton<SessionCookies>();
-
         services.AddScoped<AdminScope>();
         services.AddScoped<IAdminScope>(sp => sp.GetRequiredService<AdminScope>());
         services.AddScoped<IAdminQuery, AdminQuery>();

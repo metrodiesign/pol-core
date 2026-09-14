@@ -53,20 +53,20 @@ public sealed class LocalDevelopmentOriginTests
 
         var envExample = File.ReadAllText(Path.Combine(root, ".env.example"));
         Assert.Contains($"AdminSession__WebAppBaseUrl={AdminOrigin}", envExample, StringComparison.Ordinal);
-        Assert.Contains("AdminSession__ReturnUrlAllowlist__0=/", envExample, StringComparison.Ordinal);
-        Assert.Contains("AdminSession__ReturnUrlAllowlist__1=/dashboard", envExample, StringComparison.Ordinal);
+        Assert.DoesNotContain("AdminSession__ReturnUrlAllowlist", envExample, StringComparison.Ordinal);
         Assert.Contains("Cors__AdminOrigins__0=", envExample, StringComparison.Ordinal);
         Assert.Contains($"MerchantSession__WebAppBaseUrl={MerchantOrigin}", envExample, StringComparison.Ordinal);
         Assert.Contains("MerchantSession__ReturnUrlAllowlist__0=/", envExample, StringComparison.Ordinal);
         Assert.Contains("MerchantSession__ReturnUrlAllowlist__1=/dashboard", envExample, StringComparison.Ordinal);
         Assert.Contains("Cors__MerchantOrigins__0=", envExample, StringComparison.Ordinal);
-        foreach (var side in new[] { "AdminAuth", "MerchantAuth" })
+        foreach (var side in new[] { "MerchantAuth__Providers__Microsoft", "IdentityAccess__Workforce" })
         {
-            Assert.Contains($"{side}__Providers__Microsoft__Authority", envExample, StringComparison.Ordinal);
-            Assert.Contains($"{side}__Providers__Microsoft__ClientId", envExample, StringComparison.Ordinal);
-            Assert.Contains($"{side}__Providers__Microsoft__ClientSecret", envExample, StringComparison.Ordinal);
-            Assert.Contains($"{side}__Providers__Microsoft__CallbackPath", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__Authority", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__ClientId", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__ClientSecret", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__CallbackPath", envExample, StringComparison.Ordinal);
         }
+        Assert.DoesNotContain("AdminAuth__", envExample, StringComparison.Ordinal);
         Assert.Contains($"Psp__TwoCTwoP__FrontendReturnUrl={CustomerOrigin}/checkout/return", envExample,
             StringComparison.Ordinal);
         Assert.Contains($"Psp__Omise__ReturnUri={CustomerOrigin}/checkout/return", envExample,

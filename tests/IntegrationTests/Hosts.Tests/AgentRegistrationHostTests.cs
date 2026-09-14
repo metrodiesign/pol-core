@@ -214,12 +214,8 @@ public sealed class AgentRegistrationHostTests
 
     private static void AddAdminHeaders(HttpRequestMessage request, string? etag, string idempotencyKey)
     {
-        const string csrf = "host-registration-csrf";
-        var csrfCookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
         request.Headers.TryAddWithoutValidation("If-Match", etag);
         request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
-        request.Headers.TryAddWithoutValidation("Cookie", $"{csrfCookieName}={csrf}");
-        request.Headers.TryAddWithoutValidation(ApiHost::Api.Admins.CsrfFilter.HeaderName, csrf);
     }
 
     private static void AddRegistrationCookie(HttpClient client, string token) =>

@@ -209,37 +209,6 @@ public sealed class CreateScopedMicrosoftAdminTests
         Assert.Null(detail!.Email);
     }
 
-    [Fact]
-    public async Task First_exact_login_resolves_the_prebound_admin_id_without_jit_or_contact_matching()
-    {
-        var admins = new FakePlatformUserRepository();
-        var roles = new FakeAdminRoleRepository();
-        var audit = new FakePlatformUserAuditWriter();
-        var tenant = new FakeWorkforceTenantBindingStore(TenantId);
-        var unitOfWork = new FakeUnitOfWork();
-        var created = await Handler(admins, audit, tenant, unitOfWork)
-            .Handle(Command(email: "invite@example.com"), default);
-        var resolver = new ResolveMicrosoftAdminHandler(
-            admins,
-            roles,
-            audit,
-            new NoRecoveryReader(),
-            new UnexpectedEmployeeProfileReader(),
-            unitOfWork,
-            new FixedClock { UtcNow = Now.AddMinutes(1) });
-
-        var result = await resolver.Handle(new ResolveMicrosoftAdminCommand(
-            TenantId, ObjectId, "renamed@example.com", EmployeeId: null, "login-correlation"), default);
-
-        Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
-        Assert.Equal(created.AdminId, result.Resolution!.AdminId);
-        Assert.Equal("invite@example.com", result.Resolution.Email);
-        Assert.Single(admins.Accounts);
-        Assert.Empty(roles.Assignments);
-        Assert.Equal(AuditAction.CreateScoped, Assert.Single(audit.Appended).Action);
-        Assert.Equal(0, admins.EmailLookupCalls);
-    }
-
     private static CreateScopedHandler Handler(
         FakePlatformUserRepository admins,
         FakePlatformUserAuditWriter audit,
@@ -254,18 +223,4 @@ public sealed class CreateScopedMicrosoftAdminTests
         // email/approvalReference are passed through as-is (null-forgiving) so the handler's own validation
         // is what rejects the invalid cases, matching real dispatch.
         new(objectId ?? ObjectId, email!, approvalReference, ActorId, "http-correlation");
-
-    private sealed class NoRecoveryReader : IAdminIdentityRecoveryReader
-    {
-        public Task<ResolveResult> ResolveAfterConflictAsync(
-            Guid tenantId, Guid objectId, CancellationToken cancellationToken) =>
-            Task.FromResult(ResolveResult.IdentityConflict);
-    }
-
-    private sealed class UnexpectedEmployeeProfileReader : IEmployeeProfileReader
-    {
-        public Task<EmployeeProfileLookup> LookupAsync(
-            string normalizedEmployeeId, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("Employee profile must not be read when the switch is off.");
-    }
 }

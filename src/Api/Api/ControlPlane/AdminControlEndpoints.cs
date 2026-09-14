@@ -29,7 +29,7 @@ internal static class AdminControlEndpoints
             string method, HttpContext http, IAdminScope scope,
             IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetMethodAsync(method, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetPaymentMethodCapability")
             .WithSummary("อ่านสถานะ payment method")
@@ -45,7 +45,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetPaymentMethodCapability")
             .WithSummary("กำหนดสถานะ payment method")
@@ -56,7 +56,7 @@ internal static class AdminControlEndpoints
             string providerCode, HttpContext http, IAdminScope scope,
             IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetProviderAsync(providerCode, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetPaymentProviderCapability")
             .WithSummary("อ่านสถานะ payment provider")
@@ -72,7 +72,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetPaymentProviderCapability")
             .WithSummary("กำหนดสถานะ payment provider")
@@ -84,7 +84,7 @@ internal static class AdminControlEndpoints
             IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetProviderMethodAsync(
                 providerCode, method, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetPaymentProviderMethodCapability")
             .WithSummary("อ่าน method ของ payment provider")
@@ -101,7 +101,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetPaymentProviderMethodCapability")
             .WithSummary("กำหนด method ของ payment provider")
@@ -113,7 +113,7 @@ internal static class AdminControlEndpoints
             IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetProviderMethodOptionAsync(
                 providerCode, method, option, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetPaymentProviderMethodOptionCapability")
             .WithSummary("อ่าน option ของ provider method")
@@ -130,7 +130,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetPaymentProviderMethodOptionCapability")
             .WithSummary("กำหนด option ของ provider method")
@@ -142,7 +142,7 @@ internal static class AdminControlEndpoints
             IAccountPaymentCapabilityControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetAccountMethodAsync(
                 connectionId, method, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetPaymentAccountMethodCapability")
             .WithSummary("อ่าน method ของ PSP connection")
@@ -159,7 +159,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetPaymentAccountMethodCapability")
             .WithSummary("กำหนด method ของ PSP connection")
@@ -171,7 +171,7 @@ internal static class AdminControlEndpoints
             IAccountPaymentCapabilityControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetAccountMethodOptionAsync(
                 connectionId, method, option, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetPaymentAccountMethodOptionCapability")
             .WithSummary("อ่าน option ของ PSP connection")
@@ -188,7 +188,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetPaymentAccountMethodOptionCapability")
             .WithSummary("กำหนด option ของ PSP connection")
@@ -200,7 +200,7 @@ internal static class AdminControlEndpoints
         {
             var value = await store.ListMerchantMethodsAsync(merchantId, PaymentsAccess(scope), ct);
             return value is null ? Results.NotFound() : Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithTags("Payment capability").WithName("ListMerchantPaymentMethods")
             .WithSummary("รายการ effective method ของร้านค้า")
             .WithDescription("คืน payment method ที่ร้านค้าใช้ได้หลังรวม platform, provider และ account policy")
@@ -212,7 +212,7 @@ internal static class AdminControlEndpoints
             IAdminPaymentsControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetMerchantMethodAsync(
                 merchantId, method, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetMerchantPaymentMethodPolicy")
             .WithSummary("อ่าน payment method policy ของร้านค้า")
@@ -229,7 +229,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetMerchantPaymentMethodPolicy")
             .WithSummary("กำหนด payment method policy ของร้านค้า")
@@ -246,7 +246,7 @@ internal static class AdminControlEndpoints
                 return Results.NotFound();
             VersionEtags.Set(http, value.Sum(x => x.Version));
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("ListMerchantUserPaymentMethods")
             .WithSummary("รายการ method ของ Merchant User")
@@ -259,7 +259,7 @@ internal static class AdminControlEndpoints
             IAdminPaymentsControlStore store, CancellationToken ct) =>
             CapabilityResult(http, await store.GetMerchantUserMethodAsync(
                 merchantId, userId, method, PaymentsAccess(scope), ct)))
-            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            .RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("Payment capability").WithName("GetMerchantUserPaymentMethodPolicy")
             .WithSummary("อ่าน method policy ของ Merchant User")
@@ -276,7 +276,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("Payment capability").WithName("SetMerchantUserPaymentMethodPolicy")
             .WithSummary("กำหนด method policy ของ Merchant User")
@@ -291,7 +291,7 @@ internal static class AdminControlEndpoints
                 var value = await store.ResolveMerchantUserMethodAsync(
                     merchantId, userId, method, PaymentsAccess(scope), ct);
                 return value is null ? Results.NotFound() : Results.Ok(value);
-            }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
             .WithTags("Payment capability").WithName("ResolveMerchantUserPaymentMethod")
             .WithSummary("ตรวจ effective method ของ Merchant User")
             .WithDescription("คืนผล intersection และ denial reason ของ payment method สำหรับ Merchant User")
@@ -305,7 +305,7 @@ internal static class AdminControlEndpoints
                 var value = await store.ResolveMerchantUserOptionsAsync(
                     merchantId, userId, method, provider, PaymentsAccess(scope), ct);
                 return value is null ? Results.NotFound() : Results.Ok(value);
-            }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
             .WithTags("Payment capability").WithName("ResolveMerchantUserPaymentOptions")
             .WithSummary("รายการ effective option ของ Merchant User")
             .WithDescription("คืน payment option ที่ผ่าน provider และ account policy สำหรับ Merchant User")
@@ -327,7 +327,7 @@ internal static class AdminControlEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListMerchantsAsync(
                 new AdminMerchantListQuery(page, limit, search, status, MerchantAccess(scope)), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithTags("ร้านค้า (ผู้ดูแลระบบ)").WithName("ListMerchants")
             .WithSummary("รายการร้านค้า")
             .WithDescription("คืนร้านค้าภายใน Admin scope แบบแบ่งหน้า กรอง status และค้นจาก code หรือ name ได้")
@@ -350,7 +350,7 @@ internal static class AdminControlEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), MerchantAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า (ผู้ดูแลระบบ)").WithName("UpdateMerchant")
             .WithSummary("แก้ไขร้านค้า")
@@ -381,7 +381,7 @@ internal static class AdminControlEndpoints
                 merchantId, activate, VersionEtags.Require(http), IdempotencyKeys.Require(http), MerchantAccess(scope)), ct);
             VersionEtags.Set(http, result.Value.Version);
             return Results.Ok(result.Value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("ร้านค้า (ผู้ดูแลระบบ)").WithName(name)
             .WithSummary(activate ? "เปิดใช้งานร้านค้าอีกครั้ง" : "ระงับร้านค้า")
@@ -410,7 +410,7 @@ internal static class AdminControlEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListOriginatorsAsync(
                 new OriginatorListQuery(page, limit, search, merchantId, type, status, MerchantAccess(scope)), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithTags("แหล่งที่มารายการ").WithName("ListOriginators")
             .WithSummary("รายการ Originator")
             .WithDescription("คืน Originator ภายใน Admin scope แบบแบ่งหน้า กรอง merchantId, type, status และค้นจาก code, name หรือ saleCode ได้")
@@ -432,7 +432,7 @@ internal static class AdminControlEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status404NotFound);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("แหล่งที่มารายการ").WithName("GetOriginator")
             .WithSummary("อ่าน Originator")
@@ -454,7 +454,7 @@ internal static class AdminControlEndpoints
                 body.LinkedApiClientId, MerchantAccess(scope)), ct);
             VersionEtags.Set(http, value.Version);
             return Results.Created($"/api/v1/originators/{value.OriginatorId:D}", value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new EtagResponseMarker("201"))
             .WithTags("แหล่งที่มารายการ").WithName("CreateOriginator")
             .WithSummary("สร้าง Originator")
@@ -479,7 +479,7 @@ internal static class AdminControlEndpoints
                 body.LinkedApiClientId, VersionEtags.Require(http), MerchantAccess(scope)), ct);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"))
             .WithTags("แหล่งที่มารายการ").WithName("UpdateOriginator")
             .WithSummary("แก้ไข Originator")
@@ -505,7 +505,7 @@ internal static class AdminControlEndpoints
             await store.DeleteOriginatorAsync(originatorId, merchantId, VersionEtags.Require(http),
                 MerchantAccess(scope), ct);
             return Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("204", EmitsEtag: false))
             .WithTags("แหล่งที่มารายการ").WithName("DeleteOriginator")
             .WithSummary("ลบ Originator")
@@ -531,7 +531,7 @@ internal static class AdminControlEndpoints
                 originatorId, body.MerchantId, enable, VersionEtags.Require(http), MerchantAccess(scope)), ct);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"))
             .WithTags("แหล่งที่มารายการ").WithName(name)
             .WithSummary(enable ? "เปิดใช้งาน Originator" : "ปิดใช้งาน Originator")
@@ -558,7 +558,7 @@ internal static class AdminControlEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status404NotFound);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("การเชื่อมต่อ PSP").WithName("GetMerchantPaymentSettings")
             .WithSummary("อ่านสภาพแวดล้อมการชำระเงินของร้านค้า")
@@ -582,7 +582,7 @@ internal static class AdminControlEndpoints
                 merchantId, body.TargetEnvironment ?? string.Empty, body.OmiseWebhookRegistered, connections,
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), http.TraceIdentifier, PaymentsAccess(scope)), ct);
             return Results.Accepted(value: result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .Accepts<EnvironmentChangeRequest>("application/json")
             .WithMetadata(new IfMatchMutationMarker("202", EmitsEtag: false), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("RequestMerchantEnvironmentChange")
@@ -610,7 +610,7 @@ internal static class AdminControlEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListConnectionsAsync(
                 new PspConnectionQuery(page, limit, search, merchantId, psp, health, PaymentsAccess(scope)), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("การเชื่อมต่อ PSP").WithName("ListPspConnections")
             .WithSummary("รายการ PSP connection")
             .WithDescription("คืน PSP connection ภายใน Admin scope แบบแบ่งหน้า กรอง merchantId, psp, health และค้นหาได้ ไม่คืน credential")
@@ -632,7 +632,7 @@ internal static class AdminControlEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status404NotFound);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("การเชื่อมต่อ PSP").WithName("GetPspConnection")
             .WithSummary("อ่าน PSP connection")
@@ -655,7 +655,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Created($"/api/v1/payments/psp-connections/{result.Connection.PspConnectionId:D}", result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .RequirePermission(Keys.MerchantManage)
             .Accepts<CreatePspConnectionRequest>("application/json")
             .WithMetadata(new EtagResponseMarker("201"), new IdempotencyMutationMarker())
@@ -683,7 +683,7 @@ internal static class AdminControlEndpoints
                 VersionEtags.Require(http), IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("UpdatePspConnection")
@@ -709,7 +709,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("TestPspConnection")
             .WithSummary("ทดสอบ PSP connection")
@@ -735,7 +735,7 @@ internal static class AdminControlEndpoints
                 body.PspMerchantId, VersionEtags.Require(http), IdempotencyKeys.Require(http),
                 http.TraceIdentifier, PaymentsAccess(scope)), ct);
             return Results.Accepted(value: result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .Accepts<PspCredentialChangeRequest>("application/json")
             .WithMetadata(new IfMatchMutationMarker("202", EmitsEtag: false), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("RequestPspCredentialChange")
@@ -763,7 +763,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("TestPspCredentialCandidate")
             .WithSummary("ทดสอบ candidate credential ที่รออนุมัติ")
@@ -830,7 +830,7 @@ internal static class AdminControlEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListRulesetsAsync(
                 new RoutingRulesetQuery(page, limit, merchantId, status, PaymentsAccess(scope)), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("กฎเส้นทาง PSP").WithName("ListRoutingRulesets")
             .WithSummary("รายการ PSP routing ruleset")
             .WithDescription("คืน ruleset ภายใน Admin scope แบบแบ่งหน้า กรอง merchantId และ status ได้")
@@ -852,7 +852,7 @@ internal static class AdminControlEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status404NotFound);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("กฎเส้นทาง PSP").WithName("GetRoutingRuleset")
             .WithSummary("อ่าน PSP routing ruleset")
@@ -873,7 +873,7 @@ internal static class AdminControlEndpoints
                 body.MerchantId, body.Name, Inputs(body.Rules), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, value.Version);
             return Results.Created($"/api/v1/payments/routing-rulesets/{value.RulesetId:D}", value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("201"))
             .WithTags("กฎเส้นทาง PSP").WithName("CreateRoutingRulesetDraft")
             .WithSummary("สร้าง PSP routing draft")
@@ -897,7 +897,7 @@ internal static class AdminControlEndpoints
                 VersionEtags.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"))
             .WithTags("กฎเส้นทาง PSP").WithName("ReplaceRoutingRulesetDraft")
             .WithSummary("แทนที่ PSP routing draft")
@@ -919,7 +919,7 @@ internal static class AdminControlEndpoints
         {
             await store.DeleteRulesetAsync(rulesetId, merchantId, VersionEtags.Require(http), PaymentsAccess(scope), ct);
             return Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("204", EmitsEtag: false))
             .WithTags("กฎเส้นทาง PSP").WithName("DeleteRoutingRulesetDraft")
             .WithSummary("ลบ PSP routing draft")
@@ -942,7 +942,7 @@ internal static class AdminControlEndpoints
                 rulesetId, body.MerchantId, VersionEtags.Require(http), IdempotencyKeys.Require(http),
                 http.TraceIdentifier, PaymentsAccess(scope)), ct);
             return Results.Accepted(value: value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("202", EmitsEtag: false), new IdempotencyMutationMarker())
             .WithTags("กฎเส้นทาง PSP").WithName("RequestRoutingActivation")
             .WithSummary("ขอเปิดใช้ PSP routing ruleset")
@@ -966,7 +966,7 @@ internal static class AdminControlEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status404NotFound);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("กฎเส้นทาง PSP").WithName("GetMerchantSimpleRouting")
             .WithSummary("อ่าน simple routing ของร้านค้า")
@@ -990,7 +990,7 @@ internal static class AdminControlEndpoints
                 IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
             VersionEtags.Set(http, value.Version);
             return Results.Ok(value);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("กฎเส้นทาง PSP").WithName("SetMerchantSimpleRouting")
             .WithSummary("กำหนด simple routing ของร้านค้า")

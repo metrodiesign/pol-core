@@ -44,10 +44,6 @@ public sealed class AdminTask3ContractTests
         AssertEtag(AssertOperation(paths, "/api/v1/admins/roles/{code}", "get", "GetRole"), "200");
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/roles/{code}", "put", "UpdateRole"));
         AssertIfMatch(AssertOperation(paths, "/api/v1/admins/roles/{code}", "delete", "DeleteRole"));
-
-        var revoke = AssertOperation(
-            paths, "/api/v1/admins/{id}/sessions/{sessionId}", "delete", "RevokePlatformUserSession");
-        AssertRequiredHeader(revoke, "Idempotency-Key");
     }
 
     private static JsonElement AssertOperation(

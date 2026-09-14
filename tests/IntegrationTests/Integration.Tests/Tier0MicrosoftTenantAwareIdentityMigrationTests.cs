@@ -27,16 +27,17 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         await database.ExecuteBatchesAsync(script);
 
         await using var verify = await database.OpenAsync();
-        // The committed migration lineage contains the complete 48-entry chain; the script must apply
+        // The committed migration lineage contains the complete 49-entry chain; the script must apply
         // every recorded migration exactly once and remain idempotent on the second pass.
-        Assert.Equal(48, Convert.ToInt32(await ScalarAsync(
+        Assert.Equal(49, Convert.ToInt32(await ScalarAsync(
             verify, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
-        Assert.Equal(3, Convert.ToInt32(await ScalarAsync(verify, """
+        Assert.Equal(4, Convert.ToInt32(await ScalarAsync(verify, """
             SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
             WHERE MigrationId IN
                 (N'20260911160508_ReviewFixOrderVersionedMetadata',
                  N'20260911163519_ReviewFixPaymentLinkNotificationIntent',
-                 N'20260913174013_RetireBffSessionTickets');
+                 N'20260913174013_RetireBffSessionTickets',
+                 N'20260914051532_RetireAdminSessions');
             """)));
         Assert.NotEqual(DBNull.Value, await ScalarAsync(
             verify, "SELECT OBJECT_ID(N'admin.WorkforceTenantIdentityMigrations', N'U');"));
@@ -50,7 +51,6 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         var legacyId = Guid.NewGuid();
         var googleId = Guid.NewGuid();
         var legacySubject = Guid.NewGuid().ToString("D");
-        var sessionId = Guid.NewGuid();
         var userAuditId = Guid.NewGuid();
         var authAuditId = Guid.NewGuid();
         await database.InsertUserAsync(legacyId, "microsoft", legacySubject, " Legacy@VIRIYAH.CO.TH ");
@@ -68,11 +68,6 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
             VALUES (NEWID(), @legacyId, @roleId, @legacyId, SYSUTCDATETIME());
             INSERT admin.MerchantAccess (Id, AdminUserId, MerchantId, AssignedByAdminId, AssignedAt)
             VALUES (NEWID(), @legacyId, @merchantId, @legacyId, SYSUTCDATETIME());
-            INSERT admin.Sessions
-                (Id, FamilyId, TokenHash, AdminUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
-            VALUES
-                (@sessionId, NEWID(), HASHBYTES('SHA2_256', N'synthetic-session'), @legacyId, 1,
-                 SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, 8, SYSUTCDATETIME()));
             INSERT admin.UserAudits
                 (Id, Action, ActorType, ActorId, TargetAdminId, MerchantId, TargetRoleId, CorrelationId, OccurredAt)
             VALUES
@@ -90,7 +85,7 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
             """,
             ("@legacyId", legacyId), ("@positionId", PositionId), ("@officeId", OfficeId),
             ("@levelId", LevelId), ("@divisionId", DivisionId), ("@merchantId", Guid.NewGuid()),
-            ("@sessionId", sessionId), ("@userAuditId", userAuditId), ("@authAuditId", authAuditId));
+            ("@userAuditId", userAuditId), ("@authAuditId", authAuditId));
 
         await database.MigrateAsync(CurrentMigration);
 
@@ -112,8 +107,6 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
             "SELECT COUNT(*) FROM admin.RoleAssignments WHERE AdminUserId = @id;", ("@id", legacyId))));
         Assert.Equal(1, Convert.ToInt32(await ScalarAsync(connection,
             "SELECT COUNT(*) FROM admin.MerchantAccess WHERE AdminUserId = @id;", ("@id", legacyId))));
-        Assert.Equal(legacyId, await ScalarAsync(connection,
-            "SELECT AdminUserId FROM admin.Sessions WHERE Id = @id;", ("@id", sessionId)));
         Assert.Equal("synthetic-before-up", Convert.ToString(await ScalarAsync(connection,
             "SELECT Action FROM admin.UserAudits WHERE Id = @id;", ("@id", userAuditId))));
         Assert.Equal("login-success", Convert.ToString(await ScalarAsync(connection,

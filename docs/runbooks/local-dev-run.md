@@ -62,9 +62,9 @@ test -f .env || cp .env.example .env
 
 ```text
 AdminSession__WebAppBaseUrl=https://localhost:3001
-AdminSession__ReturnUrlAllowlist__0=/
-AdminSession__ReturnUrlAllowlist__1=/dashboard
 AdminSession__ScalarBaseUrl=https://localhost:5001
+IdentityAccess__WorkforceWebAppBaseUrl=https://localhost:3001
+OAuth__Issuer=https://localhost:5001
 MerchantSession__WebAppBaseUrl=https://localhost:3002
 MerchantSession__ReturnUrlAllowlist__0=/
 MerchantSession__ReturnUrlAllowlist__1=/dashboard
@@ -209,14 +209,16 @@ configured tenant ไม่ตรง singleton หรือ User ไม่อย
 
 ## 7. ตั้งค่า Microsoft Entra OIDC
 
-ระบบใช้ server-side OIDC BFF แบบ confidential client. Browser ไม่ควรถือ client secret, authorization code,
-ID token หรือ session token. `Client ID`, `Tenant ID` และ Authority เป็น public identifiers; `ClientSecret` เป็น secret.
+OIDC กับ Microsoft ทำที่ API แบบ confidential client ทั้งสอง Tier. Browser ไม่ควรถือ client secret หรือ Microsoft ID token.
+Tier 0 (Admin) ไม่มี session cookie: SPA เริ่มที่ `/oauth/authorize` (OpenIddict authorization code + PKCE, public client
+`pol-admin`) API challenge Entra ผ่าน scheme `IdentityWorkforceMicrosoft` แล้วออก platform JWT ให้ SPA ส่งเป็น `Authorization: Bearer`.
+Tier 1 (Merchant) ยังเป็น server-side BFF cookie. `Client ID`, `Tenant ID` และ Authority เป็น public identifiers; `ClientSecret` เป็น secret.
 
 ### 7.1 Configuration matrix
 
 | Tier | ผู้ใช้ | Configuration prefix | Authority | Login path | Callback path | SPA |
 |---|---|---|---|---|---|---|
-| Tier 0 | พนักงาน/Admin | `AdminAuth__Providers__Microsoft__` | `https://login.microsoftonline.com/<tenant-id>/v2.0` | `/api/v1/admins/auth/microsoft/login` | `/api/v1/admins/auth/microsoft/callback` | `https://localhost:3001` |
+| Tier 0 | พนักงาน/Admin | `IdentityAccess__Workforce__` | `https://login.microsoftonline.com/<tenant-id>/v2.0` | `/oauth/authorize` (SPA เริ่ม) | `/api/v1/admins/auth/microsoft/callback` | `https://localhost:3001` |
 | Tier 1 | ตัวแทน/Merchant | `MerchantAuth__Providers__Microsoft__` | `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0` | `/api/v1/merchants/auth/microsoft/login` | `/api/v1/merchants/auth/microsoft/callback` | `https://localhost:3002` |
 
 Authority ต้อง pin tenant เดียวและลงท้าย `/v2.0`. ห้ามใช้ `/common`, `/organizations` หรือ `/consumers`.
@@ -237,14 +239,17 @@ export MerchantAuth__Providers__Microsoft__ClientSecret
 Tier 0 ต้องตั้ง public values และ secret ของ application คนละตัว:
 
 ```bash
-export AdminAuth__Providers__Microsoft__ClientId='<admin-application-client-id>'
-export AdminAuth__Providers__Microsoft__Authority='https://login.microsoftonline.com/<tenant-id>/v2.0'
-export AdminAuth__Providers__Microsoft__CallbackPath='/api/v1/admins/auth/microsoft/callback'
+export IdentityAccess__Workforce__ClientId='<admin-application-client-id>'
+export IdentityAccess__Workforce__Authority='https://login.microsoftonline.com/<tenant-id>/v2.0'
+export IdentityAccess__Workforce__CallbackPath='/api/v1/admins/auth/microsoft/callback'
+export IdentityAccess__WorkforceIssuer='https://login.microsoftonline.com/<tenant-id>/v2.0'
+export IdentityAccess__WorkforceTenantId='<tenant-id>'
+export IdentityAccess__WorkforceAudience='<admin-application-client-id>'
 
 printf 'Admin Entra client secret Value: '
-IFS= read -r -s AdminAuth__Providers__Microsoft__ClientSecret
+IFS= read -r -s IdentityAccess__Workforce__ClientSecret
 printf '\n'
-export AdminAuth__Providers__Microsoft__ClientSecret
+export IdentityAccess__Workforce__ClientSecret
 ```
 
 ใช้ client secret `Value`, ไม่ใช่ `Secret ID`. ถ้า secret เคยปรากฏใน chat, terminal transcript, screenshot, log หรือ
@@ -252,7 +257,7 @@ tracked file ให้ revoke แล้วสร้างใหม่ก่อ�
 
 ```bash
 unset MerchantAuth__Providers__Microsoft__ClientSecret
-unset AdminAuth__Providers__Microsoft__ClientSecret
+unset IdentityAccess__Workforce__ClientSecret
 ```
 
 ### 7.3 ตั้งค่า Microsoft ใน Azure Portal
@@ -262,7 +267,7 @@ unset AdminAuth__Providers__Microsoft__ClientSecret
 1. เปิด `App registrations` แล้วเลือก application ที่ตรงกับ Tier.
 2. ที่ `Authentication` เพิ่ม platform ชนิด `Web`.
 3. ใส่ redirect URI แบบ exact match ทั้ง scheme, host, port, path และตัวพิมพ์.
-4. Tier 0 ใช้ `https://localhost:5001/api/v1/admins/auth/microsoft/callback`.
+4. Tier 0 ใช้ `https://localhost:5001/api/v1/admins/auth/microsoft/callback` (redirect URI ของ SPA `https://localhost:3001/auth/callback` เป็นของ OpenIddict public client ที่ API register เองตอน boot ไม่ต้องใส่ใน Entra).
 5. Tier 1 ใช้ `https://localhost:5001/api/v1/merchants/auth/microsoft/callback`.
 6. ที่ `Certificates & secrets` สร้าง secret ใหม่และเก็บเฉพาะ `Value` ใน secret store.
 7. Tier 1 ต้องมี sign-up/sign-in user flow, เปิด Email one-time passcode และ link application เข้ากับ user flow.
@@ -274,10 +279,9 @@ unset AdminAuth__Providers__Microsoft__ClientSecret
 
 ### 7.4 Google ถูก retire แล้ว
 
-Microsoft Entra เป็น provider เดียวของทั้งสอง plane ตั้งแต่ 2026-09-05. `google` ไม่ register scheme ทั้ง
-`/api/v1/admins/auth/google/**` และ `/api/v1/merchants/auth/google/**` จึงตอบ `404` เสมอ. ถ้ายังตั้งค่า
-`AdminAuth__Providers__Google__ClientId` หรือ `MerchantAuth__Providers__Google__ClientId` ไว้ boot guard นอก
-Development จะ throw ตอน start; ให้ลบค่านั้นหรือปล่อยว่าง.
+Microsoft Entra เป็น provider เดียวของทั้งสอง plane ตั้งแต่ 2026-09-05. `google` ไม่ register scheme
+`/api/v1/merchants/auth/google/**` จึงตอบ `404` เสมอ (route `/api/v1/admins/auth/{provider}/login` ถูกลบทั้งหมดแล้ว). ถ้ายังตั้งค่า
+`MerchantAuth__Providers__Google__ClientId` ไว้ boot guard นอก Development จะ throw ตอน start; ให้ลบค่านั้นหรือปล่อยว่าง.
 
 ## 8. รัน API
 
@@ -353,7 +357,7 @@ Frontend อยู่คนละ repository. ใช้คำสั่งขอ�
 | Merchant | `https://localhost:3002` | Merchant routes ไป `https://localhost:5001` | `Cors__MerchantOrigins__0` |
 
 OIDC callback ลงที่ API origin `5001`; backend จึง redirect ผลลัพธ์ต่อไปยัง SPA origin ที่กำหนดใน
-`AdminSession__WebAppBaseUrl` หรือ `MerchantSession__WebAppBaseUrl`.
+`IdentityAccess__WorkforceWebAppBaseUrl` (Admin: callback กลับไป `/oauth/authorize` แล้วส่ง code ไป redirect URI ของ SPA; หน้า `/login-error` ก็ใช้ origin นี้) หรือ `MerchantSession__WebAppBaseUrl`.
 
 ## 10. ทดสอบ Microsoft login จริง
 
@@ -388,12 +392,12 @@ pre-bind `(provider, subject)`.
 
 ### 10.2 Tier 0: Admin
 
-1. เปิด `https://localhost:5001/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
+1. เปิด Admin SPA `https://localhost:3001` แล้วกด sign in; SPA redirect ไป `https://localhost:5001/oauth/authorize?...` (PKCE) และ API challenge Microsoft เอง (ห้ามเปิด `/api/v1/admins/auth/microsoft/callback` ตรง ๆ).
 2. ใช้ employee account จาก workforce tenant ที่ pin ไว้.
 3. Identity ต้องมี validated `tid` และ `oid` อย่างละหนึ่งค่าและ `tid` ตรง tenant-pinned Authority Runtime lookup
    ใช้ exact `(microsoft, tid, oid)`; ไม่บังคับ `roles` และไม่ใช้ Email, UPN, `preferred_username` หรือ `EmployeeId`
    เป็น identity. Email absent ต้อง login/JIT ได้ และ JIT เป็น `Active + Scoped` แบบไม่มี role.
-4. Login สำเร็จต้อง redirect ไป `https://localhost:3001/dashboard` พร้อม admin session cookie.
+4. Login สำเร็จต้องกลับมาที่ SPA redirect URI (`https://localhost:3001/auth/callback?code=...`) แล้ว SPA แลก code ที่ `POST /oauth/token` ได้ access JWT + refresh token; ไม่มี admin session cookie ตรวจด้วย `GET /api/v1/admins/me` พร้อม `Authorization: Bearer`.
 5. Microsoft invite ต้อง pre-bound ด้วย verified `objectId` และ approval reference ก่อน first login; Email optional.
 6. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
 
@@ -498,7 +502,7 @@ Frontend mapping อยู่ที่ `.ai/specs/merchant-commerce-erd-reset/FE
 
 ```bash
 unset MerchantAuth__Providers__Microsoft__ClientSecret
-unset AdminAuth__Providers__Microsoft__ClientSecret
+unset IdentityAccess__Workforce__ClientSecret
 docker compose stop
 ```
 

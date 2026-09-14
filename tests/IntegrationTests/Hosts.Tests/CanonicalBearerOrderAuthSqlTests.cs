@@ -490,12 +490,7 @@ public sealed class CanonicalBearerOrderAuthSqlTests
 
     private static void AddAdminHeaders(HttpRequestMessage request, string key, string? etag = null)
     {
-        const string csrf = "pr253-role-admin-csrf";
         request.Headers.Add(Task8A1AdminAuthHandler.Header, "yes");
-        var csrfHeader = ApiHost::Api.Admins.CsrfFilter.HeaderName;
-        var csrfCookie = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add(csrfHeader, csrf);
-        request.Headers.Add("Cookie", $"{csrfCookie}={csrf}");
         request.Headers.Add("Idempotency-Key", key);
         if (etag is not null)
             request.Headers.Add("If-Match", etag);

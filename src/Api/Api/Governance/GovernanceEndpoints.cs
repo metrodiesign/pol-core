@@ -165,7 +165,7 @@ internal static partial class GovernanceEndpoints
             {
                 return Problem(http, StatusCodes.Status404NotFound, "Approval not found", "not_found");
             }
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new GovernanceDecisionMarker("202"))
             .WithTags("การอนุมัติ")
             .WithName(operationName)

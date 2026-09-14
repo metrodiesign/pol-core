@@ -31,7 +31,7 @@ internal static class AgentRegistrationEndpoints
             .AllowAnonymous().WithName("GetAgentRegistrationHistory").WithTags("Agent registration");
 
         var review = api.MapGroup("/agent-registrations")
-            .RequireAuthorization("admin").RequireCsrf();
+            .RequireAuthorization("admin");
         review.WithSummary("พิจารณาการสมัครตัวแทน")
             .WithDescription("อ่านและตัดสิน registration ภายใน Admin merchant scope พร้อมตรวจ version และ idempotency");
         review.MapGet("", ListReviewerCases)

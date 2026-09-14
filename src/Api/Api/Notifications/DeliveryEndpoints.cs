@@ -18,7 +18,7 @@ internal static class DeliveryEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListEndpointsAsync(
                 new(page, limit, merchantId, enabled, search), Access(scope), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("เว็บฮุก").WithName("ListWebhookEndpoints")
             .WithSummary("รายการ outbound webhook endpoint")
             .WithDescription("คืน endpoint ภายใน merchant scope แบบแบ่งหน้า กรอง merchantId/enabled และค้นจาก name, URL หรือ event ได้ ไม่คืน signing secret")
@@ -30,7 +30,7 @@ internal static class DeliveryEndpoints
             var result = await store.GetEndpointAsync(endpointId, Access(scope), ct);
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Version); return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("เว็บฮุก").WithName("GetWebhookEndpoint")
             .WithSummary("อ่าน outbound webhook endpoint")
@@ -44,7 +44,7 @@ internal static class DeliveryEndpoints
                 body.Events ?? [], scope.Current.AdminId, IdempotencyKeys.Require(http), Access(scope), ct);
             http.Response.Headers.CacheControl = "no-store"; VersionEtags.Set(http, result.Endpoint.Version);
             return Results.Created($"/api/v1/webhooks/endpoints/{result.Endpoint.Id:D}", result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IdempotencyMutationMarker(), new EtagResponseMarker("201"))
             .WithTags("เว็บฮุก").WithName("CreateWebhookEndpoint")
             .WithSummary("สร้าง outbound webhook endpoint")
@@ -61,7 +61,7 @@ internal static class DeliveryEndpoints
                 Access(scope), ct);
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Endpoint.Version); return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("เว็บฮุก").WithName("UpdateWebhookEndpoint")
             .WithSummary("แก้ไข outbound webhook endpoint")
@@ -75,7 +75,7 @@ internal static class DeliveryEndpoints
             var result = await store.DeleteEndpointAsync(endpointId, VersionEtags.Require(http),
                 scope.Current.AdminId, IdempotencyKeys.Require(http), Access(scope), ct);
             return result is null ? Results.NotFound() : Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("204"), new IdempotencyMutationMarker())
             .WithTags("เว็บฮุก").WithName("DeleteWebhookEndpoint")
             .WithSummary("ลบ outbound webhook endpoint")
@@ -89,7 +89,7 @@ internal static class DeliveryEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListWebhookDeliveriesAsync(
                 new(page, limit, merchantId, status, search), Access(scope), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("เว็บฮุก").WithName("ListWebhookDeliveries")
             .WithSummary("รายการ outbound webhook delivery")
             .WithDescription("คืน delivery ภายใน merchant scope แบบแบ่งหน้า กรอง merchantId/status และค้นจาก eventType หรือ transactionId ได้ ไม่คืน raw payload หรือ signature")
@@ -100,7 +100,7 @@ internal static class DeliveryEndpoints
         {
             var result = await store.GetWebhookDeliveryAsync(deliveryId, Access(scope), ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("เว็บฮุก").WithName("GetWebhookDelivery")
             .WithSummary("อ่าน outbound webhook delivery")
             .WithDescription("คืนสถานะ, attempt count, latency, failure code และ replay eligibility โดยไม่คืน raw payload หรือ signature หากไม่พบ -> 404")
@@ -112,7 +112,7 @@ internal static class DeliveryEndpoints
             var result = await store.ReplayAsync(deliveryId, scope.Current.AdminId,
                 IdempotencyKeys.Require(http), Access(scope), ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IdempotencyMutationMarker())
             .WithTags("เว็บฮุก").WithName("ReplayWebhookDelivery")
             .WithSummary("ส่ง outbound webhook ซ้ำ")
@@ -127,7 +127,7 @@ internal static class DeliveryEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListRulesAsync(
                 new(page, limit, merchantId, enabled, search), Access(scope), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("การแจ้งเตือน").WithName("ListNotificationRules")
             .WithSummary("รายการกฎการแจ้งเตือน")
             .WithDescription("คืนกฎภายใน merchant scope แบบแบ่งหน้า กรอง merchantId/enabled และค้นจาก eventType หรือ channel ได้")
@@ -139,7 +139,7 @@ internal static class DeliveryEndpoints
             var result = await store.GetRuleAsync(ruleId, Access(scope), ct);
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Version); return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("การแจ้งเตือน").WithName("GetNotificationRule")
             .WithSummary("อ่านกฎการแจ้งเตือน")
@@ -154,7 +154,7 @@ internal static class DeliveryEndpoints
                 IdempotencyKeys.Require(http), Access(scope), ct);
             VersionEtags.Set(http, result.Rule.Version);
             return Results.Created($"/api/v1/notifications/rules/{result.Rule.Id:D}", result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IdempotencyMutationMarker(), new EtagResponseMarker("201"))
             .WithTags("การแจ้งเตือน").WithName("CreateNotificationRule")
             .WithSummary("สร้างกฎการแจ้งเตือน")
@@ -171,7 +171,7 @@ internal static class DeliveryEndpoints
                 scope.Current.AdminId, IdempotencyKeys.Require(http), Access(scope), ct);
             if (result is null) return Results.NotFound();
             VersionEtags.Set(http, result.Rule.Version); return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การแจ้งเตือน").WithName("UpdateNotificationRule")
             .WithSummary("แก้ไขกฎการแจ้งเตือน")
@@ -185,7 +185,7 @@ internal static class DeliveryEndpoints
             var result = await store.DeleteRuleAsync(ruleId, VersionEtags.Require(http),
                 scope.Current.AdminId, IdempotencyKeys.Require(http), Access(scope), ct);
             return result is null ? Results.NotFound() : Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithMetadata(new IfMatchMutationMarker("204"), new IdempotencyMutationMarker())
             .WithTags("การแจ้งเตือน").WithName("DeleteNotificationRule")
             .WithSummary("ลบกฎการแจ้งเตือน")
@@ -199,7 +199,7 @@ internal static class DeliveryEndpoints
             ValidatePage(page, limit);
             return Results.Ok(await store.ListNotificationDeliveriesAsync(
                 new(page, limit, merchantId, channel, status, search), Access(scope), ct));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("การแจ้งเตือน").WithName("ListNotificationDeliveries")
             .WithSummary("รายการ notification delivery")
             .WithDescription("คืนประวัติการส่งภายใน merchant scope แบบแบ่งหน้า กรอง merchantId/channel/status และค้นจาก eventType หรือ destination ได้")
@@ -210,7 +210,7 @@ internal static class DeliveryEndpoints
         {
             var result = await store.GetNotificationDeliveryAsync(deliveryId, Access(scope), ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
             .WithTags("การแจ้งเตือน").WithName("GetNotificationDelivery")
             .WithSummary("อ่าน notification delivery")
             .WithDescription("คืน eventType, channel, destination, status, failure code และเวลาส่ง หากไม่พบหรือนอก merchant scope -> 404")

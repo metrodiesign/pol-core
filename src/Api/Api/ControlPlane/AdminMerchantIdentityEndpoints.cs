@@ -41,7 +41,7 @@ internal static class AdminMerchantIdentityEndpoints
                 return Results.NotFound();
             VersionEtags.Set(http, result.Version);
             return Results.Ok(result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("GetMerchantUserEditAdmin")
             .WithSummary("อ่านข้อมูลผู้ใช้ร้านค้าสำหรับแก้ไขโดย Admin")
@@ -63,7 +63,7 @@ internal static class AdminMerchantIdentityEndpoints
                 body.Email, merchantId, scope.Current.AdminId, http.TraceIdentifier, options.Value.TtlHours,
                 InvitationActorAudience.Admin, body.RoleCodes ?? [], IdempotencyKeys.Require(http)), ct);
             return Results.Created($"/api/v1/merchants/users/invitations/{result.InvitationId}", result);
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
             .WithMetadata(new IdempotencyMutationMarker())
             .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("InviteMerchantUserAdmin")
             .WithSummary("เชิญผู้ใช้เข้าร้านค้าโดย Admin")
@@ -89,7 +89,7 @@ internal static class AdminMerchantIdentityEndpoints
                 VersionEtags.Require(http)), ct);
             VersionEtags.Set(http, result.Version);
             return Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
             .WithMetadata(new IfMatchMutationMarker("204"))
             .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("UpdateMerchantUserAdmin")
             .WithSummary("แก้ไขผู้ใช้ร้านค้าโดย Admin")
@@ -122,7 +122,7 @@ internal static class AdminMerchantIdentityEndpoints
             }, ct);
             return Results.Ok(new PagedResult<AdminMerchantRoleResponse>(
                 page.Items.Select(ToWire).ToArray(), page.Page, page.Limit, page.Total));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
             .WithMetadata(new SfsQueryParamsMarker(100))
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("ListAdminMerchantRoles")
             .WithSummary("รายการบทบาทของร้านค้า")
@@ -144,7 +144,7 @@ internal static class AdminMerchantIdentityEndpoints
                 return Results.NotFound();
             VersionEtags.Set(http, role.Version);
             return Results.Ok(ToWire(role));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
             .WithMetadata(new EtagResponseMarker("200"))
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("GetAdminMerchantRole")
             .WithSummary("อ่านบทบาทของร้านค้า")
@@ -165,7 +165,7 @@ internal static class AdminMerchantIdentityEndpoints
                 catalog.Groups.Select(x => new AdminMerchantPermissionGroupResponse(x.Key, x.Name)).ToArray(),
                 catalog.Permissions.Select(x =>
                     new AdminMerchantPermissionResponse(x.Key, x.Name, x.Resource)).ToArray()));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesView)
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("ListAdminMerchantPermissions")
             .WithSummary("แคตตาล็อกสิทธิ์ฝั่งร้านค้า")
             .WithDescription("คืน permission groups และ permission keys ของ Scope.Merchant รวม Scope.Shared (สิทธิ์ commerce ที่ใช้ร่วมกันสองระดับ) สำหรับสร้าง role ของ merchant ที่ Active")
@@ -186,7 +186,7 @@ internal static class AdminMerchantIdentityEndpoints
             VersionEtags.Set(http, role.Version);
             return Results.Created(
                 $"/api/v1/merchants/{merchantId}/roles/{Uri.EscapeDataString(role.Code)}", ToWire(role));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
             .WithMetadata(new EtagResponseMarker("201"))
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("CreateAdminMerchantRole")
             .WithSummary("สร้างบทบาทของร้านค้า")
@@ -210,7 +210,7 @@ internal static class AdminMerchantIdentityEndpoints
                 VersionEtags.Require(http)), ct);
             VersionEtags.Set(http, role.Version);
             return Results.Ok(ToWire(role));
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
             .WithMetadata(new IfMatchMutationMarker("200"))
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("UpdateAdminMerchantRole")
             .WithSummary("แก้ไขบทบาทของร้านค้า")
@@ -232,7 +232,7 @@ internal static class AdminMerchantIdentityEndpoints
                 RoleSideContext.Merchant(merchantId), code, http.TraceIdentifier,
                 VersionEtags.Require(http)), ct);
             return Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
             .WithMetadata(new IfMatchMutationMarker("204", EmitsEtag: false))
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("DeleteAdminMerchantRole")
             .WithSummary("ลบบทบาทของร้านค้า")
@@ -256,7 +256,7 @@ internal static class AdminMerchantIdentityEndpoints
                 http.TraceIdentifier, VersionEtags.Require(http)), ct);
             VersionEtags.Set(http, result.Version);
             return Results.NoContent();
-        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
+        }).RequireAuthorization("admin").RequirePermission(Keys.MerchantRolesManage)
             .WithMetadata(new IfMatchMutationMarker("204"))
             .WithTags("บทบาทผู้ใช้ร้านค้า (ผู้ดูแลระบบ)").WithName("SetAdminMerchantUserRoles")
             .WithSummary("กำหนดบทบาทให้ผู้ใช้ร้านค้าโดย Admin")

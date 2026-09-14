@@ -1,5 +1,4 @@
 extern alias ApiHost;
-using ApiHost::Api.Admins;
 using ApiHost::Api.Iam;
 using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.Authorization;
@@ -23,11 +22,11 @@ public sealed class ConsoleSessionAuthenticationTests
     }
 
     [Fact]
-    public void Pure_admin_policy_always_selects_AdminSession()
+    public void Pure_admin_policy_always_selects_the_platform_token()
     {
         var context = Context("admin", $"{UserSessionCookies.SessionCookieNameDevHttp}=merchant");
 
-        Assert.Equal(SessionAuthenticationHandler.SchemeName,
+        Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
         Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
     }
@@ -35,7 +34,8 @@ public sealed class ConsoleSessionAuthenticationTests
     [Fact]
     public void Pure_merchant_policy_always_selects_MerchantUserSession()
     {
-        var context = Context("merchant-user", $"{SessionCookies.SessionCookieNameDevHttp}=admin");
+        var context = Context("merchant-user");
+        context.Request.Headers.Authorization = "Bearer employee-jwt";
 
         Assert.Equal(UserSessionAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
@@ -43,25 +43,24 @@ public sealed class ConsoleSessionAuthenticationTests
     }
 
     [Fact]
-    public void Dual_console_without_admin_cookie_selects_merchant()
+    public void Dual_console_without_a_bearer_token_selects_merchant()
     {
         var context = Context("dual-console", $"{UserSessionCookies.SessionCookieNameDevHttp}=merchant");
 
         Assert.Equal(UserSessionAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
+        Assert.Equal(ConsoleAudience.Merchant, context.Features.Get<SelectedConsoleAudience>()!.Value);
     }
 
-    [Theory]
-    [InlineData(SessionCookies.SessionCookieNameDevHttp)]
-    [InlineData(SessionCookies.SessionCookieName)]
-    public void Dual_console_admin_cookie_presence_wins_without_fallback(string cookieName)
+    [Fact]
+    public void Dual_console_merchant_cookie_wins_over_a_bearer_token()
     {
-        var context = Context("dual-console",
-            $"{UserSessionCookies.SessionCookieNameDevHttp}=valid-merchant; {cookieName}=invalid-admin");
+        var context = Context("dual-console", $"{UserSessionCookies.SessionCookieNameDevHttp}=valid-merchant");
+        context.Request.Headers.Authorization = "Bearer employee-jwt";
 
-        Assert.Equal(SessionAuthenticationHandler.SchemeName,
+        Assert.Equal(UserSessionAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
-        Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
+        Assert.Equal(ConsoleAudience.Merchant, context.Features.Get<SelectedConsoleAudience>()!.Value);
     }
 
     [Fact]
@@ -71,7 +70,7 @@ public sealed class ConsoleSessionAuthenticationTests
             ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName,
             $"{UserSessionCookies.SessionCookieNameDevHttp}=merchant");
 
-        Assert.Equal(SessionAuthenticationHandler.SchemeName,
+        Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
         Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
     }
@@ -90,27 +89,17 @@ public sealed class ConsoleSessionAuthenticationTests
 
         Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
+        Assert.Equal(ConsoleAudience.Merchant, context.Features.Get<SelectedConsoleAudience>()!.Value);
     }
 
     [Fact]
-    public void Admin_policy_with_a_bearer_token_and_no_admin_cookie_selects_identity_platform()
+    public void Admin_policy_without_any_credential_still_selects_the_platform_token_so_it_challenges()
     {
         var context = Context("admin");
-        context.Request.Headers.Authorization = "Bearer employee-jwt";
 
         Assert.Equal(PlatformTokenAuthenticationHandler.SchemeName,
             ConsoleSessionAuthentication.SelectScheme(context));
         Assert.Equal(ConsoleAudience.Admin, context.Features.Get<SelectedConsoleAudience>()!.Value);
-    }
-
-    [Fact]
-    public void Admin_policy_prefers_the_legacy_admin_cookie_over_a_bearer_token()
-    {
-        var context = Context("admin", $"{SessionCookies.SessionCookieNameDevHttp}=admin");
-        context.Request.Headers.Authorization = "Bearer employee-jwt";
-
-        Assert.Equal(SessionAuthenticationHandler.SchemeName,
-            ConsoleSessionAuthentication.SelectScheme(context));
     }
 
     [Fact]
@@ -130,7 +119,7 @@ public sealed class ConsoleSessionAuthenticationTests
         object[] metadata = [new AuthorizeAttribute("dual-console")];
 
         Assert.Equal(
-            ["AdminSession", "MerchantUserSession"],
+            [AuthPolicyScheme.PlatformTokenSchemeId, "MerchantUserSession"],
             AuthPolicyScheme.SecuritySchemeIdsFor(metadata));
     }
 
@@ -141,7 +130,7 @@ public sealed class ConsoleSessionAuthenticationTests
         [new AuthorizeAttribute(ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)];
 
         Assert.Equal(
-            ["AdminSession", "IdentityPlatform"],
+            [AuthPolicyScheme.PlatformTokenSchemeId, "IdentityPlatform"],
             AuthPolicyScheme.SecuritySchemeIdsFor(metadata));
     }
 

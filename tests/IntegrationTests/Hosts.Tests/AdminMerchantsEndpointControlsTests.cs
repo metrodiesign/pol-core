@@ -28,7 +28,7 @@ namespace Hosts.Tests;
 // live DB-backed session.
 
 file sealed class TestAdminAuthHandler(
-    IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, AdminScope scope)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "TestAdmin";
@@ -39,6 +39,14 @@ file sealed class TestAdminAuthHandler(
         if (!Request.Headers.TryGetValue(TierHeader, out var tier) || string.IsNullOrEmpty(tier))
             return Task.FromResult(AuthenticateResult.NoResult());
 
+        // The Super-tier gate reads the bound IAdminScope (never a claim), so the fake scheme binds one.
+        scope.Set(new Admins.Application.Users.Resolution(
+            Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), "controls@example.test",
+            Enum.Parse<Admins.Domain.Users.Tier>(tier.ToString()!), Admins.Application.Users.AccessibleMerchants.All)
+        {
+            Permissions = Iam.Domain.Permissions.Keys.AllKeys,
+            AuthorizationVersion = 0,
+        });
         var identity = new ClaimsIdentity([new Claim("admin_tier", tier.ToString())], SchemeName);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
@@ -82,11 +90,6 @@ public sealed class AdminMerchantsEndpointControlsTests
         var request = new HttpRequestMessage(method, path);
         if (tier is not null)
             request.Headers.Add(TestAdminAuthHandler.TierHeader, tier);
-        if (csrf is not null)
-        {
-            request.Headers.Add("Cookie", $"{SessionCookies.CsrfCookieName}={csrf}");
-            request.Headers.Add(CsrfFilter.HeaderName, csrf);
-        }
         if (method == HttpMethod.Post)
             request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
         return request;
@@ -103,19 +106,6 @@ public sealed class AdminMerchantsEndpointControlsTests
         var response = await client.SendAsync(BuildRequest(new HttpMethod(method), path, tier: null, csrf: null));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode); // REQ-7.3
-    }
-
-    [Fact]
-    public async Task POST_without_a_CSRF_token_is_rejected_even_with_a_Super_session()
-    {
-        using var factory = new ControlsFactory();
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-
-        var response = await client.SendAsync(
-            BuildRequest(HttpMethod.Post, "/api/v1/merchants", tier: "Super", csrf: null));
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode); // REQ-7.1
-        Assert.Contains("CSRF", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

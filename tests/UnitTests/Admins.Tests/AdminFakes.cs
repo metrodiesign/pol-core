@@ -118,31 +118,6 @@ internal sealed class FakePlatformUserAuditWriter : IAuditWriter
     public void Append(Audit entry) => Appended.Add(entry);
 }
 
-/// <summary>In-memory admin session store for command-handler tests. Records revoke calls; a small seed list backs
-/// the sessions-list / find-by-id reads (admin-account-management REQ-4/5).</summary>
-internal sealed class FakePlatformUserSessionStore : ISessionStore
-{
-    public readonly List<Session> Sessions = [];
-    public readonly List<Guid> RevokedAdmins = [];
-    public readonly List<Guid> RevokedFamilies = [];
-
-    public Task<Session?> FindByTokenHashAsync(byte[] tokenHash, CancellationToken ct) =>
-        Task.FromResult<Session?>(null);
-    public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
-    public void Add(Session session) => Sessions.Add(session);
-    public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(0);
-    public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => Task.FromResult(true);
-    public Task SlideIdleAsync(Guid id, DateTime idle, CancellationToken ct) => Task.CompletedTask;
-    public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) { RevokedFamilies.Add(familyId); return Task.CompletedTask; }
-    public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) { RevokedAdmins.Add(adminId); return Task.CompletedTask; }
-    public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
-    public Task<IReadOnlyList<Session>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<Session>>(
-            Sessions.Where(s => s.AdminUserId == adminAccountId).OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id).ToList());
-    public Task<Session?> FindByIdAsync(Guid sessionId, CancellationToken ct) =>
-        Task.FromResult(Sessions.FirstOrDefault(s => s.Id == sessionId));
-}
-
 internal sealed class FakeAdminOperationStore : IAdminOperationStore
 {
     private readonly Dictionary<(Guid ActorId, string Operation, string Key), AdminOperationReplay> _records = [];

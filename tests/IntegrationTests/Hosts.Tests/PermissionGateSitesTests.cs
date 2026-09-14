@@ -342,13 +342,13 @@ public sealed class PermissionGateSitesTests
     [Fact]
     public void Auth_policy_scheme_mapping_pins_the_literal_scheme_ids()
     {
-        Assert.Equal("AdminSession", ApiHost::Api.Iam.AuthPolicyScheme.For("admin")!.Value.SchemeId);
+        Assert.Equal("PlatformToken", ApiHost::Api.Iam.AuthPolicyScheme.For("admin")!.Value.SchemeId);
         Assert.Equal("MerchantUserSession", ApiHost::Api.Iam.AuthPolicyScheme.For("merchant-user")!.Value.SchemeId);
         Assert.Equal(
-            ["AdminSession", "MerchantUserSession"],
+            ["PlatformToken", "MerchantUserSession"],
             ApiHost::Api.Iam.AuthPolicyScheme.AllFor("dual-console").Select(x => x.SchemeId));
         Assert.Equal(
-            ["AdminSession", "IdentityPlatform"],
+            ["PlatformToken", "IdentityPlatform"],
             ApiHost::Api.Iam.AuthPolicyScheme.AllFor(
                 ApiHost::Api.Iam.ConsoleSessionAuthentication.AdminOrIdentityOrderPolicyName)
                 .Select(x => x.SchemeId));

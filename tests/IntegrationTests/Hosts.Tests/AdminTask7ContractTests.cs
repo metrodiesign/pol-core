@@ -81,7 +81,7 @@ public sealed class AdminTask7ContractTests
 
         var reconciliation = Operation(paths, "/api/v1/reports/reconciliation", "get", "GetReconciliationReport");
         var schemes = Schemes(reconciliation);
-        Assert.Contains("AdminSession", schemes);
+        Assert.Contains("PlatformToken", schemes);
         Assert.Contains("MerchantUserSession", schemes);
     }
 
@@ -101,7 +101,7 @@ public sealed class AdminTask7ContractTests
     }
 
     private static void AssertAdmin(JsonElement operation) =>
-        Assert.Equal(["AdminSession"], Schemes(operation));
+        Assert.Equal(["PlatformToken"], Schemes(operation));
 
     private static HashSet<string> Schemes(JsonElement operation) => operation.GetProperty("security")
         .EnumerateArray().SelectMany(x => x.EnumerateObject().Select(p => p.Name))

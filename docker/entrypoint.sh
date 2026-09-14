@@ -72,14 +72,11 @@ if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
 fi
 unset DB_PW
 
-# Microsoft Entra clients use one mounted secret per plane; Admin is required in Production, Merchant is optional.
-if [ -n "${ADMIN_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
-    export AdminAuth__Providers__Microsoft__ClientSecret="$(cat "$ADMIN_ENTRA_CLIENT_SECRET_FILE")"
-fi
+# Microsoft Entra clients use one mounted secret per plane; the workforce (employee login) secret is required in
+# Production, the merchant-user one is optional.
 if [ -n "${MERCHANT_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
     export MerchantAuth__Providers__Microsoft__ClientSecret="$(cat "$MERCHANT_ENTRA_CLIENT_SECRET_FILE")"
 fi
-# Workforce platform login (OpenIddict code+PKCE) shares the Admin Entra app; compose points this at the same file.
 if [ -n "${IDENTITY_ACCESS_WORKFORCE_CLIENT_SECRET_FILE:-}" ]; then
     export IdentityAccess__Workforce__ClientSecret="$(cat "$IDENTITY_ACCESS_WORKFORCE_CLIENT_SECRET_FILE")"
 fi

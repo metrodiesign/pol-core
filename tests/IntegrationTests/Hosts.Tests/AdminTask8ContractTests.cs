@@ -87,7 +87,7 @@ public sealed class AdminTask8ContractTests
     {
         var schemes = operation.GetProperty("security").EnumerateArray()
             .SelectMany(x => x.EnumerateObject().Select(property => property.Name)).ToArray();
-        Assert.Equal(["AdminSession"], schemes);
+        Assert.Equal(["PlatformToken"], schemes);
     }
 
     private static void AssertRequiredHeader(JsonElement operation, string name)

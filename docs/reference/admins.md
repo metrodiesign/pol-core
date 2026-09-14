@@ -1,20 +1,20 @@
-# Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
+# Admins Module — Identity, Platform Token (Bearer) & RBAC Reference
 
-> As-built 2026-09-12. Source: `src/Api/Api/Admins/*.cs`, `Program.cs` (routes),
-> `CorsExtensions.cs`.
+> As-built 2026-09-14. Source: `src/Api/Api/IdentityAccess/*.cs` (login + token), `src/Api/Api/Admins/*.cs`,
+> `Program.cs` (routes), `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
 > [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (rename map เต็ม).
 >
-> ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console ใช้ **OIDC BFF แบบเดียวกันเป๊ะ** แล้ว
-> (ไม่มี Google id-token Bearer; provider/tenant validation ยังเป็น server-side) — แต่เป็น **คนละ instance แยกขาด**: prefix
-> `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
-> config `MerchantAuth:Providers:*`. Browser console ทั้งสอง plane ไม่ใช้ Bearer/`Authorization` header; canonical System integration มี client-assertion/Bearer path แยกใน Account/Access contract.
+> ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console เป็น **คนละกลไก**: ยังเป็น server-side OIDC BFF
+> (cookie `__Host-mch_session` + `mch_csrf`, prefix `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUserMicrosoft`,
+> config `MerchantAuth:Providers:*`, `MerchantSession:*`) ส่วน admin console ใช้ **platform JWT ใน `Authorization: Bearer`**
+> ทางเดียว ไม่มี cookie/CSRF (legacy admin cookie stack ถูก retire 2026-09-14).
 >
-> **Microsoft-only OIDC:** ทั้งสอง plane รับเฉพาะ `microsoft` — Admin ใช้ workforce tenant (scheme `AdminMicrosoft`,
-> config `AdminAuth:Providers:Microsoft`), merchant-user ใช้ CIAM tenant (scheme `MerchantUserMicrosoft`, config
-> `MerchantAuth:Providers:Microsoft`). Google ถูก retire 2026-09-05: login/callback ของ google ไม่ register และคืน
-> `404` ทั้งสอง plane, provider ที่ไม่ใช่ Microsoft ที่ยังมี ClientId จะทำให้ boot guard throw นอก Development.
+> **Microsoft-only OIDC:** ทั้งสอง plane รับเฉพาะ `microsoft` — Admin ใช้ workforce tenant (scheme
+> `IdentityWorkforceMicrosoft`, config `IdentityAccess:Workforce:*`), merchant-user ใช้ CIAM tenant (scheme
+> `MerchantUserMicrosoft`, config `MerchantAuth:Providers:Microsoft`). Google ถูก retire 2026-09-05: provider ที่ไม่ใช่
+> Microsoft ที่ยังมี ClientId ฝั่ง merchant จะทำให้ boot guard throw นอก Development.
 
 **Ports (dev):** API `https://localhost:5001` · Customer SPA `https://localhost:3000` · Admin Console
 `https://localhost:3001` · Merchant-user Console `https://localhost:3002` (`Cors:AdminOrigins` /
@@ -25,27 +25,45 @@
 
 ## หลักการ (อ่านก่อนเขียนโค้ด)
 
-Admin auth เป็น **server-side OIDC BFF** (Backend-for-Frontend). FE **ไม่** แตะ Microsoft โดยตรง, **ไม่** ถือ
-id_token, **ไม่** แนบ Bearer header. แทนที่ด้วย **session cookie** ที่ server เป็นคนออกหลัง login กับ Microsoft
-ฝั่ง server.
+Admin console มี credential เดียวคือ **employee platform token** (JWT) ที่ API ออกให้ผ่าน OpenIddict. SPA เป็น
+**OpenIddict public client** (`client_id` = `IdentityAccess:WorkforceClientId`, default `pol-admin`) ใช้
+Authorization Code + PKCE (S256). FE **ไม่** แตะ Microsoft โดยตรง และ **ไม่** ถือ Microsoft id_token — การยืนยันกับ
+Entra ทำที่ API (confidential client) แล้ว API ออก token ของแพลตฟอร์มเองให้ SPA.
 
 Flow login:
 
-1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/microsoft/login?returnTo=<path>`
-2. Server redirect ไป Microsoft Entra (Authorization Code + PKCE + state + nonce)
-3. ผู้ใช้ยืนยันกับ Microsoft -> Microsoft redirect กลับมาที่ `/api/v1/admins/auth/microsoft/callback` (server-side, ไม่มีหน้าให้ FE)
-4. Server แลก code เป็น token, ตรวจ signature/issuer/audience/nonce/lifetime แล้วบังคับ `tid`/`oid` อย่างละหนึ่งค่า
-   และ exact tenant จากนั้น resolve/JIT ด้วย `(microsoft, tid, oid)` แล้ว **set cookie**:
-   `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
-5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
+1. SPA นำ browser ไป (top-level navigation) ที่ `GET /oauth/authorize?client_id=pol-admin&response_type=code&redirect_uri=<origin>/auth/callback&code_challenge=…&code_challenge_method=S256&state=…`
+2. API ไม่มี login cookie → challenge scheme `IdentityWorkforceMicrosoft` (Microsoft Entra workforce, tenant-pinned Authority,
+   Authorization Code + PKCE + state + nonce ฝั่ง API)
+3. ผู้ใช้ยืนยันกับ Microsoft → Microsoft redirect กลับ `/api/v1/admins/auth/microsoft/callback` (redirect URI ที่ register บน Entra app)
+4. callback ตรวจ signature/issuer/audience/nonce/lifetime, บังคับ `tid`/`oid` อย่างละหนึ่งค่าและ exact tenant แล้ว
+   resolve/JIT ด้วย exact tuple `(microsoft, tid, oid)` (`IdentityBffLoginService`) จากนั้น sign in cookie `pol_login`
+   อายุ 2 นาที (scheme `identity-login`) แล้วส่ง browser กลับไป `/oauth/authorize` request เดิม
+5. `/oauth/authorize` ออก authorization code แล้ว redirect ไป `<origin>/auth/callback?code=…&state=…`; cookie `pol_login` ถูกทิ้ง
+6. SPA แลก code (+ `code_verifier`) ที่ `POST /oauth/token` ได้ **access JWT** (อายุ `IdentityAccess:AccessTokenMinutes` = 15 นาที) +
+   **refresh token** (opaque, อายุ `IdentityAccess:RefreshTokenMinutes` = 480 นาที prod / 1440 dev, ออกใหม่อายุเต็มทุกครั้งที่ refresh
+   → session slide ขณะใช้งาน)
+7. ทุก API call แนบ `Authorization: Bearer <access JWT>`; ก่อนหมดอายุหรือเมื่อได้ 401 ให้ refresh (`grant_type=refresh_token`)
 
-ไม่มี id_token ใน browser, ไม่มี GIS script และไม่มี `Authorization` header ใน Admin BFF request.
+ไม่มี admin session cookie, ไม่มี CSRF header และไม่มี `credentials: 'include'` บน route admin อีกต่อไป.
 
-## Admin session กับ business Account
+## Platform token กับ Admin scope
 
-`AdminSession`/`Admins.Domain.Users.User` เป็น Tier 0 console session สำหรับ control plane. Canonical commerce authorization ใช้ `Accounts.Domain.Account` และ `Access.Domain` แยกต่างหาก: `Employee` มี `PlatformAccess`, `Agent` ผูก Sale/Branch owner, `System` ใช้ client assertion และ scope. `GET /api/v1/accounts...` กับ merchant/platform-access routes จึงไม่ใช่ alias ของ `/api/v1/admins...` และไม่ควรใช้ `AdminId` เป็น `CreatedByAccountId` ใน canonical Order.
+route ที่ใช้ policy `admin` และ `dual-console` ผ่าน policy scheme `ConsoleSession` ซึ่ง forward audience Admin ไป scheme
+`PlatformToken` (`src/Api/Api/IdentityAccess/PlatformTokenAuthentication.cs`): ห่อ OpenIddict validation (signature,
+audience, lifetime, token/authorization entry) แล้วตรวจต่อ request ว่า account ยัง Active และ `authz_version` ใน token ตรงกับ
+`AuthorizationVersion` ปัจจุบัน ถ้าไม่ตรง → 401 `invalid_token` (SPA refresh แล้ว version จะ re-sync). ไม่มี cookie fallback.
 
-Order/transaction support ที่เปิดให้ Admin console ต้องตรวจ `IAdminScope` และ Account/Order parent ตาม endpoint; Admin tier ให้ขอบเขต merchant ส่วน IAM permission/Account Access ให้ action และ business visibility.
+`IAdminScope` ถูก bind จาก authorization snapshot ของ Employee account: `AdminId` = `AccountId`, `permissions` = permission
+ของ platform role, platform access = tier `Super` (เห็นทุก merchant) ส่วน employee ที่ไม่มี platform access เป็น `Scoped`
+ตาม `MerchantAccess` ที่ Active. SYSTEM client และ account ที่ไม่ใช่ Employee ไม่ bind จึงเข้า admin console ไม่ได้.
+
+Canonical commerce authorization ใช้ `Accounts.Domain.Account` และ `Access.Domain` แยกต่างหาก: `Employee` มี `PlatformAccess`,
+`Agent` ผูก Sale/Branch owner, `System` ใช้ client assertion และ scope. `GET /api/v1/accounts...` กับ merchant/platform-access
+routes จึงไม่ใช่ alias ของ `/api/v1/admins...` และไม่ควรใช้ `AdminId` เป็น `CreatedByAccountId` ใน canonical Order.
+
+Order/transaction support ที่เปิดให้ Admin console ต้องตรวจ `IAdminScope` และ Account/Order parent ตาม endpoint; Admin tier ให้ขอบเขต
+merchant ส่วน IAM permission/Account Access ให้ action และ business visibility.
 
 Tier 0 ใช้ immutable tuple `Provider=microsoft`, validated tenant `tid` และ canonical directory object `oid`.
 Email เป็น optional non-unique contact อาจ absent, mutable, reused หรือซ้ำกันได้ Runtime ไม่ fallback ไป Email,
@@ -53,98 +71,73 @@ UPN, `preferred_username`, `WorkforceEmailKey` หรือ `EmployeeId` แล�
 สร้าง roleless Scoped JIT account Existing Admin ถูก offline-map หรือ pre-bound invite ก่อน login ไม่มี runtime bind
 ด้วย Email.
 
-> **สำคัญสุด:** `returnTo` ต้องเป็น path เดียวกับ origin (relative, ขึ้นต้น `/`) และอยู่ใน allowlist ฝั่ง server
-> (`AdminSession:ReturnUrlAllowlist`). ค่านอก allowlist จะถูกแทนด้วย default path (กัน open-redirect).
+## Token lifetime และ revocation
 
-## Session + cookie
+| รายการ | ค่า/พฤติกรรม |
+|---|---|
+| access JWT | 15 นาที (`IdentityAccess:AccessTokenMinutes`); authorization ถูก re-check จาก DB ทุก request |
+| refresh token | 480 นาที prod, 1440 dev (`IdentityAccess:RefreshTokenMinutes`); ออกใหม่อายุเต็มทุกครั้งที่ refresh |
+| logout | `POST /api/v1/auth/logout` (Bearer) revoke OpenIddict authorization ของ login นี้ → access + refresh ใช้ต่อไม่ได้ทันที |
+| sessions ของตัวเอง | `GET /api/v1/me/sessions` (หนึ่งรายการต่อ login, ไม่มี token material) / `DELETE /api/v1/me/sessions/{sessionId}` |
+| revoke token ของ admin คนอื่น | `POST /api/v1/accounts/{accountId}/session-revocations` (permission `user.manage`) bump `AuthorizationVersion` ของ account → token เดิมถูกปฏิเสธ 401 ที่ request ถัดไปเพราะ `authz_version` ไม่ตรง (ดู [`iam.md`](iam.md)) |
 
-| Cookie | อ่านจาก JS ได้ | อายุ/พฤติกรรม |
-|---|---|---|
-| `__Host-adm_session` (dev-http: `adm_session`) | **ไม่** (HttpOnly) | opaque 256-bit; server เก็บแค่ SHA-256 hash; idle 24h, absolute 7d |
-| `adm_csrf` | ได้ (ไม่ HttpOnly) | คู่กับ session; ใช้ทำ double-submit (ดูล่าง) |
+- `OAuth:Issuer` ต้อง pin เป็น public origin ของ API (dev `https://localhost:5001`): ถ้าไม่ pin OpenIddict derive issuer จาก host
+  ของแต่ละ request → code/token ที่ออกผ่าน proxy ถูกปฏิเสธ (`invalid_grant`/401) เมื่อเรียกตรง และกลับกัน
+- JavaScript ถือ token ได้ จึงมี XSS reach ที่ httpOnly cookie ไม่มี; ขอบที่คงไว้คือ PKCE, token/authorization entry validation,
+  re-check `AuthorizationVersion` ทุก request และอายุ access token 15 นาที
 
-- **Rotation:** server หมุน session cookie ให้เองเป็นระยะ (ทุก ~15m) ผ่าน `Set-Cookie` ใน response ปกติ —
-  FE ไม่ต้องทำอะไร (browser เปลี่ยน cookie ให้). token เก่าใช้ได้ต่ออีกชั่วครู่ (grace) ระหว่าง request ที่ค้าง
-- **Revocation ทันที:** suspend admin / logout-all / ตรวจพบการ replay token เก่า -> ทั้ง family ถูก revoke,
-  request ถัดไป 401 ทันที (ไม่ต้องรอ token หมดอายุ)
-- session เป็น `SameSite=Lax` (same-site deploy) หรือ `None; Secure` (cross-site) — ตั้งฝั่ง server
+## Proxy / origin
 
-## Proxy — same-origin (บังคับ)
+Bearer ไม่ผูกกับ origin จึง **ไม่บังคับ** same-origin proxy อีกต่อไป แต่ต้องคง 2 เงื่อนไข:
 
-backend redirect หลัง login = path บน origin เดียว และ cookie ผูกกับ origin → SPA กับ API ต้องเป็น origin
-เดียวกัน. ตั้ง Next.js proxy:
+- `/oauth/authorize` เป็น top-level navigation (ไม่ต้อง CORS); `POST /oauth/token` และ `/oauth/revoke` ถูกเรียกจาก JavaScript
+  → CORS policy dual-console ครอบให้แล้ว (`IsDualConsole` ใน `CorsExtensions.cs`) origin ของ SPA ต้องอยู่ใน `Cors__AdminOrigins`
+- ทุก request ที่แตะ `/oauth/*` และ API ต้องไปถึง API ด้วย host เดียวกับ `OAuth:Issuer` (ผ่าน proxy ก็ได้ แต่ห้ามสลับ host ระหว่าง
+  authorize/token/API call)
 
-```js
-// next.config.js
-module.exports = {
-  async rewrites() {
-    return [
-      { source: '/api/v1/admins/:path*', destination: 'https://localhost:5001/api/v1/admins/:path*' },
-      // merchant provisioning ย้ายออกจาก prefix /admins แล้ว — ต้อง proxy เส้นนี้ด้วย (ดู Endpoints)
-      { source: '/api/v1/merchants/:path*', destination: 'https://localhost:5001/api/v1/merchants/:path*' },
-      // admin control plane: merchant, originator, PSP, routing, identity, governance, reporting, delivery
-      { source: '/api/v1/originators/:path*', destination: 'https://localhost:5001/api/v1/originators/:path*' },
-      { source: '/api/v1/payments/:path*', destination: 'https://localhost:5001/api/v1/payments/:path*' },
-      { source: '/api/v1/reports/:path*', destination: 'https://localhost:5001/api/v1/reports/:path*' },
-      { source: '/api/v1/approvals/:path*', destination: 'https://localhost:5001/api/v1/approvals/:path*' },
-      { source: '/api/v1/audits/:path*', destination: 'https://localhost:5001/api/v1/audits/:path*' },
-      { source: '/api/v1/api-clients/:path*', destination: 'https://localhost:5001/api/v1/api-clients/:path*' },
-      { source: '/api/v1/webhooks/:path*', destination: 'https://localhost:5001/api/v1/webhooks/:path*' },
-      { source: '/api/v1/notifications/:path*', destination: 'https://localhost:5001/api/v1/notifications/:path*' },
-    ]
-  },
-}
-```
-
-Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — backend honor แล้ว (`UseForwardedHeaders`) ไม่ต้องทำเพิ่ม.
-เครื่อง dev ต้อง trust ASP.NET Core HTTPS certificate (`dotnet dev-certs https --trust`) ก่อนให้ Next.js proxy ไป `:5001`;
-ถ้า Node.js ยังไม่อ่าน system CA ให้รัน frontend ด้วย `NODE_OPTIONS=--use-system-ca`.
+ถ้ายังใช้ Next.js proxy (`rewrites`) ให้ครอบ `/oauth/:path*`, `/api/v1/admins/:path*`, `/api/v1/merchants/:path*` และ area ของ
+admin control plane (`/api/v1/{originators,payments,reports,approvals,audits,api-clients,webhooks,notifications}/:path*`)
+เหมือนเดิม; backend honor `X-Forwarded-Host` (`UseForwardedHeaders`) แล้ว. เครื่อง dev ต้อง trust ASP.NET Core HTTPS
+certificate (`dotnet dev-certs https --trust`) ก่อนให้ Next.js proxy ไป `:5001`; ถ้า Node.js ยังไม่อ่าน system CA ให้รัน frontend
+ด้วย `NODE_OPTIONS=--use-system-ca`.
 
 ## Setup ฝั่ง FE
 
-- **ไม่** ต้องขอ Microsoft token ใน browser, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
-  (confidential client, ฉีดผ่าน `AdminAuth__Providers__Microsoft__ClientId` / `AdminAuth__Providers__Microsoft__ClientSecret`)
-- ปุ่ม "Sign in with Microsoft" = ลิงก์/redirect ไป `/api/v1/admins/auth/microsoft/login?returnTo=${encodeURIComponent(path)}`
-  (top-level navigation — อย่าใช้ fetch; flow เด้งออกไป Microsoft แล้วกลับมาที่ `returnTo`)
-- ทุก API call ตั้ง `credentials: 'include'` (ตรงข้ามกับโมเดลเดิม — ตอนนี้ auth = cookie)
-- admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server (เปิด `AllowCredentials` ให้เฉพาะ origin นี้)
+- **ไม่** ต้องขอ Microsoft token ใน browser และ **ไม่** ต้องโหลด MSAL/GIS script. Entra client id + secret เป็นของ server
+  (confidential client, ฉีดผ่าน `IdentityAccess__Workforce__ClientId` / `IdentityAccess__Workforce__ClientSecret`)
+- SPA ต้องรู้แค่ `client_id=pol-admin`, redirect URI `<origin>/auth/callback` (API register ให้ OpenIddict public client ตอน boot
+  จาก `IdentityAccess:WorkforceWebAppBaseUrl`) และ PKCE
+- ปุ่ม "Sign in with Microsoft" = สร้าง `code_verifier`/`state` แล้ว redirect (top-level) ไป `/oauth/authorize`
+- หน้า `/auth/callback` แลก code ที่ `POST /oauth/token` (`application/x-www-form-urlencoded`) แล้วเก็บ access/refresh token ใน memory
+  ของ SPA; ทุก API call แนบ `Authorization: Bearer`
+- หน้า `/login-error?reason=<label>` รับ redirect เมื่อ login ที่ Entra/JIT ล้มเหลว (ดู Error model)
+- admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server
 
 ```js
-window.location.href = '/api/v1/admins/auth/microsoft/login?returnTo=' + encodeURIComponent('/dashboard')
+// เริ่ม login (PKCE)
+const verifier = randomBase64Url(32); sessionStorage.setItem('pkce', verifier)
+const challenge = base64Url(await sha256(verifier))
+location.href = '/oauth/authorize?' + new URLSearchParams({
+  client_id: 'pol-admin', response_type: 'code', redirect_uri: location.origin + '/auth/callback',
+  code_challenge: challenge, code_challenge_method: 'S256', state: randomBase64Url(16),
+})
 ```
 
-## CSRF (double-submit) — บังคับบน POST/PUT/PATCH/DELETE
+## CSRF
 
-ทุก request ที่เปลี่ยน state ไปยัง `/api/v1/admins/*` ต้องแนบ header `X-CSRF-Token` ที่ **ค่าตรงกับ cookie `adm_csrf`**
-มิฉะนั้น **403**. GET/HEAD/OPTIONS ไม่ต้อง (login/callback ที่เป็น GET จึงผ่าน).
-
-```js
-const readCsrf = () =>
-  document.cookie.split('; ').find(c => c.startsWith('adm_csrf='))?.split('=')[1] ?? '';
-
-const api = (path, opts = {}) => fetch(path, {
-  ...opts,
-  credentials: 'include',                         // ส่ง session cookie (BFF) — จำเป็น
-  headers: {
-    'Content-Type': 'application/json',
-    'X-CSRF-Token': readCsrf(),                   // double-submit; server เทียบกับ cookie adm_csrf
-    ...opts.headers,
-  },
-});
-```
-
-(helper รวมที่พร้อมใช้จริง — auto CSRF เฉพาะ method ที่เปลี่ยน state + re-login on 401 — ดู [helper รวม](#helper-รวม-adminapijs) ด้านล่าง)
+**ไม่มี** บน route admin: Bearer header ไม่ถูก browser แนบข้าม site เอง จึงไม่ต้องมี double-submit token. CSRF ยังมีเฉพาะ
+merchant-user console (`mch_csrf`) และ route `dual-console` จะบังคับ audience CSRF เฉพาะเมื่อ caller เป็น merchant cookie —
+Bearer ผ่านโดยไม่ต้องส่งอะไรเพิ่ม.
 
 ## ขั้นแรกหลัง login: `GET /api/v1/admins/me`
 
-session cookie = httpOnly → JS อ่านไม่ได้ (ตั้งใจ กัน XSS). หลัง callback set cookie + redirect กลับ `returnTo`
-แล้ว, FE ยิง `/api/v1/admins/me` (พร้อม `credentials: 'include'`) เพื่ออ่าน identity/scope. First-login JIT server
+หลัง SPA ได้ access token แล้ว ยิง `/api/v1/admins/me` (Bearer) เพื่ออ่าน identity/scope. First-login JIT server
 ตรวจ workforce claims แล้วสร้าง `Active + Scoped` แบบไม่มี role/merchant assignment — FE ไม่ต้องส่งอะไรพิเศษ.
 
 ```js
 async function bootstrap() {
   const res = await api('/api/v1/admins/me');
-  if (res.status === 401) return login(location.pathname);  // ไม่มี session / หมด / ถูก revoke -> re-login
+  if (res.status === 401) return login(location.pathname);  // token หมด/ถูก revoke และ refresh ไม่สำเร็จ -> re-login
   if (res.status === 403) return showNotActive();           // resolved แต่ suspended / ไม่ active
   renderNav(await res.json());                              // ใช้ tier + accessibleMerchants + permissions จัด UI
 }
@@ -181,7 +174,7 @@ nullable (id ที่หา code ไม่เจอ -> `null`).
 > — FE ที่แชร์ renderer ระหว่าง `/me` กับ list/detail ต้อง normalize case เอง (เช่น `.toLowerCase()` ก่อนเทียบ).
 
 > `GET /api/v1/admins/{id}` (detail) ใช้ **DTO ตัวเดียวกันและ JSON key เดียวกัน** (`accessibleMerchants`) โดยตั้งใจ
-> ให้ client แชร์ renderer ตัวเดียวได้ (`AdminDetailResponse`) — detail คืน `roleCodes` และ version ของ Admin session
+> ให้ client แชร์ renderer ตัวเดียวได้ (`AdminDetailResponse`) — detail คืน `roleCodes` และ version ของ Admin
 > model. Org reference fields `position`/`office`/`level`/`division` เป็น historical surface ที่ถูก retire; employee
 > profile ปัจจุบันอ่านจาก HR mirror ตาม identity adapter ไม่ได้อยู่ใน Admin API DTO.
 >
@@ -196,51 +189,49 @@ nullable (id ที่หา code ไม่เจอ -> `null`).
 
 ## Endpoints
 
-auth = **session cookie** (`credentials: 'include'`). method ที่เปลี่ยน state ต้องมี `X-CSRF-Token`. Super-only =
-Scoped ยิงโดน 403.
+auth = **`Authorization: Bearer <platform JWT>`** ทุก route. ไม่มี CSRF. Super-only = Scoped ยิงโดน 403.
 
-| Method | Path | Tier | CSRF | Body | Success | Note |
-|---|---|---|---|---|---|---|
-| GET | `/api/v1/admins/auth/microsoft/login` | — (anon) | — | — | 302 | redirect ไป Microsoft workforce; `?returnTo=<allowlisted path>`; rate-limited (ดูล่าง) -> 429 ถ้าเกิน |
-| GET | `/api/v1/admins/auth/google/login` | — | — | — | 404 | Google ถูก retire ทั้งระบบ |
-| POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
-| POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
-| GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
-| GET | `/api/v1/merchants/{code}` | any | — | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
-| POST | `/api/v1/merchants` | **Super** | ต้อง | provision body | 201 | provision merchant (ดู reference 2.4); dup code -> 409 |
-| POST | `/api/v1/admins` | **Super** | ต้อง | `{ "objectId": "…", "identityApprovalReference": "…", "email"?: "…" }` | 201 | pre-bound Microsoft Scoped admin; objectId จาก verified Entra export |
-| POST | `/api/v1/admins/{id}/merchants` | **Super** | ต้อง | `{ "merchantId": "…" }` | 200 | assign merchant; inactive/unknown/dup -> 409 |
-| DELETE | `/api/v1/admins/{id}/merchants/{merchantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
-| POST | `/api/v1/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
+| Method | Path | Tier | Body | Success | Note |
+|---|---|---|---|---|---|
+| GET | `/oauth/authorize` | — (anon) | query PKCE | 302 | เริ่ม login ของ SPA; ไม่มี `pol_login` → challenge Entra (scheme `IdentityWorkforceMicrosoft`) |
+| POST | `/oauth/token` | — (anon) | form `authorization_code`+`code_verifier` / `refresh_token` | 200 | access JWT 15 นาที + refresh token; refresh รับ `merchant_id` เพื่อออก token ใน merchant context |
+| POST | `/api/v1/auth/logout` | any | — | 204 | revoke OpenIddict authorization ของ token ปัจจุบัน (access + refresh ของ login นี้ตายทันที) |
+| GET | `/api/v1/me/sessions` | any | — | 200 | login sessions ของตัวเอง (หนึ่งรายการต่อ login) |
+| DELETE | `/api/v1/me/sessions/{sessionId}` | any | — | 204 | revoke login ที่เลือก; idempotent; ไม่ใช่ของตัวเอง -> 404 |
+| GET | `/api/v1/admins/me` | any | — | 200 | bootstrap identity/scope |
+| GET | `/api/v1/merchants/{code}` | any | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
+| POST | `/api/v1/merchants` | **Super** | provision body | 201 | provision merchant (ดู reference 2.4); dup code -> 409 |
+| POST | `/api/v1/admins` | **Super** | `{ "objectId": "…", "identityApprovalReference": "…", "email"?: "…" }` | 201 | pre-bound Microsoft Scoped admin; objectId จาก verified Entra export |
+| POST | `/api/v1/admins/{id}/merchants` | **Super** | `{ "merchantId": "…" }` | 200 | assign merchant; inactive/unknown/dup -> 409 |
+| DELETE | `/api/v1/admins/{id}/merchants/{merchantId}` | **Super** | — | 204 | unassign; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/suspend` | **Super** | — | 204 | suspend; suspend ตัวเอง -> 403 |
 
-> **Auth rate limiting**: `GET /auth/{provider}/login` (เท่านั้น — endpoint อื่นในตารางนี้ไม่มี) ผ่าน sliding
-> window ต่อ source IP: 20 request / 60 วินาที (6 segments, ไม่ queue เกิน limit -> 429 ทันที) นโยบายชื่อ
-> `admin-auth` (`src/Api/Api/Admins/AuthRateLimiting.cs`, ผูกที่ `Program.cs`) กันสแปม login/probe callback
-> จาก IP เดียว ไม่กระทบการ login ปกติที่ไม่ถี่.
+> route เดิม `GET /api/v1/admins/auth/{provider}/login`, `POST /api/v1/admins/auth/logout`, `POST /api/v1/admins/auth/logout-all`,
+> `GET /api/v1/admins/{id}/sessions`, `DELETE /api/v1/admins/{id}/sessions/{sessionId}` ถูกลบ 2026-09-14 (404) พร้อม rate limiter
+> `admin-auth`; revoke token ของ admin คนอื่นใช้ `POST /api/v1/accounts/{accountId}/session-revocations` (ดู
+> [`iam.md`](iam.md)).
 >
 > **สองเส้นทาง merchant provisioning อยู่นอก prefix `/api/v1/admins`** (`hierarchical-naming` task 8): map ตรงบน
-> `/api/v1/merchants` แล้ว re-attach control เองทีละ endpoint (`CsrfFilter` + policy `admin` + Super tier บน POST)
+> `/api/v1/merchants` แล้ว re-attach control เองทีละ endpoint (policy `admin` + Super tier บน POST)
 > แทนการ inherit จาก group — admin CORS policy ผูกให้ผ่าน path table ใน method `IsAdminPlane` ของ
-> `src/Api/BuildingBlocks.Web/CorsExtensions.cs:91-98` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
+> `src/Api/BuildingBlocks.Web/CorsExtensions.cs` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
 > FE ยังยิงผ่าน proxy เดิมได้ แต่ rewrite rule ต้องครอบ `/api/v1/merchants` ด้วย ไม่ใช่แค่ `/api/v1/admins` (ดู
-> [Proxy](#proxy--same-origin-บังคับ)).
+> [Proxy](#proxy--origin)).
 
 ### Account management (spec `admin-account-management`, scheme `/api/v1/admins`)
 
-reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle/session ops gate ด้วย `Tier.Super`.
+reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle ops gate ด้วย `Tier.Super`.
 กติกา: role ที่ให้ `user.roles` ควร grant `user.view` ด้วย ให้ operator เห็น directory ก่อน assign role.
 
 `POST /api/v1/admins` (invite, ตารางบน) รับ body `{ "objectId": "…", "identityApprovalReference": "…", "email"? }` — `objectId` และ approval reference เป็น required; Email เป็น optional contact. Employee HR profile ใช้ identity adapter/HR mirror ไม่ใช่ org-reference FK ใน Admin schema.
 
-| Method | Path | Gate | CSRF | Success | Note |
-|---|---|---|---|---|---|
-| GET | `/api/v1/admins` | `user.view` | — | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
-| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive) และ `version` + header `ETag: "v<version>"` (ใช้เป็น `If-Match` ของ `PUT /{id}/roles`); unknown -> 404 |
-| GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | — | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
-| POST | `/api/v1/admins/{id}/tier` | **Super** | ต้อง | 200 | body `{ "tier": "super"\|"scoped" }` (response `tier` เป็น PascalCase — ดู quirk ด้านบน); เปลี่ยน tier ตัวเอง -> 403; idempotent ถ้า tier ตรงกับปัจจุบัน; tier ไม่รู้จัก -> 400; unknown -> 404 |
-| POST | `/api/v1/admins/{id}/reactivate` | **Super** | ต้อง | 204 | คืน Active + revoke session ทั้งหมดของ target (fresh-login); idempotent; unknown -> 404 |
-| GET | `/api/v1/admins/{id}/sessions` | **Super** | — | 200 | sessions (ไม่มี token material) + `isLive`; unknown -> 404 |
-| DELETE | `/api/v1/admins/{id}/sessions/{sessionId}` | **Super** | ต้อง | 204 | revoke ทั้ง rotation family; unknown/ไม่ใช่เจ้าของ -> 404; idempotent |
+| Method | Path | Gate | Success | Note |
+|---|---|---|---|---|
+| GET | `/api/v1/admins` | `user.view` | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
+| GET | `/api/v1/admins/{id}` | `user.view` | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive) และ `version` + header `ETag: "v<version>"` (ใช้เป็น `If-Match` ของ `PUT /{id}/roles`); unknown -> 404 |
+| GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/tier` | **Super** | 200 | body `{ "tier": "super"\|"scoped" }` (response `tier` เป็น PascalCase — ดู quirk ด้านบน); เปลี่ยน tier ตัวเอง -> 403; idempotent ถ้า tier ตรงกับปัจจุบัน; tier ไม่รู้จัก -> 400; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/reactivate` | **Super** | 204 | คืน Active + bump `AuthorizationVersion`/`version` ของ admin record; idempotent; unknown -> 404 |
 
 `adminId` / `id` / `merchantId` เป็น Guid. JSON body/field เป็น camelCase.
 
@@ -256,15 +247,15 @@ Permission catalog ล่าสุดมี **7 กลุ่ม / 25 keys** แ�
 อ่าน (`GET /permissions`, `GET /roles`, `GET /roles/{code}`) เปิดให้ admin ที่ login แล้วทุกคน (ไม่ต้องมี
 permission key เฉพาะ); เขียน (create/update/delete role, set role ของ admin) gate ด้วย `user.roles`.
 
-| Method | Path | Gate | CSRF | Success | Note |
-|---|---|---|---|---|---|
-| GET | `/api/v1/admins/permissions` | any admin | — | 200 | catalog: `groups[{key,label}]` + `permissions[{key,label,resource}]` |
-| GET | `/api/v1/admins/roles` | any admin | — | 200 | **`PagedResult<RoleResponse>`** `{ items, page, limit, total }` (ไม่ใช่ array ตรง ๆ) SFS: `page`/`limit`/`filters`/`sort`/`search`; แต่ละ item มี `version` แต่ list ไม่ส่ง header `ETag` |
-| GET | `/api/v1/admins/roles/{code}` | any admin | — | 200 | บทบาทเดียว + header `ETag: "v<version>"`; ไม่รู้จัก code -> 404 |
-| POST | `/api/v1/admins/roles` | `user.roles` | ต้อง | 201 | คืน `ETag` ของ role ใหม่; รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
-| PUT | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 200 | **ต้องส่ง `If-Match: "v<version>"`** ไม่ส่ง/รูปแบบผิด -> 400 `invalid_etag`; version ไม่ตรง -> 409 `state_conflict`; คืน `ETag` ใหม่; code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
-| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | **ต้องส่ง `If-Match`** (400/409 เหมือน PUT); บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409; `platform_admin` (seed anchor) ลบไม่ได้เสมอ -> 409 แม้ไม่มีใครผูกอยู่เลย |
-| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | **ต้องส่ง `If-Match: "v<version>"` ของ Admin** (จาก `ETag`/`version` ของ `GET /admins/{id}` ไม่ใช่ของ role) ไม่ส่ง -> 400 `invalid_etag`, stale -> 409 `state_conflict`; คืน `ETag` ใหม่บน 204; แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404 |
+| Method | Path | Gate | Success | Note |
+|---|---|---|---|---|
+| GET | `/api/v1/admins/permissions` | any admin | 200 | catalog: `groups[{key,label}]` + `permissions[{key,label,resource}]` |
+| GET | `/api/v1/admins/roles` | any admin | 200 | **`PagedResult<RoleResponse>`** `{ items, page, limit, total }` (ไม่ใช่ array ตรง ๆ) SFS: `page`/`limit`/`filters`/`sort`/`search`; แต่ละ item มี `version` แต่ list ไม่ส่ง header `ETag` |
+| GET | `/api/v1/admins/roles/{code}` | any admin | 200 | บทบาทเดียว + header `ETag: "v<version>"`; ไม่รู้จัก code -> 404 |
+| POST | `/api/v1/admins/roles` | `user.roles` | 201 | คืน `ETag` ของ role ใหม่; รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
+| PUT | `/api/v1/admins/roles/{code}` | `user.roles` | 200 | **ต้องส่ง `If-Match: "v<version>"`** ไม่ส่ง/รูปแบบผิด -> 400 `invalid_etag`; version ไม่ตรง -> 409 `state_conflict`; คืน `ETag` ใหม่; code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
+| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | 204 | **ต้องส่ง `If-Match`** (400/409 เหมือน PUT); บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409; `platform_admin` (seed anchor) ลบไม่ได้เสมอ -> 409 แม้ไม่มีใครผูกอยู่เลย |
+| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | 204 | **ต้องส่ง `If-Match: "v<version>"` ของ Admin** (จาก `ETag`/`version` ของ `GET /admins/{id}` ไม่ใช่ของ role) ไม่ส่ง -> 400 `invalid_etag`, stale -> 409 `state_conflict`; คืน `ETag` ใหม่บน 204; แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404 |
 
 `RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount, version }` — `status` เป็น
 lowercase wire string เหมือน admin tier/status; `version` เป็นเลขเดียวกับใน `ETag` (`"v<version>"` เป็น strong ETag
@@ -274,13 +265,13 @@ lowercase wire string เหมือน admin tier/status; `version` เป็�
 ### Admin control plane
 
 Top-level routes สำหรับ merchant lifecycle, originator, PSP/routing, merchant users/roles, governance/audit,
-API clients, webhook/notification delivery และ reporting ใช้ `AdminSession` + CSRF ตาม path แต่ไม่ mount ใต้
+API clients, webhook/notification delivery และ reporting ใช้ `PlatformToken` (Bearer) ตาม path แต่ไม่ mount ใต้
 `/api/v1/admins`. Route, permission, `If-Match`, `Idempotency-Key`, one-time secret และ export limits อยู่ใน
 [`admin-control-plane.md`](admin-control-plane.md).
 
 ### หมายเหตุ: endpoint อื่นใต้ prefix เดียวกัน แต่ไม่ใช่ของโมดูลนี้
 
-route ต่อไปนี้ mount อยู่ใต้ `/api/v1/admins/*` (ผ่าน CSRF filter + policy `admin` เดียวกัน) ด้วยเหตุผล
+route ต่อไปนี้ mount อยู่ใต้ `/api/v1/admins/*` (ผ่าน policy `admin` เดียวกัน) ด้วยเหตุผล
 auth เท่านั้น — เป็น business action ของโมดูลอื่น เอกสารเต็มอยู่คนละที่ ไม่ copy รายละเอียดมาซ้ำที่นี่:
 
 - `POST /api/v1/admins/merchants/users/{merchantUserId}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
@@ -290,23 +281,21 @@ auth เท่านั้น — เป็น business action ของโม�
 ## Logout
 
 ```js
-async function logout(all = false) {
-  await api(`/api/v1/admins/auth/logout${all ? '-all' : ''}`, { method: 'POST' }); // CSRF + cookie แนบให้โดย api()
-  login();                                                                  // กลับไปหน้า sign-in
+async function logout() {
+  await api('/api/v1/auth/logout', { method: 'POST' }); // revoke authorization ของ login นี้ (ทุก token ของ login นี้ตาย)
+  clearTokens();                                          // ทิ้ง access/refresh ใน memory
+  login();                                                // กลับไปหน้า sign-in
 }
 ```
 
-## returnTo allowlist
+ออกจากทุกอุปกรณ์: list `GET /api/v1/me/sessions` แล้ว `DELETE /api/v1/me/sessions/{sessionId}` ทีละรายการ.
 
-หลัง login backend redirect ไปได้เฉพาะ path ที่อยู่ใน `AdminSession:ReturnUrlAllowlist` (กัน open-redirect);
-path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
+## Redirect หลัง login
 
-**committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
-- dev (`appsettings.Development.json`): `/`, `/main`, `/dashboard`, `/tenants`, `/scalar` (Scalar uses `AdminSession:ScalarBaseUrl=https://localhost:5001`; frontend paths use `AdminSession:WebAppBaseUrl=https://localhost:3001`)
-- staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
-
-**สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
-ไม่งั้นถูกเด้งกลับ `/` (`DefaultReturnPath`). ขอ ops เพิ่ม route ที่ FE ใช้จริง.
+ไม่มี `returnTo` และไม่มี allowlist ฝั่ง server แล้ว: `/oauth/authorize` redirect ได้เฉพาะ `redirect_uri` ที่ตรงกับที่ register ไว้กับ
+OpenIddict public client (`<IdentityAccess:WorkforceWebAppBaseUrl>/auth/callback`) และ SPA เป็นคนพา user กลับหน้าเดิมเองผ่าน `state`
+(หรือ `sessionStorage`). `AdminSession` config เหลือแค่ `WebAppBaseUrl` (origin ของ SPA สำหรับ host ใช้นอก auth) และ
+`ScalarBaseUrl` (Scalar UI, Development เท่านั้น).
 
 ## Error model
 
@@ -314,85 +303,98 @@ path นอก list — และ absolute URL — ถูก fallback เป็�
 
 | Status | ความหมาย | FE ทำอะไร |
 |---|---|---|
-| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/microsoft/login` |
-| 403 | session valid แต่: account suspended / ไม่ active / tier ไม่พอ / **CSRF token หาย/ไม่ตรง** | "ไม่มีสิทธิ์" หรือ refresh CSRF |
+| 401 | ไม่มี/หมดอายุ/ถูก revoke Bearer, หรือ `authz_version` ไม่ตรง (สิทธิ์เปลี่ยน) | refresh ที่ `POST /oauth/token`; ถ้า refresh ได้ `invalid_grant` -> login ใหม่ที่ `/oauth/authorize` |
+| 403 | token valid แต่: account suspended / ไม่ active / tier ไม่พอ / ไม่มี permission | "ไม่มีสิทธิ์" |
 | 404 | merchant นอก scope หรือไม่มีจริง (กัน existence leak) | not-found |
 | 409 | duplicate (code / assignment ซ้ำ) | conflict |
 | 400 | body ผิด format | validation error |
 
-> callback ที่ login ไม่ผ่าน (protocol/state/code exchange/signature/issuer/audience/nonce/lifetime ผิด,
-> `tid`/`oid` missing/duplicate/malformed, tenant mismatch, suspended หรือ profile denial) server redirect ไป
-> `AdminAuth:ErrorPath` พร้อม `?reason=<fixed-label>` (ไม่ใช่ JSON) — reason ไม่มี claim, Email หรือ EmployeeId.
+> login ที่ล้มเหลวก่อนได้ code (protocol/state/code exchange/signature/issuer/audience/nonce/lifetime ผิด,
+> `tid`/`oid` missing/duplicate/malformed, tenant mismatch, suspended หรือ eligibility denial) server redirect ไป
+> `<IdentityAccess:WorkforceWebAppBaseUrl>/login-error?reason=<label>` (ไม่ใช่ JSON): `auth-failed` (remote/protocol failure),
+> `access-denied` (user ยกเลิกที่ Entra) หรือ code ของ `IdentityAccessException` ที่แทน `_` ด้วย `-` เช่น
+> `workforce-not-eligible`, `account-suspended` — reason ไม่มี claim, Email หรือ EmployeeId.
 
 ## helper รวม (adminApi.js)
 
 ```js
-// lib/adminApi.js
-const cookie = (n) =>
-  decodeURIComponent(document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)'))?.[1] ?? '')
+// lib/adminApi.js — token อยู่ใน memory ของ SPA; ไม่มี cookie/CSRF
+let access = null, refresh = null
 
-export function login(returnTo = '/dashboard') {
-  window.location.href = '/api/v1/admins/auth/microsoft/login?returnTo=' + encodeURIComponent(returnTo)
+export function login() { /* สร้าง PKCE แล้ว redirect ไป /oauth/authorize (ดู Setup ฝั่ง FE) */ }
+
+async function token(params) {
+  const res = await fetch('/oauth/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: 'pol-admin', ...params }),
+  })
+  if (!res.ok) return false
+  ;({ access_token: access, refresh_token: refresh } = await res.json())
+  return true
 }
 
-export async function adminFetch(path, opts = {}) {
-  const method = (opts.method ?? 'GET').toUpperCase()
-  const headers = { ...opts.headers }
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers['X-CSRF-Token'] = cookie('adm_csrf')
-  const res = await fetch(path, { ...opts, headers, credentials: 'include' })
-  if (res.status === 401) login(location.pathname) // session หมด -> re-login
+export const exchangeCode = (code) =>
+  token({ grant_type: 'authorization_code', code, code_verifier: sessionStorage.getItem('pkce'),
+          redirect_uri: location.origin + '/auth/callback' })
+
+export async function adminFetch(path, opts = {}, retried = false) {
+  const res = await fetch(path, { ...opts, headers: { ...opts.headers, Authorization: 'Bearer ' + access } })
+  if (res.status !== 401 || retried) return res
+  if (refresh && await token({ grant_type: 'refresh_token', refresh_token: refresh })) return adminFetch(path, opts, true)
+  login() // refresh ไม่ผ่าน -> re-login
   return res
 }
 
-export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: 'POST' })
+export const logout = () => adminFetch('/api/v1/auth/logout', { method: 'POST' })
 ```
 
 ## ห้าม
 
-- เลิกใช้ GIS SDK / id-token / `Authorization: Bearer` ใน Admin browser flow; System identity path มี contract แยกใน [`iam.md`](iam.md)
-- อย่าอ่าน/เก็บ session cookie เอง (httpOnly)
-- อย่าเรียก API ข้าม origin ตรง — ต้องผ่าน proxy (ดู [Proxy](#proxy--same-origin-บังคับ))
+- อย่าขอ Microsoft token/MSAL ใน browser หรือส่ง Microsoft id_token มาที่ API — API รับเฉพาะ platform JWT ที่ออกจาก `/oauth/token`
+- อย่าเก็บ token ลง `localStorage`/cookie ที่ script อื่นอ่านได้; เก็บใน memory และ refresh ด้วย refresh token
+- อย่าเรียก `/api/v1/admins/auth/microsoft/callback` ตรง ๆ หรือนำ authorize URL เก่ามาใช้ซ้ำ (code/state ใช้ครั้งเดียว)
 
 ## Dev / CORS
 
-- API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
-  merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `https://localhost:3001`), merchant-user =
-  `Cors__MerchantOrigins` (dev `https://localhost:3002`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
-  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ admin-plane area อื่นด้วย
-  (`/approvals`, `/audits`, `/originators`, `/products/documents`, `/orders/export`, `/api-clients`,
-  `/notifications`, `/reports`) ไม่ใช่แค่
-  `/admins`/`/merchants`. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
-- XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
-- dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
-  ได้เหมือนกัน
-- backend dev ต้องใส่ Microsoft OIDC client id + secret จริงที่ `AdminAuth__Providers__Microsoft__ClientId` /
-  `AdminAuth__Providers__Microsoft__ClientSecret` (user-secrets) และ tenant-pinned Authority ถึงจะ login จริงได้.
+- API เดียว serve ทั้ง 2 console, **CORS แยก policy**: admin = `Cors__AdminOrigins` (dev `https://localhost:3001`),
+  merchant-user = `Cors__MerchantOrigins` (dev `https://localhost:3002`, เป็น default policy, credentialed เพราะยังเป็น cookie).
+  เลือก policy **ตาม path** ผ่าน `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ admin-plane area
+  อื่นด้วย (`/approvals`, `/audits`, `/originators`, `/products/documents`, `/orders/export`, `/api-clients`,
+  `/notifications`, `/reports`) ไม่ใช่แค่ `/admins`/`/merchants`; `/oauth/token` และ `/oauth/revoke` อยู่ใน dual-console
+  policy (ทั้งสอง SPA เรียกจาก JavaScript). prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
+- admin XHR ส่ง `Authorization: Bearer` ไม่ต้อง `credentials: 'include'`
+- backend dev ต้องใส่ Entra client id + secret จริงที่ `IdentityAccess__Workforce__ClientId` /
+  `IdentityAccess__Workforce__ClientSecret` (user-secrets หรือ `.env`), tenant-pinned `IdentityAccess__Workforce__Authority`,
+  `IdentityAccess__WorkforceTenantId`/`WorkforceIssuer`/`WorkforceAudience`, `IdentityAccess__WorkforceWebAppBaseUrl` และ
+  `OAuth__Issuer=https://localhost:5001` ถึงจะ login จริงได้ (ดู [local-dev-run.md](../runbooks/local-dev-run.md) §7).
 - bootstrap Super ไม่ใช้ external allowlist; promote corporate account ผ่าน admin management API ก่อน production.
 - `WorkforceTenantBinding` ยังเป็น deployment singleton และ Authority ยัง pin tenant เดียว Triple identity index
   ไม่ใช่ multi-tenant admission; ต้องมี approved tenant registry/allowlist design ก่อนรับ tenant ที่สอง.
-- OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish
+- OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish; document `admin` โฆษณา security scheme
+  `PlatformToken` (http bearer JWT)
 
 **backend ทำให้แล้ว (FE ไม่ต้องแตะ):**
 - CORS allow `https://localhost:3001`
-- honor `X-Forwarded-Host` → `redirect_uri` ออกมาเป็น origin ของ FE
-- Microsoft redirect URI registration (ฝั่ง ops/backend)
+- honor `X-Forwarded-Host` (`UseForwardedHeaders`)
+- register OpenIddict public client `pol-admin` + redirect URI `<WorkforceWebAppBaseUrl>/auth/callback` ตอน boot
+- Microsoft redirect URI registration ของ `/api/v1/admins/auth/microsoft/callback` (ฝั่ง ops/backend)
 
 ## prod
 
-topology เดียวกัน (reverse proxy → same-origin), cookie เป็น `Secure` + `__Host-` อัตโนมัติบน https.
-FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'include'` + อ่าน `adm_csrf` เหมือนเดิม).
+topology เดียวกัน; `OAuth__Issuer` ต้องเป็น public origin ของ API และ `IdentityAccess__WorkforceWebAppBaseUrl` เป็น origin ของ SPA
+(prod compose ป้อนจาก `ADMIN_ENTRA_*` + `ADMIN_FRONTEND_ORIGIN` ดู [deploy-self-host.md](../runbooks/deploy-self-host.md) §5.2).
+FE code ไม่ต้องเปลี่ยน.
 
 ## Source of truth
 
-ไฟล์ auth/session ของ Admin อยู่ใน `src/Api/Api/Admins/` แล้ว (ตัดคำนำหน้า `Admin` ออกจากชื่อไฟล์ — prefix ซ้ำกับ
-โฟลเดอร์):
-
-- OIDC login + callback (challenge/establish session): `src/Api/Api/Admins/OidcAuthentication.cs`,
-  `src/Api/Api/Admins/LoginService.cs`
-- session auth + rotation/reuse/revocation: `src/Api/Api/Admins/SessionAuthenticationHandler.cs`,
-  `src/Infrastructure/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
-- cookies (session + CSRF): `src/Api/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Api/Api/Admins/CsrfFilter.cs`
-- auth rate limiting: `src/Api/Api/Admins/AuthRateLimiting.cs`
+- employee login (Entra challenge, callback JIT, `pol_login`, login-error redirect): `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs`
+- OAuth endpoints (`/oauth/authorize`, `/oauth/token`, `/api/v1/auth/logout`, `/api/v1/me/sessions`):
+  `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs`; OpenIddict public client registration:
+  `src/Api/Api/IdentityAccess/WorkforceClientRegistration.cs`
+- Bearer scheme + `IAdminScope` binding: `src/Api/Api/IdentityAccess/PlatformTokenAuthentication.cs`; policy scheme
+  `ConsoleSession`: `src/Api/Api/Iam/ConsoleSessionAuthentication.cs`; options: `src/Api/Api/IdentityAccess/IdentityAccessOptions.cs`
+- production boot guard: `ProvisioningGuards.RequireWorkforceAdminProvider` ใน `src/Api/Api/Program.cs`
+- admin console origins (`AdminSession:WebAppBaseUrl`/`ScalarBaseUrl`): `src/Api/Api/Admins/AuthOptions.cs`
 - routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Api/Api/Program.cs`
 - top-level admin control routes: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs`,
   `src/Api/Api/ControlPlane/AdminMerchantIdentityEndpoints.cs`

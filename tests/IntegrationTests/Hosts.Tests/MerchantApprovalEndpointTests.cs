@@ -207,7 +207,6 @@ public sealed class MerchantApprovalEndpointTests
 
     private static HttpRequestMessage ApproveRequest()
     {
-        const string csrf = "approval-csrf";
         var request = new HttpRequestMessage(HttpMethod.Post, Route)
         {
             Content = new StringContent(
@@ -215,9 +214,6 @@ public sealed class MerchantApprovalEndpointTests
                 Encoding.UTF8,
                 "application/json"),
         };
-        var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
-        request.Headers.Add("Cookie", $"{cookieName}={csrf}");
-        request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, csrf);
         request.Headers.Add("If-Match", "\"v1\"");
         request.Headers.Add("Idempotency-Key", "approval-test-key");
         return request;

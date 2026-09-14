@@ -144,22 +144,6 @@ internal sealed class ConsoleConfigurationResolver
 
         var admin = new AdminSessionOptions
         {
-            IdleMinutes = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:IdleMinutes", baselineAdmin.IdleMinutes, canonicalAdmin.IdleMinutes),
-            AbsoluteHours = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:AbsoluteHours", baselineAdmin.AbsoluteHours, canonicalAdmin.AbsoluteHours),
-            RotationMinutes = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:RotationMinutes", baselineAdmin.RotationMinutes, canonicalAdmin.RotationMinutes),
-            GraceSeconds = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:GraceSeconds", baselineAdmin.GraceSeconds, canonicalAdmin.GraceSeconds),
-            SameSite = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:SameSite", baselineAdmin.SameSite, canonicalAdmin.SameSite),
-            PreAuthTtlMinutes = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:PreAuthTtlMinutes", baselineAdmin.PreAuthTtlMinutes, canonicalAdmin.PreAuthTtlMinutes),
-            DefaultReturnPath = CanonicalScalar(baseEntries, canonicalEntries,
-                "AdminSession:DefaultReturnPath", baselineAdmin.DefaultReturnPath, canonicalAdmin.DefaultReturnPath),
-            ReturnUrlAllowlist = CanonicalSection(baseEntries, canonicalEntries,
-                "AdminSession:ReturnUrlAllowlist", baselineAdmin.ReturnUrlAllowlist, canonicalAdmin.ReturnUrlAllowlist),
             WebAppBaseUrl = ResolveOriginAlias(
                 baselineAdmin.WebAppBaseUrl,
                 canonicalAdmin.WebAppBaseUrl,
@@ -233,8 +217,6 @@ internal sealed class ConsoleConfigurationResolver
                 environment),
         };
 
-        ValidateReturnPaths(admin.DefaultReturnPath, admin.ReturnUrlAllowlist,
-            "AdminSession:DefaultReturnPath", "AdminSession:ReturnUrlAllowlist");
         ValidateReturnPaths(merchant.DefaultReturnPath, merchant.ReturnUrlAllowlist,
             "MerchantSession:DefaultReturnPath", "MerchantSession:ReturnUrlAllowlist");
 

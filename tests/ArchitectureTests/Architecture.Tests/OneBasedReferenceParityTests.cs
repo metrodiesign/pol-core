@@ -38,7 +38,6 @@ public sealed class OneBasedReferenceParityTests
 
     private static readonly (string Table, string Column, string Mapping)[] Fields =
     [
-        ("admin.Sessions", "Status", "Active=1`, `Superseded=2`, `Revoked=3"),
         ("admin.Users", "Tier", "Scoped=1`, `Super=2"),
         ("admin.Users", "Status", "Active=1`, `Suspended=2"),
         ("iam.PermissionGroups", "Scope", "Platform=1`, `Merchant=2"),

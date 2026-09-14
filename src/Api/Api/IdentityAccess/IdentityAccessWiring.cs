@@ -106,9 +106,7 @@ internal static class IdentityAccessWiring
         {
             var hasBearer = context.Request.Headers.Authorization.ToString()
                 .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
-            var hasConsoleCookie = context.Request.Cookies.ContainsKey(Api.Admins.SessionCookies.SessionCookieName)
-                || context.Request.Cookies.ContainsKey(Api.Admins.SessionCookies.SessionCookieNameDevHttp)
-                || context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieName)
+            var hasConsoleCookie = context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieName)
                 || context.Request.Cookies.ContainsKey(Api.Merchants.UserSessionCookies.SessionCookieNameDevHttp);
             if (IdentityPermissionAuthorization.IsIdentityOrderRoute(context) && hasBearer && hasConsoleCookie)
             {
@@ -149,12 +147,10 @@ internal static class IdentityAccessWiring
             options.ClientId = provider.ClientId;
             options.ClientSecret = provider.ClientSecret;
             options.CallbackPath = provider.CallbackPath;
-            // The CallbackPath may be shared with the legacy admin OIDC scheme (the only redirect URI registered on
-            // the workforce app). State is data-protected per scheme, so a callback whose state this handler cannot
-            // unprotect is not ours: pass it through instead of failing. Load-bearing order: AddIdentityAccess runs
-            // before AddAdminOidcAuthentication in Program.cs, so this handler sees the shared callback first and the
-            // admin handler (last, no skip) keeps its own failure path.
-            options.SkipUnrecognizedRequests = true;
+            // This handler is the only one on its CallbackPath (the redirect URI registered on the Entra app), so a
+            // callback whose state cannot be unprotected is a failed login: OnRemoteFailure sends the browser to the
+            // SPA error page instead of falling through to a bare 404.
+            options.SkipUnrecognizedRequests = false;
             options.SignInScheme = LoginCookieScheme;
             options.ResponseType = "code";
             options.UsePkce = true;

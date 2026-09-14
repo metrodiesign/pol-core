@@ -20,7 +20,6 @@ namespace Hosts.Tests;
 public sealed class AdminAccountManagementEndpointTests
 {
     private static readonly Guid Id = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    private static readonly Guid Sid = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     public static TheoryData<string, string> UncookiedRoutes() => new()
     {
@@ -28,9 +27,7 @@ public sealed class AdminAccountManagementEndpointTests
         { "POST", "/api/v1/admins" },
         { "GET", $"/api/v1/admins/{Id}" },
         { "GET", $"/api/v1/admins/{Id}/effective-permissions" },
-        { "GET", $"/api/v1/admins/{Id}/sessions" },
         { "POST", $"/api/v1/admins/{Id}/reactivate" },
-        { "DELETE", $"/api/v1/admins/{Id}/sessions/{Sid}" },
     };
 
     [Theory]

@@ -13,14 +13,17 @@ namespace Api.Iam;
 /// </summary>
 internal static class AuthPolicyScheme
 {
-    private static readonly (string SchemeId, Scope Side)[] Admin = [("AdminSession", Scope.Platform)];
+    /// <summary>Security-scheme id of the employee platform token on the admin console (Authorization: Bearer).</summary>
+    public const string PlatformTokenSchemeId = "PlatformToken";
+
+    private static readonly (string SchemeId, Scope Side)[] Admin = [(PlatformTokenSchemeId, Scope.Platform)];
     private static readonly (string SchemeId, Scope Side)[] Merchant = [("MerchantUserSession", Scope.Merchant)];
     private static readonly (string SchemeId, Scope Side)[] Dual =
-        [("AdminSession", Scope.Platform), ("MerchantUserSession", Scope.Merchant)];
+        [(PlatformTokenSchemeId, Scope.Platform), ("MerchantUserSession", Scope.Merchant)];
     private static readonly (string SchemeId, Scope Side)[] IdentityPlatform =
         [("IdentityPlatform", Scope.Shared)];
     private static readonly (string SchemeId, Scope Side)[] AdminOrIdentityOrder =
-        [("AdminSession", Scope.Platform), ("IdentityPlatform", Scope.Shared)];
+        [(PlatformTokenSchemeId, Scope.Platform), ("IdentityPlatform", Scope.Shared)];
 
     public static (string SchemeId, Scope Side)? For(string? policy) => policy switch
     {
@@ -141,7 +144,7 @@ internal static class AudiencePermissionAuthorization
 /// <summary>
 /// Boot-time parity guard (REQ-5), side-aware: every <see cref="RequiredPermission"/> key must (a) exist in the
 /// catalog vocabulary and (b) belong to the <see cref="Scope"/> its endpoint's own auth policy implies (via
-/// <see cref="AuthPolicyScheme"/>) — an endpoint under the "admin" policy (AdminSession scheme) gated with a
+/// <see cref="AuthPolicyScheme"/>) — an endpoint under the "admin" policy (PlatformToken scheme) gated with a
 /// Merchant-side key, or vice versa, is a boot failure, not a runtime surprise (REQ-5.4). An endpoint gated by a
 /// policy <see cref="AuthPolicyScheme"/> does not recognize is likewise a boot failure — a new policy must be
 /// taught to the table before it can gate a permission. Pure in-memory (no DB); call right before
