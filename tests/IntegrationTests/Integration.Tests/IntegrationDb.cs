@@ -117,17 +117,6 @@ internal static class IntegrationDb
             """,
             ("@id", id), ("@code", code));
 
-    /// <summary>Inserts a platform user (control-plane admin account). A null <paramref name="subject"/> models an
-    /// invited Scoped account before its first login binds it (the filtered unique index exempts NULL subjects).
-    /// Tier: Scoped=1, Super=2. Status: Active=1, Suspended=2.</summary>
-    public static Task InsertPlatformUserAsync(SqlConnection c, Guid id, string? subject, string email, int tier, int status) =>
-        ExecAsync(c,
-            """
-            INSERT admin.Users (Id, Subject, Email, Tier, Status, AuthorizationVersion, CreatedAt)
-            VALUES (@id, @sub, @email, @tier, @status, 0, SYSUTCDATETIME());
-            """,
-            ("@id", id), ("@sub", (object?)subject ?? DBNull.Value), ("@email", email), ("@tier", tier), ("@status", status));
-
     private static string? Get(string key) => Environment.GetEnvironmentVariable(key);
 
     internal static string Require(string key) =>

@@ -46,7 +46,6 @@ public static class MerchantUserPersistenceRegistration
         services.AddScoped<IExternalLoginRepository>(sp => new MerchantExternalLoginRepository(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<IRegistrationAuditWriter>(sp => new MerchantRegistrationAuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<IRegistrationAttemptWriter>(sp => new MerchantRegistrationAttemptWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
-        services.AddScoped<IRegistrationHistoryReader>(sp => new MerchantRegistrationHistoryReader(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<IRegistrationOutboxWriter>(sp =>
             new MerchantRegistrationOutboxWriter(sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<IClock>()));
         services.AddScoped<IRegistrationUnitOfWork>(sp => new MerchantUserUnitOfWork(

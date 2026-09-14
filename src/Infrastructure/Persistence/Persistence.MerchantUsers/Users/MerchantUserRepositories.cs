@@ -94,29 +94,6 @@ internal sealed class MerchantRegistrationAttemptWriter : IRegistrationAttemptWr
     public void Add(RegistrationAttempt attempt) => _db.MerchantRegistrationAttempts.Add(attempt);
 }
 
-/// <summary>Read side of the admin registration-history endpoint (registration-attempt-history REQ-2).
-/// AsNoTracking both ways — the handler saves a reveal audit on this same scoped context and must not flush
-/// tracked history rows with it. Neither table carries a merchant query filter, so these are plain reads.</summary>
-internal sealed class MerchantRegistrationHistoryReader : IRegistrationHistoryReader
-{
-    private readonly ControlPlaneDbContext _db;
-    public MerchantRegistrationHistoryReader(ControlPlaneDbContext db) => _db = db;
-
-    public async Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(
-        Guid merchantUserId, CancellationToken cancellationToken) =>
-        await _db.MerchantRegistrationAttempts.AsNoTracking()
-            .Where(a => a.UserId == merchantUserId)
-            .OrderBy(a => a.AttemptNo)
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
-
-    public async Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(
-        Guid targetUserId, CancellationToken cancellationToken) =>
-        await _db.MerchantRegistrationAudits.AsNoTracking()
-            .Where(a => a.TargetUserId == targetUserId && a.Action != RegistrationAuditAction.Revealed)
-            .OrderBy(a => a.OccurredAt)
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
-}
-
 /// <summary>Mirrors the original <c>UserUnitOfWork</c> exactly (ChangeTracker.Clear() per retry attempt,
 /// unique-violation -&gt; <see cref="ConflictException"/>, concurrency -&gt;
 /// <see cref="ConcurrencyConflictException"/>) over <see cref="ControlPlaneDbContext"/> instead of the keyed

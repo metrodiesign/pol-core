@@ -53,7 +53,8 @@ Merchant Microsoft ใช้ configuration, scheme, cookie และ behavior �
 | token lifetime | `IdentityAccess:AccessTokenMinutes` 15, `IdentityAccess:RefreshTokenMinutes` 480 (dev override 1440) |
 | issuer | `OAuth:Issuer` ต้องเป็น public origin ของ API (dev `https://localhost:5001`) |
 | identity migration | `20260902133906_Tier0MicrosoftTenantAwareIdentity` |
-| session retire migration | `20260914051532_RetireAdminSessions` (drop `admin.Sessions`; `admin.AuthAudits` เหลือเป็น archive) |
+| session retire migration | `20260914051532_RetireAdminSessions` (drop `admin.Sessions`) |
+| legacy admin identity retire migration | `20260914111802_RetireLegacyAdminIdentityPlane` (drop `admin.Users`/`RoleAssignments`/`MerchantAccess`/`AuthAudits`/`WorkforceTenantBindings`; audit ที่เหลือคือ `admin.UserAudits`) |
 
 ไม่มี Graph base URL, ไม่มี `User.Read` และไม่มี `AdminAuth:*` section อีกต่อไป `email` scope เป็น best-effort contact เท่านั้น
 Login แบบไม่มี email ต้องสำเร็จได้เมื่อ exact tuple valid
