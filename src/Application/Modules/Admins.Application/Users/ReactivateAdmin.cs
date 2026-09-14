@@ -7,9 +7,10 @@ namespace Admins.Application.Users;
 
 /// <summary>A Super restores a suspended admin (admin-account-management REQ-3). The already-Active case is an
 /// idempotent no-op apart from the audit (REQ-3.6). The account load, the status flip, and the audit run in ONE
-/// keyed "admin" transaction so they commit or roll back together (REQ-3.2). A platform token issued before the
-/// suspension stays rejected until the account's authorization version matches again (the token handler re-checks
-/// status and version on every request). Unknown target -> 404. Super-only at the host.</summary>
+/// keyed "admin" transaction so they commit or roll back together (REQ-3.2). Suspend/reactivate only flip
+/// admin.Users; the platform token handler checks acct.Accounts (status + authorization version), so a token issued
+/// before the suspension keeps working until it expires or the account's sessions are revoked through
+/// POST /api/v1/accounts/{accountId}/session-revocations. Unknown target -> 404. Super-only at the host.</summary>
 public sealed record ReactivateCommand(Guid TargetAdminId, Guid ActingAdminId, string CorrelationId, long ExpectedVersion)
     : ICommand<ReactivateResult>;
 
