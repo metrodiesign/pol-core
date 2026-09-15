@@ -89,7 +89,7 @@ POST (สร้าง) ไม่ต้องมี `If-Match`, ตรวจ pare
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission merchant.manage<br/>+ RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin + permission merchant.manage<br/>ดู § 0.1"]
     GATE --> KIND{"POST (สร้าง) หรือ PATCH (แก้)?"}
 
     KIND -->|"PATCH"| HDRM{"If-Match รูป quoted vN?"}
@@ -172,7 +172,7 @@ header/existence gate เหมือนกันทั้งสาม, แต�
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>+ RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin + permission settings.manage<br/>ดู § 0.1"]
     GATE --> KIND{"create, patch หรือ disable?"}
 
     KIND -->|"create"| HDRI{"Idempotency-Key ถูกรูป?"}
@@ -270,7 +270,7 @@ probe adapter นอก transaction ด้วย secret จาก vault ก่�
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>+ RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin + permission settings.manage<br/>ดู § 0.1"]
     GATE --> PRE{"provider account พบ<br/>GetConnectionAsync เช็คก่อน header"}
     PRE -->|"no"| R404N["404<br/>NotFoundException ไม่มี code"]
     PRE -->|"yes"| HDR{"If-Match รูป vN<br/>และ Idempotency-Key ถูกรูป?<br/>ดู § 0.5"}
@@ -323,7 +323,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>+ RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin + permission settings.manage<br/>ดู § 0.1"]
     GATE --> BODY{"ReadSecretBodyAsync:<br/>ไม่เกิน 16 KiB และ JSON parse ได้?<br/>Cache-Control no-store"}
     BODY -->|"เกิน 16 KiB"| R413["413 code request_too_large"]
     BODY -->|"JSON ผิดรูป/ว่าง"| R400J["400 code validation_failed"]
@@ -391,7 +391,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>+ RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin + permission settings.manage<br/>ดู § 0.1"]
     GATE --> VALID{"reason และ targetVersion ไม่ว่าง?<br/>presence เท่านั้น"}
     VALID -->|"no"| R400["400 code validation_failed"]
     VALID -->|"yes"| FETCH["GetApprovalAsync<br/>merge access ผ่าน ApplyAccess"]
@@ -447,7 +447,7 @@ flowchart TD
 
 ## Deviations
 
-ไม่พบ deviation ระหว่างเอกสารกับ source — คอลัมน์ caller/auth policy ของทุก 24 แถวใน `docs/reference/api-endpoints.md` (policy `admin`, permission `merchant.view`/`merchant.manage`/`settings.manage`, CSRF filter) ตรงกับ `.RequireAuthorization("admin").RequirePermission(...)` และ `.RequireCsrf()` ใน source ทุกตัว
+ไม่พบ deviation ระหว่างเอกสารกับ source — คอลัมน์ caller/auth policy ของทุก 24 แถวใน `docs/reference/api-endpoints.md` (policy `admin`, permission `merchant.view`/`merchant.manage`/`settings.manage`) ตรงกับ `.RequireAuthorization("admin").RequirePermission(...)` ใน source ทุกตัว; admin เป็น Bearer JWT จึงไม่มี CSRF filter (admin double-submit ถูก retire)
 
 ## Notes
 

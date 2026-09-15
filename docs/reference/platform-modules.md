@@ -25,7 +25,7 @@ Products ไม่เก็บ catalogue ในฐานข้อมูล. `POS
 |---|---|---|
 | `Accounts` | business identity ของ Employee, Agent, System, login linkage และ registration case | `src/Domain/Modules/Accounts.Domain/`, `src/Application/Modules/Accounts.Application/` |
 | `Access` | MerchantAccess, PlatformAccess, roles/branches/method grants และ DataScope | `src/Domain/Modules/Access.Domain/`, `src/Infrastructure/Modules/Access.Infrastructure/` |
-| `Admins` | workforce admin account, OIDC BFF session, tier และ admin operations | `src/Domain/Modules/Admins.Domain/`, `src/Api/Api/Admins/` |
+| `Admins` | workforce admin account, employee platform token (Bearer), tier และ admin operations | `src/Domain/Modules/Admins.Domain/`, `src/Api/Api/Admins/` |
 | `Iam` | permission/group/role catalog กลางและ API client catalog | `src/Domain/Modules/Iam.Domain/`, `src/Application/Modules/Iam.Application/` |
 | `Merchants` | merchant, branch, sale, originator, merchant-user, provisioning และ vault seam | `src/Domain/Modules/Merchants.Domain/`, `src/Application/Modules/Merchants.Application/` |
 | `Products` | live insurance-document search/lookup และ trusted source pricing adapter | `src/Application/Modules/Products.Application/`, `src/Infrastructure/Modules/Products.Infrastructure/` |
@@ -99,7 +99,7 @@ Audience policy, CSRF, `If-Match` และ `Idempotency-Key` เป็น endpo
 
 | Schema | Current tables by owner |
 |---|---|
-| `acct` | Accounts, LoginAccounts, Employees, Agents, SystemClients, keys, BFF/registration sessions และ registration cases |
+| `acct` | Accounts, LoginAccounts, Employees, Agents, SystemClients, keys, registration sessions และ registration cases |
 | `access` | MerchantAccess, AccessRoles, BranchAccess, PlatformAccess, PlatformAccessRoles, SystemClientScopes, MerchantAccessMethods |
 | `admin` | admin identity/session, governance/audit, provisioning, control webhook/notification delivery และ API operation records |
 | `iam` | permission catalog, roles, grants, API clients และ one-time secret tickets |
@@ -115,7 +115,7 @@ Audience policy, CSRF, `If-Match` และ `Idempotency-Key` เป็น endpo
 
 ## Migration และ readiness
 
-Migration chain ปัจจุบันมี 47 migrations และจบที่ `20260911163519_ReviewFixPaymentLinkNotificationIntent`. `20260910021908_Task2IdentityAccess` ถึง `20260910140000_Task9MigrationReadiness` เพิ่ม Account/Access, owner registration, Transactions, Notifications, API operations และ migration rehearsal; review-fix migrations เพิ่ม versioned metadata และ notification intent.
+Migration chain ปัจจุบันมี 50 migrations และจบที่ `20260914111802_RetireLegacyAdminIdentityPlane` (3 migration ล่าสุด `RetireBffSessionTickets`/`RetireAdminSessions`/`RetireLegacyAdminIdentityPlane` ถอด legacy admin identity plane). `20260910021908_Task2IdentityAccess` ถึง `20260910140000_Task9MigrationReadiness` เพิ่ม Account/Access, owner registration, Transactions, Notifications, API operations และ migration rehearsal; review-fix migrations เพิ่ม versioned metadata และ notification intent.
 
 Local build/test, pending-model, schema drift, migration parity และ route comparator ผ่านตาม handoff. ยังขาด sanitized backup, master identity mapping, live Entra/PSP/Email/SMS evidence และ production authorization; จึงเป็น local implementation/cutover machinery เท่านั้น ไม่ใช่ production-ready.
 

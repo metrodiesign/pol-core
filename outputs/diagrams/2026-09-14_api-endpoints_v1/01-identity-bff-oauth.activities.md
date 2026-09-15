@@ -1,18 +1,17 @@
-# pol-core API — Identity BFF และ OAuth (Activity Diagrams)
+# pol-core API — Identity platform login และ OAuth (Activity Diagrams)
 
-> Source: `docs/reference/api-endpoints.md` section "Identity และ OAuth" บรรทัด L32-L33, L52-L64, L78-L80 และ source ที่อ้างต่อ § (`src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs`, `IdentityAccessWiring.cs`, `BffSessionAuthentication.cs`, `BffCsrfFilter.cs`, `OpenIddictRefreshTokenRotator.cs`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs`, `src/Infrastructure/Persistence/Persistence.ControlPlane/OpenIddictRegistration.cs`, `IdentityAccess/IdentityAccessStore.cs`)
-> Scope: 18 endpoints ของ theme T01 — OAuth metadata 2, OIDC login start 2, OIDC callback 2, BFF session read 5, BFF session rotate 2, BFF session revoke 2, OAuth token / authorize / revoke 3
+> Source: `docs/reference/api-endpoints.md` section "Identity และ OAuth" และ source ที่อ้างต่อ § (`src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs`, `IdentityAccessWiring.cs`, `PlatformTokenAuthentication.cs`, `BffCsrfFilter.cs`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs`, `src/Infrastructure/Persistence/Persistence.ControlPlane/OpenIddictRegistration.cs`, `IdentityAccess/IdentityAccessStore.cs`)
+> Scope: 14 endpoints ของ theme T01 — OAuth metadata 2, OIDC login start 1 (agents; employee เริ่มที่ /oauth/authorize), OIDC callback 2, identity-platform read 4 (/me, /me/merchants, /me/access, /me/sessions), session revoke 2 (logout, DELETE /me/sessions/{sessionId}), OAuth token / authorize / revoke 3
 > Generated: 2026-09-14
 
 | § | Diagram | Endpoints |
 | --- | --- | --- |
 | 1.1 | OAuth discovery และ JWKS (OpenIddict ตอบเอง) | `GET /.well-known/oauth-authorization-server`, `GET /.well-known/jwks.json` |
-| 1.2 | เริ่ม OIDC login (employees / agents) | `GET /api/v1/auth/employees/login`, `GET /api/v1/auth/agents/login` |
-| 1.3 | OIDC callback พนักงาน: JIT account + BFF session | `GET /api/v1/auth/employees/callback` |
+| 1.2 | เริ่ม OIDC login (agents) | `GET /api/v1/auth/agents/login` |
+| 1.3 | OIDC callback พนักงาน: JIT account + platform authorization code | `GET /api/v1/auth/employees/callback` |
 | 1.4 | OIDC callback ตัวแทน: registration session | `GET /api/v1/auth/agents/callback` |
-| 1.5 | อ่านบริบท session / account (identity-platform) | `GET /api/v1/auth/session`, `GET /api/v1/me`, `GET /api/v1/me/merchants`, `GET /api/v1/me/access`, `GET /api/v1/me/sessions` |
-| 1.6 | หมุน BFF ticket: refresh และเลือก merchant context | `POST /api/v1/auth/session/refresh`, `POST /api/v1/auth/merchant-context` |
-| 1.7 | เพิกถอน BFF session: logout และลบ session ที่เลือก | `POST /api/v1/auth/logout`, `DELETE /api/v1/me/sessions/{sessionId:guid}` |
+| 1.5 | อ่านบริบท session / account (identity-platform) | `GET /api/v1/me`, `GET /api/v1/me/merchants`, `GET /api/v1/me/access`, `GET /api/v1/me/sessions` |
+| 1.7 | เพิกถอน session: logout และลบ login session ที่เลือก | `POST /api/v1/auth/logout`, `DELETE /api/v1/me/sessions/{sessionId}` |
 | 1.8 | OAuth token: client_credentials ด้วย private_key_jwt | `POST /oauth/token` |
 | 1.9 | OAuth authorize และ revoke | `GET /oauth/authorize`, `POST /oauth/revoke` |
 
@@ -51,20 +50,20 @@ flowchart TD
 
 ---
 
-## 1.2 เริ่ม OIDC login (employees / agents)
+## 1.2 เริ่ม OIDC login (agents)
 
-endpoint public ที่ (agents) ตรวจ AgentMerchantId ใน config ก่อน แล้ว normalize returnTo แล้ว challenge OpenIdConnect scheme ของ provider เพื่อส่ง browser ไป Microsoft Entra (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:44-47,449-505,717-720`, `IdentityAccessWiring.cs:115-153`, `IdentityAccessOptions.cs:13,45-54`)
+endpoint public ของ agents ตรวจ AgentMerchantId ใน config ก่อน แล้ว normalize returnTo แล้ว challenge OpenIdConnect scheme ของ provider เพื่อส่ง browser ไป Microsoft Entra — employee ไม่มี login-start endpoint แล้ว เริ่มที่ `/oauth/authorize` (ดู § 1.9) ซึ่ง challenge workforce provider เอง (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:45-46,564-604,695-698`, `IdentityAccessWiring.cs:115-153`, `IdentityAccessOptions.cs:13,45-54`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> REQ["GET /api/v1/auth/employees/login?returnTo=<br/>หรือ GET /api/v1/auth/agents/login?returnTo=<br/>(AllowAnonymous, ไม่มี rate limit)"]
-    REQ --> AGENTCFG{"agents: IdentityAccess:AgentMerchantId<br/>ตั้งค่าและไม่ใช่ Guid.Empty?"}
+    START((●)) --> REQ["GET /api/v1/auth/agents/login?returnTo=<br/>(AllowAnonymous, ไม่มี rate limit)"]
+    REQ --> AGENTCFG{"IdentityAccess:AgentMerchantId<br/>ตั้งค่าและไม่ใช่ Guid.Empty?"}
     AGENTCFG -->|no| R503["503 ProblemDetails Agent login is not configured<br/>code capability_not_configured"]
-    AGENTCFG -->|"yes หรือ employees"| NORM["NormalizeReturnTo: ต้องขึ้นต้นด้วย / และไม่ใช่ //<br/>ไม่ผ่านใช้ / แทน (ไม่ตอบ 400)"]
-    NORM --> PROV{"IdentityAccessProviders มี scheme ของ key<br/>employees / agents (ClientId + Authority ตั้งค่า)?"}
+    AGENTCFG -->|yes| NORM["NormalizeReturnTo: ต้องขึ้นต้นด้วย / และไม่ใช่ //<br/>ไม่ผ่านใช้ / แทน (ไม่ตอบ 400)"]
+    NORM --> PROV{"IdentityAccessProviders มี scheme ของ key<br/>agents (ClientId + Authority ตั้งค่า)?"}
     PROV -->|no| R404["404 (Results.NotFound, provider ไม่ได้ลงทะเบียน)"]
-    PROV -->|yes| PROPS["AuthenticationProperties: RedirectUri = returnTo,<br/>identity.expected_issuer = WorkforceIssuer / AgentIssuer,<br/>identity.realm workforce / external, agents เพิ่ม identity.merchant_id"]
-    PROPS --> CHAL["Results.Challenge(properties, scheme)<br/>IdentityWorkforceMicrosoft / IdentityAgentMicrosoft"]
+    PROV -->|yes| PROPS["AuthenticationProperties: RedirectUri = returnTo,<br/>identity.expected_issuer = AgentIssuer,<br/>identity.realm external, identity.merchant_id"]
+    PROPS --> CHAL["Results.Challenge(properties, scheme)<br/>IdentityAgentMicrosoft"]
     CHAL --> IDP["302 ไป Authority authorize endpoint<br/>response_type code, PKCE, scope จาก provider options (default openid profile email),<br/>state data-protected ต่อ scheme"]
     IDP --> END_S((◉))
     R503 --> END_F((◉))
@@ -82,14 +81,15 @@ flowchart TD
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| GET | `/api/v1/auth/employees/login` | diagram หลัก: ข้ามการตรวจ AgentMerchantId, realm `workforce`, expected_issuer = `IdentityAccess:WorkforceIssuer`, scheme `IdentityWorkforceMicrosoft` |
 | GET | `/api/v1/auth/agents/login` | ตรวจ AgentMerchantId ก่อน (503 `capability_not_configured`), realm `external` + item `identity.merchant_id`, expected_issuer = `IdentityAccess:AgentIssuer`, scheme `IdentityAgentMicrosoft` |
+
+> employee login-start `GET /api/v1/auth/employees/login` ถูก retire — employee เริ่ม OIDC ที่ `/oauth/authorize` (§ 1.9) ซึ่งเมื่อยังไม่มี login cookie จะ challenge workforce provider แล้ววนกลับผ่าน callback § 1.3
 
 ---
 
-## 1.3 OIDC callback พนักงาน: JIT account + BFF session
+## 1.3 OIDC callback พนักงาน: JIT account + platform authorization code
 
-OpenIdConnect handler ตรวจ state / code / id_token แล้ว OnTicketReceived สร้างหรือค้น Employee account แบบ JIT, ออก OpenIddict refresh token reference, สร้าง BFF ticket แล้วส่ง browser กลับ SPA, ทุก policy failure เป็น 302 ไป login-error พร้อม reason (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:48-57,132-202,219-256,289-310`, `IdentityAccessEndpoints.cs:107-110,303-310`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs:25-82`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:69-146`, `src/Api/Api/IdentityAccess/OpenIddictRefreshTokenRotator.cs:11-24`, `BffSessionAuthentication.cs:46-72,135-156`)
+OpenIdConnect handler ตรวจ state / code / id_token แล้ว OnTicketReceived สร้างหรือค้น Employee account แบบ JIT, sign บัญชีที่ยืนยันแล้วเข้า short-lived login cookie (`identity-login`) แล้ว redirect กลับไปที่ pending `/oauth/authorize` ซึ่ง OpenIddict จะออก authorization code ให้ SPA แลกเป็น platform JWT ที่ `/oauth/token` (ไม่มี BFF session แล้ว), ทุก policy failure เป็น 302 ไป login-error พร้อม reason (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:18-20,167-194,221-260`, `IdentityAccessEndpoints.cs:98-103,348-376`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs:25-80`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:72-152`)
 
 ```mermaid
 flowchart TD
@@ -119,12 +119,10 @@ flowchart TD
     CREATE --> COMMITOK{"SaveChanges + commit สำเร็จ?"}
     COMMITOK -->|"no (DbUpdateException, แพ้ race, rollback แล้วหา winner)"| RACEOK{"winner (LoginAccounts ที่ชนะ) เป็น Employee และ Active?"}
     RACEOK -->|no| DENY_C
-    RACEOK -->|yes| RT
-    OBS --> RT
-    COMMITOK -->|yes| RT["OpenIddictRefreshTokenRotator.IssueAsync<br/>insert oauth.OpenIddictTokens type refresh_token, Subject = accountId,<br/>ExpirationDate = now + BffSessionMinutes"]
-    RT --> BFF["BffSessionManager.CreateAsync<br/>insert acct.BffSessionTickets (SHA-256 token, AuthorizationVersion, absolute ExpiresAt)<br/>payload ที่ protect: csrfHash, refreshToken, merchantId null, returnTo"]
-    BFF --> COOKIES["WriteCookies: __Host-pol_session (HttpOnly) + pol_csrf (JS อ่านได้)<br/>SameSite Lax, Path /, dev HTTP ใช้ pol_session"]
-    COOKIES --> R302["302 ไป ToWebApp(returnTo, WorkforceWebAppBaseUrl)<br/>context.HandleResponse"]
+    RACEOK -->|yes| SIGNIN
+    OBS --> SIGNIN
+    COMMITOK -->|yes| SIGNIN["sign บัญชีที่ยืนยันแล้วเข้า identity-login cookie<br/>pol_login (HttpOnly, 2 นาที, sub = accountId)<br/>Entra tokens ถูกทิ้ง, ReturnUri = pending /oauth/authorize"]
+    SIGNIN --> R302["302 ไป pending /oauth/authorize<br/>OpenIddict ออก authorization code แล้ว SPA แลกที่ /oauth/token เป็น platform JWT + refresh"]
     R302 --> END_S((◉))
     R401 --> END_F((◉))
     DENY_AD --> END_F
@@ -138,7 +136,7 @@ flowchart TD
     classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
     classDef ext fill:#4a3b0f,stroke:#e3b341,color:#fff
-    class OBS,CREATE,RT,BFF,COOKIES,R302,END_S ok
+    class OBS,CREATE,SIGNIN,R302,END_S ok
     class R401,DENY_AD,DENY_RF,DENY_X,DENY_E,DENY_C,DENY_S,END_F fail
     class STATE,ERRP,EXOK,POLICY,ELIG,EXIST,TYPE,COMMITOK,RACEOK gate
     class OIDC,EXCH ext
@@ -190,23 +188,21 @@ flowchart TD
 
 ## 1.5 อ่านบริบท session / account (identity-platform)
 
-GET ทั้ง 5 ใช้ policy identity-platform (BFF cookie หรือ Bearer) แล้ว handler อ่าน account สดอีกครั้ง, บัญชีไม่ Active ตอบ 401 แบบ bare, ไม่มีการเขียน DB (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:49-50,68-73,116-121,312-319,507-525,629-690,708-715`, `IdentityAccessWiring.cs:75-80`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:238-245,270-349,439-449`)
+GET ทั้ง 4 ใช้ policy identity-platform (Bearer platform JWT) แล้ว handler อ่าน account สดอีกครั้ง, บัญชีไม่ Active ตอบ 401 แบบ bare, ไม่มีการเขียน DB — `/auth/session` ถูก retire พร้อม BFF session (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:59-64,107-112,403-426`, `IdentityAccessWiring.cs:96-99`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:217,249-346`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> REQ["GET /api/v1/me<br/>(รวม /auth/session, /me/merchants, /me/access, /me/sessions ตามตาราง)"]
-    REQ --> AUTHZ["policy identity-platform: __Host-pol_session หรือ Authorization Bearer<br/>+ IdentityAccessRequirement (account Active, authz_version ตรง) ดู § 0.2"]
-    AUTHZ --> SESSION{"auth/session: cookie pol_session และ<br/>BffSessionContext feature มี?"}
-    SESSION -->|"no (เช่น Bearer)"| R401["401 bare status<br/>UseStatusCodePages แปลงเป็น ProblemDetails ไม่มี code ดู § 0.9"]
-    SESSION -->|"yes หรือ endpoint อื่น"| SUB{"claim sub เป็น Guid ไม่ว่าง?"}
-    SUB -->|no| R401
-    SUB -->|yes| ACC["IIdentityAccessQuery.FindAccountAsync(sub) READ-ONLY<br/>(auth/session ไม่ query เพิ่ม ใช้ ticket ใน feature)"]
+    START((●)) --> REQ["GET /api/v1/me<br/>(รวม /me/merchants, /me/access, /me/sessions ตามตาราง)"]
+    REQ --> AUTHZ["policy identity-platform: Authorization Bearer (platform JWT)<br/>+ IdentityAccessRequirement (account Active, authz_version ตรง) ดู § 0.2"]
+    AUTHZ --> SUB{"claim sub เป็น Guid ไม่ว่าง?"}
+    SUB -->|no| R401["401 bare status<br/>UseStatusCodePages แปลงเป็น ProblemDetails ไม่มี code ดู § 0.9"]
+    SUB -->|yes| ACC["IIdentityAccessQuery.FindAccountAsync(sub) READ-ONLY"]
     ACC --> ACTIVE{"account พบและ Active?"}
     ACTIVE -->|no| R401
-    ACTIVE -->|yes| READ["อ่านตาม endpoint: me = FindLoginEmail,<br/>merchants = ListMerchantAccess กรอง Active,<br/>access = ResolveAuthorization(merchant_id, client_id), sessions = ListBffSessions"]
+    ACTIVE -->|yes| READ["อ่านตาม endpoint: me = FindLoginEmail,<br/>merchants = ListMerchantAccess กรอง Active,<br/>access = ResolveAuthorization(merchant_id, client_id),<br/>sessions = OpenIddict authorizations ของ (account, WorkforceClientId)"]
     READ --> SNAP{"access: snapshot เป็น null?"}
     SNAP -->|yes| R401
-    SNAP -->|no| R200["200 JSON เฉพาะ metadata<br/>ไม่คืน ticket, token หรือ secret"]
+    SNAP -->|no| R200["200 JSON เฉพาะ metadata<br/>ไม่คืน token หรือ secret"]
     R200 --> END_S((◉))
     R401 --> END_F((◉))
 
@@ -215,95 +211,38 @@ flowchart TD
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
     class READ,R200,END_S ok
     class R401,END_F fail
-    class AUTHZ,SESSION,SUB,ACTIVE,SNAP gate
+    class AUTHZ,SUB,ACTIVE,SNAP gate
 ```
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| GET | `/api/v1/auth/session` | อ่าน cookie ผ่าน `ReadSessionToken` + feature `BffSessionContext` เท่านั้น: Bearer ไม่มี cookie = 401 แม้ policy รับ Bearer, ไม่ query DB เพิ่ม, คืน accountId, clientId, merchantId (จาก payload), issuedAt, expiresAt |
 | GET | `/api/v1/me` | diagram หลัก: FindAccount + FindLoginEmail, คืน accountId, accountType, displayName, email, status, authorizationVersion, merchantContext (claim `merchant_id`) |
 | GET | `/api/v1/me/merchants` | FindAccount แล้ว `ListMerchantAccessAsync` กรอง `AccessStatus.Active`, คืน array `{merchantId, dataScope}` |
 | GET | `/api/v1/me/access` | FindAccount แล้ว `ResolveAuthorizationAsync(account, merchant_id claim, client_id claim)`, snapshot null = 401, คืน AuthorizationSnapshot ทั้งก้อน (permissions, roles, branches, HasPlatformAccess) |
-| GET | `/api/v1/me/sessions` | ไม่ re-check account ใน handler, `ListBffSessionsAsync(sub)` ใน admin store: account ไม่พบ = NotFoundException 404 ดู § 0.9, คืน `BffSessionAdminView` (id, clientId, issuedAt, expiresAt, revokedAt, isLive) เรียง IssuedAt ล่าสุดก่อน |
+| GET | `/api/v1/me/sessions` | `ListMySessions`: OpenIddict authorizations ของ (accountId, `WorkforceClientId`), คืน `EmployeeSessionView` (sessionId = authorizationId, issuedAt, status, isLive) เรียง IssuedAt ล่าสุดก่อน; ไม่พบ client = array ว่าง |
 
 ---
 
-## 1.6 หมุน BFF ticket: refresh และเลือก merchant context
 
-ทั้งสอง endpoint ค้น ticket ปัจจุบันจาก cookie แล้วออก ticket ใหม่แทน (revoke เดิม + insert ใหม่ใน transaction เดียว) พร้อม cookie คู่ใหม่, refresh หมุน OpenIddict refresh token ด้วย ส่วน merchant-context ตรวจ MerchantAccess ก่อน (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:51-58,527-604,692-706`, `BffSessionAuthentication.cs:43-44,74-112,135-156`, `OpenIddictRefreshTokenRotator.cs:29-55`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:207-209,220-229,270-342`)
+## 1.7 เพิกถอน session: logout และลบ login session ที่เลือก
 
-```mermaid
-flowchart TD
-    START((●)) --> REQ["POST /api/v1/auth/session/refresh<br/>หรือ POST /api/v1/auth/merchant-context body {merchantId}"]
-    REQ --> AUTHZ["policy identity-bff (BFF cookie เท่านั้น) ดู § 0.2<br/>BffCsrfFilter: pol_csrf = X-CSRF-Token, Origin ตรง host, SHA-256 ตรง ticket ดู § 0.3"]
-    AUTHZ --> WHICH{"endpoint?"}
-    WHICH -->|merchant-context| VAL{"body merchantId ไม่ใช่ Guid.Empty?"}
-    VAL -->|no| R400["400 ValidationProblem<br/>errors.merchantId A non-empty MerchantId is required"]
-    VAL -->|yes| FIND
-    WHICH -->|refresh| FIND["FindCurrentSessionAsync: cookie, SHA-256, acct.BffSessionTickets<br/>แล้ว Unprotect payload"]
-    FIND --> HAS{"ticket พบและ unprotect ได้?"}
-    HAS -->|no| R401["401 bare status ดู § 0.9"]
-    HAS -->|yes| ACC["FindAccountAsync(ticket.AccountId)"]
-    ACC --> LANE{"endpoint?"}
-    LANE -->|refresh| ACTIVE_R{"account พบและ Active?"}
-    ACTIVE_R -->|no| R401
-    ACTIVE_R -->|yes| HASRT{"payload มี RefreshToken?"}
-    HASRT -->|no| R401_RU["401 ProblemDetails The BFF session cannot be refreshed<br/>code refresh_unavailable"]
-    HASRT -->|yes| ROT["OpenIddictRefreshTokenRotator.RotateAsync<br/>FindByReferenceId + TryRedeem แถวเดิม (status Redeemed)<br/>insert successor ใน oauth.OpenIddictTokens, ExpirationDate = NextExpiresAt()"]
-    ROT --> ROTOK{"แถวเดิมพบและ redeem ได้?"}
-    ROTOK -->|no| R401
-    ROTOK -->|yes| REPLACE
-    LANE -->|merchant-context| AUTHM["ResolveAuthorizationAsync(account, merchantId)<br/>อ่าน acct.AccountMerchantAccess Active + roles"]
-    AUTHM --> MOK{"account Active และ<br/>snapshot.MerchantId = merchantId?"}
-    MOK -->|no| R403["403 (Results.Forbid ผ่าน default scheme)"]
-    MOK -->|yes| REPLACE["BffSessionManager.RotateAsync แล้ว ReplaceAsync ใน transaction:<br/>ticket เดิม RevokedAt = now, insert ticket ใหม่ (AuthorizationVersion ปัจจุบัน,<br/>ExpiresAt = now + BffSessionMinutes, ClientId เดิม, merchantId ตาม lane)"]
-    REPLACE --> COOKIES["WriteCookies: __Host-pol_session ใหม่ + pol_csrf ใหม่"]
-    COOKIES --> R200["200 refresh = {expiresAt}<br/>merchant-context = {merchantId, expiresAt}"]
-    R200 --> END_S((◉))
-    R400 --> END_F((◉))
-    R401 --> END_F
-    R401_RU --> END_F
-    R403 --> END_F
-
-    classDef ok fill:#1f6f3a,stroke:#3fb950,color:#fff
-    classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
-    classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
-    class ROT,REPLACE,COOKIES,R200,END_S ok
-    class R400,R401,R401_RU,R403,END_F fail
-    class AUTHZ,WHICH,VAL,HAS,LANE,ACTIVE_R,HASRT,ROTOK,MOK gate
-```
-
-| Method | fullPath | ต่างจาก § กลางตรงไหน |
-| --- | --- | --- |
-| POST | `/api/v1/auth/session/refresh` | lane refresh: ไม่มี body, ตรวจ account Active (401), ต้องมี RefreshToken ใน payload (401 `refresh_unavailable`), หมุน OpenIddict token ก่อน rotate ticket, merchantId คงเดิม, response `{expiresAt}` |
-| POST | `/api/v1/auth/merchant-context` | lane merchant-context: validate body ก่อนค้น session (400), ไม่แตะ OpenIddict token, ResolveAuthorization ต้องคืน MerchantId ตรง (403), ticket ใหม่ผูก merchantId ที่เลือก, response `{merchantId, expiresAt}` |
-
----
-
-## 1.7 เพิกถอน BFF session: logout และลบ session ที่เลือก
-
-logout เพิกถอน ticket ปัจจุบัน + OpenIddict refresh token แล้วลบ cookie เสมอ (idempotent), DELETE me/sessions เพิกถอน ticket แถวที่เลือกของบัญชีตนเองโดยไม่แตะ cookie (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:59-62,122-129,321-329,606-627,692-706`, `BffSessionAuthentication.cs:158-164`, `src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:213-218,451-458`, `src/Domain/Modules/Accounts.Domain/AccountModels.cs:433`)
+logout เพิกถอน OpenIddict authorization ปัจจุบัน (ทุก token ของ login นั้น) แล้วตอบ 204 แบบ idempotent (ไม่มี cookie ให้ลบแล้ว), DELETE me/sessions เพิกถอน authorization แถวที่เลือกของบัญชีตนเอง (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:48-50,113-119,428-444,609-620`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> REQ["POST /api/v1/auth/logout<br/>หรือ DELETE /api/v1/me/sessions/{sessionId:guid}"]
-    REQ --> AUTHZ["policy identity-bff ดู § 0.2<br/>BffCsrfFilter: pol_csrf + X-CSRF-Token + Origin ดู § 0.3"]
+    START((●)) --> REQ["POST /api/v1/auth/logout<br/>หรือ DELETE /api/v1/me/sessions/{sessionId}"]
+    REQ --> AUTHZ["policy identity-platform (Bearer) ดู § 0.2<br/>RequireIdentityPlatformMutation: ต้องมี Bearer ดู § 0.3"]
     AUTHZ --> WHICH{"endpoint?"}
-    WHICH -->|logout| FIND["FindCurrentSessionAsync จาก cookie<br/>acct.BffSessionTickets + Unprotect"]
-    FIND --> HAS{"ticket ปัจจุบันพบ?"}
-    HAS -->|yes| RT{"payload มี RefreshToken และ<br/>FindByReferenceId พบใน oauth.OpenIddictTokens?"}
-    RT -->|yes| REVOKE_RT["IOpenIddictTokenManager.TryRevokeAsync<br/>status Revoked"]
-    RT -->|no| REVOKE_T
-    REVOKE_RT --> REVOKE_T["IBffSessionStore.RevokeAsync: RevokedAt = now<br/>SaveChanges"]
-    HAS -->|no| CLEAR
-    REVOKE_T --> CLEAR["ClearCookies: ลบ __Host-pol_session + pol_csrf<br/>ทำเสมอแม้ไม่พบ ticket"]
-    CLEAR --> R204["204 No Content"]
+    WHICH -->|logout| AID{"claim authorization_id มี และ<br/>FindById พบ + subject = sub?"}
+    AID -->|yes| REVOKE["IOpenIddictAuthorizationManager.TryRevokeAsync<br/>(เพิกถอน authorization = ทุก access/refresh token ของ login นั้น)"]
+    AID -->|no| R204["204 No Content (idempotent)"]
+    REVOKE --> R204
     WHICH -->|"DELETE me/sessions"| SUB{"claim sub เป็น Guid ไม่ว่าง?"}
-    SUB -->|no| R401["401 bare status ดู § 0.9"]
-    SUB -->|yes| ROW["IIdentityAccessAdminStore.RevokeBffSessionAsync(sub, sessionId)<br/>SingleOrDefault Id = sessionId และ AccountId = sub"]
-    ROW --> FOUND{"แถวพบ (session ของบัญชีตนเอง)?"}
-    FOUND -->|no| R404["404 ProblemDetails Resource not found<br/>(NotFoundException Session was not found ดู § 0.9)"]
-    FOUND -->|yes| REV2["row.Revoke(now) idempotent (RevokedAt ??= now)<br/>SaveChanges, ไม่แตะ OpenIddict token, ไม่ลบ cookie"]
+    SUB -->|no| R401["401 Unauthorized ดู § 0.9"]
+    SUB -->|yes| ROW["FindByIdAsync(sessionId) = authorizationId<br/>subject ต้องเท่ากับ accountId"]
+    ROW --> FOUND{"authorization พบและเป็นของบัญชีตนเอง?"}
+    FOUND -->|no| R404["404 NotFound"]
+    FOUND -->|yes| REV2["TryRevokeAsync(authorization) idempotent<br/>ไม่แตะ cookie"]
     REV2 --> R204
     R204 --> END_S((◉))
     R401 --> END_F((◉))
@@ -312,15 +251,15 @@ flowchart TD
     classDef ok fill:#1f6f3a,stroke:#3fb950,color:#fff
     classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
     classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
-    class REVOKE_RT,REVOKE_T,CLEAR,REV2,R204,END_S ok
+    class REVOKE,REV2,R204,END_S ok
     class R401,R404,END_F fail
-    class AUTHZ,WHICH,HAS,RT,SUB,FOUND gate
+    class AUTHZ,WHICH,AID,SUB,FOUND gate
 ```
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| POST | `/api/v1/auth/logout` | lane logout: ไม่มี 401 / 404 จาก handler (ticket หายก็ยัง 204), revoke OpenIddict refresh token ก่อน revoke ticket, ลบ cookie คู่เสมอ |
-| DELETE | `/api/v1/me/sessions/{sessionId:guid}` | lane DELETE: 401 เมื่อ claim sub ไม่มี, 404 เมื่อ session ไม่ใช่ของบัญชี, revoke แถวเดียว, ไม่ลบ cookie แม้เลือก session ปัจจุบัน, มี `IdempotencyMutationMarker` แต่ handler ไม่เรียก `IdempotencyKeys.Require` (ดู Notes) |
+| POST | `/api/v1/auth/logout` | lane logout: อ่าน `authorization_id` จาก JWT, ตรวจ subject = sub, `TryRevokeAsync`, ไม่มี 401/404 จาก handler (ไม่มี id ก็ยัง 204), ไม่มี cookie |
+| DELETE | `/api/v1/me/sessions/{sessionId}` | lane DELETE: sessionId = authorizationId, 401 เมื่อ claim sub ไม่มี, 404 เมื่อ authorization ไม่ใช่ของบัญชี, `TryRevokeAsync` แถวเดียว, มี `IdempotencyMutationMarker` แต่ handler ไม่เรียก `IdempotencyKeys.Require` (ดู Notes) |
 
 ---
 
@@ -452,16 +391,15 @@ flowchart TD
 | เรื่อง | ข้อเท็จจริงจาก source | source |
 | --- | --- | --- |
 | OpenIddict ตอบ metadata / JWKS / revoke เอง | server options ตั้ง Configuration / JsonWebKeySet / Revocation endpoint URIs และเปิด passthrough เฉพาะ authorization + token, OpenIddict 7.7.0 ไม่มี `Enable*Passthrough` สำหรับ 3 endpoint นี้ จึงตอบจบใน UseAuthentication ก่อนถึง endpoint routing, handler ที่ map ให้ OpenAPI operation id (test A1 ตรวจ operation id เหล่านี้) | `OpenIddictRegistration.cs:30-42`, `Program.cs:712`, `tests/IntegrationTests/Hosts.Tests/Task8IdentityAccessA1Tests.cs:32-35` |
-| GET /api/v1/auth/session กับ Bearer | policy identity-platform รับ Bearer แต่ handler อ่าน cookie ผ่าน `ReadSessionToken` และต้องมี feature `BffSessionContext` จึงตอบ 401 เมื่อไม่มี BFF cookie | `IdentityAccessEndpoints.cs:507-515` |
-| DELETE /api/v1/me/sessions/{sessionId:guid} กับ Idempotency-Key | endpoint ติด `IdempotencyMutationMarker` (OpenAPI บอก header required) แต่ handler ไม่เรียก `IdempotencyKeys.Require` จึงไม่บังคับ header ตอน runtime, การ revoke idempotent ด้วย `RevokedAt ??= now` แทน | `IdentityAccessEndpoints.cs:122-129,321-329`, `AccountModels.cs:433` |
-| http.User บน GET /oauth/authorize | endpoint ไม่มี policy จึงใช้ default scheme `ConsoleSession` (Program.cs:351) ซึ่ง SelectScheme ไม่มี policy จะเลือก MerchantUserSession, BFF cookie ที่ได้จาก callback หลัง challenge จึงไม่ทำให้ IsAuthenticated บน route นี้, ไม่มี test ครอบ authorization code flow ครบวง จึงอยู่นอก frame | `Program.cs:351`, `Iam/ConsoleSessionAuthentication.cs:33-67`, `IdentityAccessEndpoints.cs:285-286` |
+| DELETE /api/v1/me/sessions/{sessionId} กับ Idempotency-Key | endpoint ติด `IdempotencyMutationMarker` (OpenAPI บอก header required) แต่ handler ไม่เรียก `IdempotencyKeys.Require` จึงไม่บังคับ header ตอน runtime, การ revoke idempotent ด้วย `IOpenIddictAuthorizationManager.TryRevokeAsync` (ปลอดภัยเมื่อเรียกซ้ำ) | `IdentityAccessEndpoints.cs:113-119,428-444` |
+| http.User บน GET /oauth/authorize | `Authorize` handler เรียก `AuthenticateAsync(identity-login)` เอง: ถ้ายังไม่มี login cookie จะ `Challenge` provider (วนไป Entra แล้วกลับผ่าน callback § 1.3) ถ้ามีจะ `SignOut(identity-login)` แล้ว `SignIn` OpenIddict scheme ออก authorization code | `IdentityAccessEndpoints.cs:348-376`, `IdentityAccessWiring.cs:18-20` |
 | grant authorization_code / refresh_token บน POST /oauth/token | `IssueToken` sign in ด้วย ClaimsIdentity ว่าง (ไม่มี sub) สำหรับ grant ที่ไม่ใช่ client_credentials, ผลลัพธ์ HTTP ขึ้นกับ OpenIddict sign-in validation ไม่มี test ครอบ จึงอยู่นอก frame, SYSTEM client ถูก reject `unauthorized_client` ก่อนถึงจุดนี้ | `IdentityAccessEndpoints.cs:223-225`, `OpenIddictRegistration.cs:102-113` |
 | status code ของ OAuth error | handler เอง: `invalid_client` 401 + `WWW-Authenticate Basic`, `invalid_scope` 400 (ยืนยันด้วย test), ส่วน `context.Reject` ใน SystemClientTokenRequestHandler ให้ OpenIddict map status (test ยืนยัน 401 สำหรับ invalid_client), error อื่นเป็น 400 ตาม OpenIddict default | `IdentityAccessEndpoints.cs:228-240`, `IdentityAccessOAuthTests.cs:146-151,544-547` |
-| callback path ที่ใช้ร่วมกับ admin OIDC | `SkipUnrecognizedRequests = true` เพราะ `/api/v1/auth/employees/callback` อาจเป็น redirect URI เดียวกับ legacy admin OIDC scheme (ขึ้นกับ config `AdminOidc:CallbackPath`), state ที่ scheme นี้ unprotect ไม่ได้จะปล่อยให้ handler ถัดไปหรือ fallback 401 รับ | `IdentityAccessWiring.cs:138-143`, `Admins/OidcAuthentication.cs:98` |
+| callback path ที่ใช้ร่วมกับ OIDC scheme อื่น | `SkipUnrecognizedRequests = true` เพราะ workforce กับ agent OIDC scheme อาจถูก challenge บนคำขอเดียวกัน, state ที่ scheme นี้ unprotect ไม่ได้จะปล่อยให้ handler ถัดไปหรือ fallback 401 รับ | `IdentityAccessWiring.cs:132-153` |
 | reason บน login-error | code ของ `IdentityAccessException` ถูกแปลง `_` เป็น `-` ก่อนใส่ `?reason=`, OIDC handler failure ใช้ `auth-failed` / `access-denied` คงที่, ไม่มีรายละเอียด exception หลุดไป browser | `IdentityAccessWiring.cs:165-186,193-202` |
 | registration_identity_not_agent | `StartAsync` โยน code นี้เมื่อ `WorkforceEligible = true` แต่ callback agent ส่ง `workforceEligible: false` เสมอ จึงไม่มีเส้นทางถึงใน flow นี้ | `IdentityAccessWiring.cs:224`, `IdentityAccessContracts.cs:108-109` |
 | provider ไม่ได้ตั้งค่า | `AddHumanProvider` ข้ามการลงทะเบียน scheme เมื่อ ClientId หรือ Authority ว่าง, login ตอบ 404 และ callback ไปถึง fallback 401 เท่านั้น | `IdentityAccessWiring.cs:125-131`, `IdentityAccessEndpoints.cs:498-499` |
-| อายุ session และ cookie | ticket absolute ตาม `IdentityAccess:BffSessionMinutes` (default 480), refresh ต้องเรียกขณะ ticket live, cookie `__Host-*` เฉพาะ HTTPS ส่วน dev HTTP ใช้ `pol_session`, registration session อายุ `RegistrationSessionMinutes` (default 30) | `IdentityAccessOptions.cs:14-15`, `BffSessionAuthentication.cs:35-44,127-133` |
-| rate limit | ไม่มี endpoint ใน theme นี้ต่อ `RequireRateLimiting` (ต่างจาก admin-auth / merchant-user-auth ใน § 0.4) | `IdentityAccessEndpoints.cs:32-129` |
+| อายุ token และ session | platform access token อายุ 5 นาที (OpenIddict), employee login cookie `identity-login` อายุ 2 นาที (พาบัญชีจาก callback ไป /oauth/authorize เท่านั้น), registration session อายุ `RegistrationSessionMinutes` (default 30) | `IdentityAccessOptions.cs:14`, `IdentityAccessWiring.cs:249-254`, `OpenIddictRegistration.cs:28-75` |
+| rate limit | ไม่มี endpoint ใน theme นี้ต่อ `RequireRateLimiting` (ต่างจาก merchant-user-auth ใน § 0.4) | `IdentityAccessEndpoints.cs:32-129` |
 
 **Render**: GitHub / Obsidian / VS Code Mermaid

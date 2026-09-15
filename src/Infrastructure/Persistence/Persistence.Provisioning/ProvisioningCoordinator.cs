@@ -349,8 +349,8 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
         _ => throw new InvalidOperationException("PSP method is outside the canonical provider catalog."),
     };
 
-    // GetSchemaQualifiedTableName() is provider-agnostic MODEL metadata — it returns "admin.Users" regardless
-    // of provider, but SQLite's EnsureCreated() physically ignores the schema and creates a bare "Users"
+    // GetSchemaQualifiedTableName() is provider-agnostic MODEL metadata — it returns "acct.Accounts" regardless
+    // of provider, but SQLite's EnsureCreated() physically ignores the schema and creates a bare "Accounts"
     // table (task 2 precedent). Only qualify with the schema on SQL Server, where it physically exists.
     private static string TableName(ControlPlaneDbContext db, Type clrType)
     {

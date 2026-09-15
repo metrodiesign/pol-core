@@ -9,11 +9,11 @@
 | รายการ | จำนวน |
 | --- | ---: |
 | Explicit mapped operations (`MapGet`/`MapPost`/`MapPut`/`MapPatch`/`MapDelete`) | **245** |
-| GET | 132 |
-| POST | 86 |
-| PUT | 31 |
+| GET | 122 |
+| POST | 76 |
+| PUT | 29 |
 | PATCH | 7 |
-| DELETE | 13 |
+| DELETE | 11 |
 | Development infrastructure templates (`MapOpenApi`/`MapScalarApiReference`) | **2** |
 | OIDC middleware callback defaults (แยกจาก explicit map) | **2** |
 
@@ -91,7 +91,7 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 | GET | `/api/v1/checkout/summary` | Current | อ่านสรุป Order ของลูกค้า | ลูกค้า · opaque checkout capability/token (metadata `AllowAnonymous`) · rate limit | [Program.cs](../../src/Api/Api/Program.cs) |
 | POST | `/api/v1/checkout/verify` | Current | ขอให้ backend ตรวจสถานะ PSP | ลูกค้า · opaque checkout capability/token (metadata `AllowAnonymous`) · rate limit | [Program.cs](../../src/Api/Api/Program.cs) |
 | GET | `/api/v1/orders` | Current | รายการคำสั่งซื้อ | policy `dual-console` · permission `payment.view (identity: order.read)` | [Program.cs](../../src/Api/Api/Program.cs) |
-| POST | `/api/v1/orders` | Canonical | สร้างคำสั่งซื้อแบบ canonical | policy `identity-platform` · permission `payment.create` (human) OR system scope `order.write` · mutation guard: BFF CSRF for cookie, Bearer bypasses CSRF | [Program.cs](../../src/Api/Api/Program.cs) |
+| POST | `/api/v1/orders` | Canonical | สร้างคำสั่งซื้อแบบ canonical | policy `identity-platform` · permission `payment.create` (human) OR system scope `order.write` · mutation guard: `RequireIdentityPlatformMutation` (ต้องมี `Authorization: Bearer` มิฉะนั้น 401 `bearer_required`) | [Program.cs](../../src/Api/Api/Program.cs) |
 | GET | `/api/v1/orders/export` | Current | ส่งออกรายการคำสั่งซื้อ | policy `admin` · permission `txn.export` | [Program.cs](../../src/Api/Api/Program.cs) |
 | POST | `/api/v1/orders/from-cart` | Compatibility | สร้างคำสั่งซื้อจากตะกร้า | policy `dual-console` · permission `payment.create` · CSRF filter | [Program.cs](../../src/Api/Api/Program.cs) |
 | GET | `/api/v1/orders/{orderId:guid}` | Current | อ่านคำสั่งซื้อแบบเต็มพร้อม audit trail | policy `dual-console` · permission `payment.view (identity: order.read)` | [Program.cs](../../src/Api/Api/Program.cs) |
@@ -130,7 +130,7 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 | Method | fullPath | ประเภท | หน้าที่ | caller / auth policy | source |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/v1/checkout/payment-methods` | Canonical | รายการ Payment methods ของ Checkout | policy `merchant-user` · permission `payment.view` | [CanonicalCommerceEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs) |
-| PATCH | `/api/v1/orders/{orderId:guid}` | Canonical | แก้ไข Draft Order | policy `admin-or-identity-order` · permission `payment.create (identity: order.write)` · CSRF filter | [CanonicalCommerceEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs) |
+| PATCH | `/api/v1/orders/{orderId:guid}` | Canonical | แก้ไข Draft Order | policy `admin-or-identity-order` · permission `payment.create (identity: order.write)` · `RequireAdminOrIdentityMutation` (Bearer identity หรือ admin audience ผ่านโดยไม่บังคับ CSRF; `CsrfParity.cs:44-63`) | [CanonicalCommerceEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs) |
 | GET | `/api/v1/orders/{orderId:guid}/history` | Canonical | ประวัติ Order | policy `admin-or-identity-order` · permission `payment.view (identity: order.read)` | [CanonicalCommerceEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs) |
 | GET | `/api/v1/orders/{orderId:guid}/items` | Canonical | รายการ Order items | policy `admin-or-identity-order` · permission `payment.view (identity: order.read)` | [CanonicalCommerceEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs) |
 | GET | `/api/v1/transactions` | Canonical | รายการ Transaction | policy `admin` · permission `payment.view` | [CanonicalCommerceEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalCommerceEndpoints.cs) |
@@ -168,7 +168,7 @@ Policy และ permission ในตารางใช้ชื่อ wire จ�
 | GET | `/api/v1/payment-providers` | Canonical | รายการ Payment Provider | policy `admin` · permission `settings.manage` | [CanonicalProviderConfigurationEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalProviderConfigurationEndpoints.cs) |
 | GET | `/api/v1/payment-providers/{providerId:guid}/methods` | Canonical | รายการ method ของ Payment Provider | policy `admin` · permission `settings.manage` | [CanonicalProviderConfigurationEndpoints.cs](../../src/Api/Api/ControlPlane/CanonicalProviderConfigurationEndpoints.cs) |
 
-## Admin และ merchant identity — 44 endpoints
+## Admin และ merchant identity — 24 endpoints
 
 | Method | fullPath | ประเภท | หน้าที่ | caller / auth policy | source |
 | --- | --- | --- | --- | --- | --- |

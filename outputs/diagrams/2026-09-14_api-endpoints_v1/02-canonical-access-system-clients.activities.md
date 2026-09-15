@@ -114,7 +114,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission user.manage<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission user.manage<br/>ดู § 0.1"]
     GATE --> IDEM{"Idempotency-Key ไม่ว่าง, ≤ 200, ไม่มี control char?"}
     IDEM -->|no| R400_I["400 ProblemDetails<br/>code invalid_idempotency_key"]
     IDEM -->|yes| NEEDV{"endpoint ต้อง If-Match?<br/>(ทุกตัวยกเว้น session-revocations)"}
@@ -162,7 +162,7 @@ flowchart TD
 | PUT | `/api/v1/accounts/{accountId:guid}/merchant-access/{merchantId:guid}` | โหลด account (404), ตรวจ role ต้องอยู่ merchant เดียวกัน (400 `cross_merchant_role`) และ branch ต้องเป็นของ merchant นั้น (raw SQL, 400 `cross_merchant_branch`), ถ้า access ยังไม่มี = สร้างใหม่โดยไม่เทียบ version (If-Match ค่าไหนก็ผ่าน), ถ้ามีแล้ว = เทียบ Version (412) แล้ว `ReplaceScope`/`Activate` มี guard no-op (access.Version bump เฉพาะเมื่อ DataScope/Status เปลี่ยนจริง แม้ Account.AuthorizationVersion จะ bump เสมอไม่มีเงื่อนไข), response 200 + ETag = access.Version (อาจเท่าเดิมถ้าไม่มีอะไรเปลี่ยนจริง), audit เฉพาะ `!Replayed` (ถูกต้อง) (`IdentityAccessStore.cs:769-820`, `Access.Domain/AccessModels.cs:48-72`) |
 | DELETE | `/api/v1/accounts/{accountId:guid}/merchant-access/{merchantId:guid}` | โหลด access row ตรง (ไม่ใช่ account), 404 ถ้าไม่พบ, เทียบ Version เสมอ (412), response 204 ไม่มี ETag, **audit เขียนซ้ำทุกครั้งที่ result=true รวมตอน replay** (endpoint เช็ค `if (result)` ไม่ใช่ `!Replayed`), ใช้ `.ContinueWith(x => x.Result.Value)` ที่มีความเสี่ยงกลืน exception ดู Notes (`IdentityAccessStore.cs:822-844`, `CanonicalAccessEndpoints.cs:269-292`) |
 | PUT | `/api/v1/accounts/{accountId:guid}/platform-access` | โหลด account (404), ตรวจ AccountType ต้องเป็น Employee (400 `invalid_target`), ตรวจ role ต้องเป็น Platform scope ไม่ใช่ Merchant (400 `cross_merchant_role`), ถ้ายังไม่มี PlatformAccess = สร้างใหม่ไม่เทียบ version และละเลย body.Status ทั้งหมด (`PlatformAccess.Create` ไม่รับ status parameter เลย, default เป็น Active เสมอ), ถ้ามีแล้ว = เทียบ Version (412) แล้วใช้ body.Status ผ่าน `Revoke`/`Activate` (มี guard no-op เช่นกัน), response 200 + ETag = Version, audit เฉพาะ `!Replayed` (ถูกต้อง) (`IdentityAccessStore.cs:854-889`, `Access.Domain/AccessModels.cs:150-177`) |
-| POST | `/api/v1/accounts/{accountId:guid}/session-revocations` | ไม่มี If-Match เลย (ข้าม NEEDV), โหลด account ตรง 404 ถ้าไม่พบ, ไม่มี domain validation หรือ version เทียบ, mutate = bump AuthorizationVersion + revoke ทุก live BFF session, response 202 ไม่มี ETag, **audit เขียนซ้ำทุกครั้งรวมตอน replay** เหมือน DELETE merchant-access, ใช้ `.ContinueWith` แบบเดียวกัน (`IdentityAccessStore.cs:418-437`, `CanonicalAccessEndpoints.cs:147-160`) |
+| POST | `/api/v1/accounts/{accountId:guid}/session-revocations` | ไม่มี If-Match เลย (ข้าม NEEDV), โหลด account ตรง 404 ถ้าไม่พบ, ไม่มี domain validation หรือ version เทียบ, mutate = bump AuthorizationVersion (token เดิม stale) + revoke ทุก live session, response 202 ไม่มี ETag, **audit เขียนซ้ำทุกครั้งรวมตอน replay** เหมือน DELETE merchant-access, ใช้ `.ContinueWith` แบบเดียวกัน (`IdentityAccessStore.cs:418-437`, `CanonicalAccessEndpoints.cs:147-160`) |
 
 ---
 
@@ -172,7 +172,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission user.roles<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission user.roles<br/>ดู § 0.1"]
     GATE --> WHICH{"POST หรือ PUT?"}
     WHICH -->|POST| FMT{"Idempotency-Key ถูกรูป? (validate เท่านั้น ไม่ผูก replay ดู Notes)"}
     FMT -->|no| R400_I["400 code invalid_idempotency_key"]
@@ -241,7 +241,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission user.manage<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission user.manage<br/>ดู § 0.1"]
     GATE --> SCOPE{"scope.Accessible.Allows(body.MerchantId)?"}
     SCOPE -->|no| R404["404 (ไม่ใช่ 403 ซ่อนการมีอยู่ของ merchant)"]
     SCOPE -->|yes| IDEM{"Idempotency-Key ถูกรูป?"}
@@ -291,7 +291,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission user.manage (settings.manage เฉพาะ PUT .../access)<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission user.manage (settings.manage เฉพาะ PUT .../access)<br/>ดู § 0.1"]
     GATE --> PRIV{"CreateClientKey เท่านั้น:<br/>Jwk มี private material (d/p/q/dp/dq/qi/k)?"}
     PRIV -->|yes| R400_PRIV["400 code private_key_not_allowed<br/>(เช็คก่อนแม้แต่ scope 404)"]
     PRIV -->|no| LOOK["GetSystemClientAsync(clientId)"]

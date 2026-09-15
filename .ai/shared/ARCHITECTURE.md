@@ -169,13 +169,13 @@ Orders → Paid. จบ ไม่มี issuance.
   (18 platform keys) / `platform_auditor` (4) / `merchant_manager` (8 merchant keys) / `merchant_staff` (3); anchor ปิด/ลบ
   ไม่ได้ = `platform_admin` + `merchant_manager` (แทน anchor เดิม `super_admin`/`merchant_owner`). `Roles.MerchantId` (NULL =
   shared/seed, มีค่า = custom ของ merchant นั้น) ปิด wart เดิมที่ merchant custom role รั่วข้าม merchant. คงต่อ side แค่
-  assignment 2 ตาราง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK `RoleId`→`iam.Roles`). `RequirePermission` +
+  assignment 2 ตาราง (`admin.RoleAssignments` (retire แล้ว 2026-09-14 → `access.PlatformAccessRoles`)/`merch.RoleAssignments`, FK `RoleId`→`iam.Roles`). `RequirePermission` +
   boot parity guard side-aware เหลือกลไกเดียว (`Api.Iam`); resolve permission สดต่อ request จาก DB (union ของ role Active),
   fail-closed 403. `iam.*` อยู่นอก RLS (REQ-9.2 — resolve ระหว่าง authenticate, app-layer scoped read เป็น floor). แกน role
   (action) กับ Tier/RLS (visibility) ยัง **orthogonal**. รายละเอียด: `.ai/specs/rf2-iam-rbac/`
 - Shared role scope — **2026-09-06 (actor model, `feat/actor-model`)**: `Scope` เพิ่มค่าที่สาม **`Shared = 3`** สำหรับ
   ฟีเจอร์ commerce ที่ Tier 0 และ Tier 1 เรียกร่วมกัน — group `payment` (`payment.view/create/redirect`) ย้ายจาก Merchant
-  เป็น Shared, seed role `merchant_staff` เป็น Shared (assign ได้ทั้ง `admin.RoleAssignments`/`merch.RoleAssignments`),
+  เป็น Shared, seed role `merchant_staff` เป็น Shared (assign ได้ทั้ง `admin.RoleAssignments` (retire แล้ว 2026-09-14 → `access.PlatformAccessRoles`)/`merch.RoleAssignments`),
   `platform_admin`/`platform_auditor` ได้ key `payment.*` แทน `txn.manage` ที่ **retire** (เดิมเป็นฝาแฝดฝั่ง admin ของ
   `payment.create` บน 15 endpoint `dual-console` ซึ่งตอนนี้ gate ด้วย `RequirePermission(payment.*)` key เดียว).
   กติกา: role ฝั่ง Platform/Merchant ถือ key ฝั่งตน + Shared ได้, role Shared ถือ Shared เท่านั้น, `RoleVisibility` เห็น

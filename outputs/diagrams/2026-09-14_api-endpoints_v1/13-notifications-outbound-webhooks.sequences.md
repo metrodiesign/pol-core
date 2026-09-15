@@ -33,7 +33,7 @@ sequenceDiagram
 
     Note over A,API: Phase A — gate
     A->>SPA: เปิดรายการ หรือ รายละเอียด
-    SPA->>API: GET + cookie session (ดู § 0.1, permission settings.manage, RequireCsrf ต่อไว้แต่ GET ข้าม ดู § 0.3)
+    SPA->>API: GET + Authorization Bearer (ดู § 0.1, permission settings.manage, admin Bearer ไม่มี CSRF)
     Note over API,DB: Phase B — list
     API->>API: page >= 1, limit 1..100
     alt page/limit ผิด

@@ -94,7 +94,7 @@ document สดและ probe ซ้ำก่อนเปิด transaction. �
 `Quantity`, `UnitPriceAmount`, `UnitPriceCurrency` และ `Metadata` native `json`. มี composite parent boundary
 `(CartId, MerchantId)` และ line `Id` ไม่ generated โดย database.
 
-Current migration chain ถึง `20260911163519_ReviewFixPaymentLinkNotificationIntent`; รายการเต็มอยู่ใน
+Current migration chain ถึง `20260914111802_RetireLegacyAdminIdentityPlane`; รายการเต็มอยู่ใน
 [`entity-fields.md`](entity-fields.md).
 
 ไม่มี SQL RLS; isolation ใช้ app query filter, Account/actor context และ sealed write guard.

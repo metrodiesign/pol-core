@@ -25,7 +25,7 @@ GET รายตัวทุกระดับใช้โครงเดีย�
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + RequirePermission<br/>key ตามตาราง ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + RequirePermission<br/>key ตามตาราง ดู § 0.1"]
     GATE --> PARSE{"path code ปกติ?<br/>method ใน card / promptpay / installment,<br/>provider และ option ไม่เกิน 32 ตัว ไม่มี control char"}
     PARSE -->|no| R400["400 ProblemDetails Invalid request<br/>global store: ArgumentException ไม่มี code<br/>merchant-scoped store: code validation_failed"]
     PARSE -->|yes| LEVEL{"ระดับ resource?"}
@@ -77,7 +77,7 @@ PUT ระดับ platform ต้อง unrestricted admin, รันใน `C
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission merchant.manage ดู § 0.1 / § 0.3<br/>If-Match + Idempotency-Key ดู § 0.5 (400 invalid_etag / invalid_idempotency_key)"]
+    START((●)) --> GATE["policy admin (Bearer) + permission merchant.manage ดู § 0.1<br/>If-Match + Idempotency-Key ดู § 0.5 (400 invalid_etag / invalid_idempotency_key)"]
     GATE --> UNRES{"Accessible.IsUnrestricted?"}
     UNRES -->|no| R403["403 ProblemDetails<br/>code merchant_scope_forbidden"]
     UNRES -->|yes| NORM{"normalize code ผ่าน?"}
@@ -139,11 +139,11 @@ flowchart TD
 
 ## 11.3 เปิด / ปิด capability ระดับ account / merchant / merchant user
 
-PUT ระดับ merchant-scoped รันใน transaction ของ `AdminPaymentsControlStore` เอง: ถือ merchant exclusive lock, replay ผ่าน OperationRecord ต่อ merchant, ตรวจ authorization lease, parent chain, upsert policy row แล้ว project CSV เดิม (source: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs:152-167,181-196,222-237,269-284`, `src/Infrastructure/Persistence/Persistence.ControlPlane/Payments/AdminPaymentsControlStore.cs:187-309,336-392,435-492,1476-1501,1570-1593,1606-1695,2141-2145`, `MerchantRuntimeAuthorizationLease.cs:24-39`, `PaymentAuthorizationSqlLockManager.cs:32-73`)
+PUT ระดับ merchant-scoped รันใน transaction ของ `AdminPaymentsControlStore` เอง: ถือ merchant exclusive lock, replay ผ่าน OperationRecord ต่อ merchant, ตรวจ authorization lease, parent chain, upsert policy row แล้ว project CSV เดิม (source: `src/Api/Api/ControlPlane/AdminControlEndpoints.cs:152-167,181-196,222-237,269-284`, `src/Infrastructure/Persistence/Persistence.ControlPlane/Payments/AdminPaymentsControlStore.cs:187-309,336-392,435-492,1476-1501,1570-1593,1606-1695,2141-2145`, `MerchantRuntimeAuthorizationLease.cs:24-56`, `PaymentAuthorizationSqlLockManager.cs:32-73`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission ตามตาราง ดู § 0.1 / § 0.3<br/>If-Match + Idempotency-Key ดู § 0.5"]
+    START((●)) --> GATE["policy admin (Bearer) + permission ตามตาราง ดู § 0.1<br/>If-Match + Idempotency-Key ดู § 0.5"]
     GATE --> TXN["unitOfWork (admin) ExecuteInTransactionAsync"]
     TXN --> NORM{"method / option normalize ผ่าน?"}
     NORM -->|no| R400["400 code validation_failed"]
@@ -159,7 +159,7 @@ flowchart TD
     PRIOR -->|"hash ต่าง"| R409K["409 code idempotency_key_reused"]
     PRIOR -->|"ยังไม่ Succeeded"| R409P["409 code operation_in_progress"]
     PRIOR -->|"Succeeded"| REPLAY["200 response เดิม (Replayed = true)"]
-    PRIOR -->|"ไม่มี"| LEASE{"authorizationLease.VerifyAsync:<br/>admin.Users Active และ AuthorizationVersion ตรง?"}
+    PRIOR -->|"ไม่มี"| LEASE{"authorizationLease.VerifyAsync:<br/>acct.Accounts Active และ AuthorizationVersion ตรง?"}
     LEASE -->|no| R403["403 code authorization_stale<br/>(AccessDeniedException + DenialEvent)"]
     LEASE -->|yes| VER{"policy row.Version (ไม่มี = 0) ตรง If-Match?"}
     VER -->|no| R409C["409 Conflict ConcurrencyConflictException"]
@@ -211,7 +211,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["gate ตามตาราง: policy admin + RequireCsrf + merchant.view / merchants.users.view<br/>หรือ policy merchant-user + payment.view (GET ไม่มี CSRF) ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["gate ตามตาราง: policy admin (Bearer) + merchant.view / merchants.users.view<br/>หรือ policy merchant-user + payment.view (GET ไม่มี CSRF) ดู § 0.1"]
     GATE --> SUBJ{"subject ระบุได้?<br/>admin: merchant / user ในเส้นทางอยู่ใน scope และมีอยู่<br/>merchant-user: actor.HasActor และ UserId จาก session"}
     SUBJ -->|no| R404["404 ProblemDetails (ไม่มี code)"]
     SUBJ -->|yes| INPUT{"method canonical และ provider (เฉพาะ options)<br/>ไม่ว่าง ไม่เกิน 32 ตัว?"}
@@ -279,7 +279,7 @@ GET list ทั้งสองใช้ query param ธรรมดา (ไม�
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission settings.manage ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage ดู § 0.1"]
     GATE --> PAGE{"page อย่างน้อย 1 และ limit 1..100?"}
     PAGE -->|no| R400P["400 code invalid_filter"]
     PAGE -->|yes| MID{"ระบุ query merchantId?"}
@@ -318,7 +318,7 @@ POST อ่าน body เองภายใต้ limit 16 KiB + `Cache-Control
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission settings.manage และ merchant.manage ดู § 0.1 / § 0.3<br/>Idempotency-Key (+ If-Match เฉพาะ PUT) ดู § 0.5"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage และ merchant.manage ดู § 0.1<br/>Idempotency-Key (+ If-Match เฉพาะ PUT) ดู § 0.5"]
     GATE --> BODY{"POST: ReadSecretBodyAsync (Cache-Control no-store)<br/>Content-Length หรือ stream ไม่เกิน 16 KiB?"}
     BODY -->|no| R413["413 code request_too_large"]
     BODY -->|yes| JSON{"JSON parse ได้และไม่ null?"}
@@ -389,7 +389,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission settings.manage ดู § 0.1 / § 0.3<br/>If-Match + Idempotency-Key ดู § 0.5"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage ดู § 0.1<br/>If-Match + Idempotency-Key ดู § 0.5"]
     GATE --> ACCESS{"body.MerchantId อยู่ใน Accessible?"}
     ACCESS -->|no| R403["403 code merchant_scope_forbidden"]
     ACCESS -->|yes| PRIOR{"OperationRecord (merchant, actor, psp.test / psp.credential-test, key)?<br/>(นอก transaction)"}
@@ -448,7 +448,7 @@ maker ยื่นคำขอ 3 ชนิดที่ stage target เป็น
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission settings.manage ดู § 0.1 / § 0.3<br/>If-Match + Idempotency-Key ดู § 0.5"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage ดู § 0.1<br/>If-Match + Idempotency-Key ดู § 0.5"]
     GATE --> BODY{"credential / environment: ReadSecretBodyAsync<br/>ไม่เกิน 16 KiB และ JSON ถูกต้อง?"}
     BODY -->|"เกิน"| R413["413 code request_too_large"]
     BODY -->|"JSON ผิด"| R400J["400 code validation_failed"]
@@ -517,7 +517,7 @@ draft ruleset แก้ตรงโดยไม่มี OperationRecord: valida
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission settings.manage ดู § 0.1 / § 0.3<br/>If-Match เฉพาะ PUT / DELETE ดู § 0.5 (ไม่มี Idempotency-Key)"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage ดู § 0.1<br/>If-Match เฉพาะ PUT / DELETE ดู § 0.5 (ไม่มี Idempotency-Key)"]
     GATE --> AMOUNT{"POST / PUT: minAmount / maxAmount<br/>เป็น string ทศนิยมคงที่ไม่เกิน 4 ตำแหน่ง?"}
     AMOUNT -->|no| R400A["400 code routing_invalid"]
     AMOUNT -->|yes| TXN["unitOfWork ExecuteInTransactionAsync"]
@@ -588,7 +588,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + RequireCsrf + permission settings.manage ดู § 0.1 / § 0.3<br/>PUT: If-Match + Idempotency-Key ดู § 0.5"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage ดู § 0.1<br/>PUT: If-Match + Idempotency-Key ดู § 0.5"]
     GATE --> KIND{"GET หรือ PUT?"}
     KIND -->|GET| EXIST{"merchant อยู่ใน scope และมีอยู่?"}
     EXIST -->|no| R404["404 ProblemDetails"]
@@ -666,10 +666,10 @@ flowchart TD
 | error map เฉพาะกลุ่ม `/payments/*` | group ติด `HandleKnownErrors`: AdminPaymentsAccessDenied -> 403 `merchant_scope_forbidden`, RoutingOverlap -> 409 `routing_overlap`, PspConnectionTestFailed -> 502 `psp_test_failed`, SecretBodyTooLarge -> 413 `request_too_large`, PaymentCapabilityUnavailable -> 409 `payment_capability_unavailable`, PaymentAuthorizationBusy -> 409 `payment_authorization_busy` (ทุกตัวมี correlationId) นอกนั้นตกไป § 0.9 | `AdminControlEndpoints.cs:18,1011-1046,1064-1070` |
 | 502 ไม่ใช่ 503 | การทดสอบ PSP ที่ล้มเหลวคืน 502 `psp_test_failed` (ไม่ใช่ 503 Upstream ของ § 0.9) และ state ล้มเหลวถูก commit + OperationRecord status 502 จึง replay ด้วย key เดิมได้ 502 เดิม | `AdminPaymentsControlStore.cs:668-721,798-858` |
 | lock 2 ชั้น | mutation ทุกตัวถือ `sp_getapplock` ผ่าน `PaymentAuthorizationSqlLockManager`: global (Exclusive สำหรับ § 11.2, Shared สำหรับที่เหลือ) + `payment-authz:merchant:{id}` Exclusive สำหรับ write / Shared สำหรับ resolver, timeout 15 วินาที -> 409 `payment_authorization_busy`; นอก SQL Server (SQLite tests) ข้าม lock | `PaymentAuthorizationSqlLockManager.cs:10-73` |
-| authorization lease | write ทุกตัวใน § 11.3, 11.6-11.10 เรียก `MerchantRuntimeAuthorizationLease.VerifyAsync` (UPDATE admin.Users แบบมีเงื่อนไข Status Active + AuthorizationVersion) หลัง replay check, ล้มเหลว = 403 `authorization_stale` + DenialEvent; § 11.2 ไม่มี lease (ใช้ global lock + executor แทน) | `MerchantRuntimeAuthorizationLease.cs:24-39`, `AdminPaymentsControlStore.cs:205,355,455,527,651,709,763,844,941,1024,1040,1056,1089,1190` |
+| authorization lease | write ทุกตัวใน § 11.3, 11.6-11.10 เรียก `MerchantRuntimeAuthorizationLease.VerifyAsync` (UPDATE `acct.Accounts` แบบมีเงื่อนไข Status Active + AuthorizationVersion) หลัง replay check, ล้มเหลว = 403 `authorization_stale` + DenialEvent; § 11.2 ไม่มี lease (ใช้ global lock + executor แทน) | `MerchantRuntimeAuthorizationLease.cs:24-56`, `AdminPaymentsControlStore.cs:205,355,455,527,651,709,763,844,941,1024,1040,1056,1089,1190` |
 | ลำดับ replay กับ ETag | ทุก write ใน store ตรวจ OperationRecord (replay / reused / in-progress) ก่อน EnsureVersion เพื่อให้ retry จริงได้ผลเดิมแม้ version เปลี่ยน, และ state guard (approval_pending, advanced_routing_read_only) มาก่อน ETag โดยตั้งใจ | `AdminPaymentsControlStore.cs:748-764,928-942,1171-1189` |
 | draft ruleset ไม่มี idempotency | `POST/PUT/DELETE /payments/routing-rulesets*` ไม่มี `IdempotencyMutationMarker` และไม่เขียน OperationRecord ต่างจาก mutation อื่นในกลุ่ม | `AdminControlEndpoints.cs:876-877,900-901,922-923`, `AdminPaymentsControlStore.cs:1018-1062` |
-| CSRF บน GET | ทุก endpoint ใน `AdminControlEndpoints.cs` ต่อ `RequireCsrf()` รวม GET ตรงตามเอกสาร, filter ตรวจเฉพาะ unsafe method (ดู § 0.3) ส่วน 2 endpoint ของ merchant-user ไม่มี CSRF | `AdminControlEndpoints.cs:32,203,561,613`, `PaymentCapabilityEndpoints.cs:29,52` |
+| CSRF ของ admin control | endpoint ใน `AdminControlEndpoints.cs` เป็น Bearer JWT (policy admin) จึงไม่มี CSRF filter — admin double-submit (`Admins/CsrfFilter.cs`/`RequireCsrf()`) ถูก retire; 2 endpoint merchant-user ใน `PaymentCapabilityEndpoints` เป็น GET จึงไม่มี CSRF เช่นกัน | `AdminControlEndpoints.cs:32,203`, `PaymentCapabilityEndpoints.cs:29,52`, `Iam/CsrfParity.cs:19` |
 | ETag ของ list user methods | `GET .../users/{userId}/methods` ตั้ง ETag = ผลรวม Version ของทุกแถว ไม่ใช่ version ของ resource เดียว จึงใช้เป็น If-Match กับ PUT รายตัวไม่ได้ | `AdminControlEndpoints.cs:247` |
 | 404 เปล่า | `ListMerchantMethodsAsync`, `ListMerchantUserMethodsAsync`, resolution และ options ของ admin คืน `Results.NotFound()` (ไม่ใช่ `Results.Problem`) จึงเป็น ProblemDetails ผ่าน UseStatusCodePages ไม่มี code, ต่างจาก GET รายตัวที่ `CapabilityResult` คืน `Results.Problem(404)` | `AdminControlEndpoints.cs:202,246,293,307,1050-1051` |
 | authorization mode | resolver อ่าน `cfg.PaymentAuthorizationStates.Mode` ทุกครั้ง: LegacyRead ใช้ CSV `EnabledChannels` / `EnabledMethods`, NormalizedRead ใช้ policy rows, ค่าอื่นหรือไม่มีแถว = fail-closed (denied ทุก method), options คืนว่างเสมอนอก NormalizedRead | `EffectivePaymentCapabilityResolver.cs:62-64,109-135` |

@@ -1,18 +1,17 @@
-# pol-core API — Identity BFF และ OAuth (Sequence Diagrams)
+# pol-core API — Identity platform login และ OAuth (Sequence Diagrams)
 
-> Source: `docs/reference/api-endpoints.md` section "Identity และ OAuth" บรรทัด L32-L33, L52-L64, L78-L80 และ source ที่อ้างต่อ § (`src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs`, `IdentityAccessWiring.cs`, `BffSessionAuthentication.cs`, `BffCsrfFilter.cs`, `OpenIddictRefreshTokenRotator.cs`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs`, `src/Infrastructure/Persistence/Persistence.ControlPlane/OpenIddictRegistration.cs`, `IdentityAccess/IdentityAccessStore.cs`)
-> Scope: 9 § เดียวกับ `01-identity-bff-oauth.activities.md` (หมายเลข § ตรงกัน) แสดงลำดับข้าม actor / browser / API / handler / DB / OpenIddict / IdP
+> Source: `docs/reference/api-endpoints.md` section "Identity และ OAuth" และ source ที่อ้างต่อ § (`src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs`, `IdentityAccessWiring.cs`, `PlatformTokenAuthentication.cs`, `BffCsrfFilter.cs`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs`, `src/Infrastructure/Persistence/Persistence.ControlPlane/OpenIddictRegistration.cs`, `IdentityAccess/IdentityAccessStore.cs`)
+> Scope: 8 § เดียวกับ `01-identity-bff-oauth.activities.md` (หมายเลข § ตรงกัน, §1.6 BFF ticket ถูก retire) แสดงลำดับข้าม actor / browser / API / handler / DB / OpenIddict / IdP
 > Generated: 2026-09-14
 
 | § | Diagram | Endpoints |
 | --- | --- | --- |
 | 1.1 | OAuth discovery และ JWKS (OpenIddict ตอบเอง) | `GET /.well-known/oauth-authorization-server`, `GET /.well-known/jwks.json` |
-| 1.2 | เริ่ม OIDC login (employees / agents) | `GET /api/v1/auth/employees/login`, `GET /api/v1/auth/agents/login` |
-| 1.3 | OIDC callback พนักงาน: JIT account + BFF session | `GET /api/v1/auth/employees/callback` |
+| 1.2 | เริ่ม OIDC login (agents) | `GET /api/v1/auth/agents/login` |
+| 1.3 | OIDC callback พนักงาน: JIT account + platform authorization code | `GET /api/v1/auth/employees/callback` |
 | 1.4 | OIDC callback ตัวแทน: registration session | `GET /api/v1/auth/agents/callback` |
-| 1.5 | อ่านบริบท session / account (identity-platform) | `GET /api/v1/auth/session`, `GET /api/v1/me`, `GET /api/v1/me/merchants`, `GET /api/v1/me/access`, `GET /api/v1/me/sessions` |
-| 1.6 | หมุน BFF ticket: refresh และเลือก merchant context | `POST /api/v1/auth/session/refresh`, `POST /api/v1/auth/merchant-context` |
-| 1.7 | เพิกถอน BFF session: logout และลบ session ที่เลือก | `POST /api/v1/auth/logout`, `DELETE /api/v1/me/sessions/{sessionId:guid}` |
+| 1.5 | อ่านบริบท session / account (identity-platform) | `GET /api/v1/me`, `GET /api/v1/me/merchants`, `GET /api/v1/me/access`, `GET /api/v1/me/sessions` |
+| 1.7 | เพิกถอน session: logout และลบ login session ที่เลือก | `POST /api/v1/auth/logout`, `DELETE /api/v1/me/sessions/{sessionId}` |
 | 1.8 | OAuth token: client_credentials ด้วย private_key_jwt | `POST /oauth/token` |
 | 1.9 | OAuth authorize และ revoke | `GET /oauth/authorize`, `POST /oauth/revoke` |
 
@@ -48,31 +47,31 @@ sequenceDiagram
 
 ---
 
-## 1.2 เริ่ม OIDC login (employees / agents)
+## 1.2 เริ่ม OIDC login (agents)
 
-endpoint public (agents) ตรวจ AgentMerchantId ตั้งค่าก่อน แล้ว normalize returnTo แล้ว challenge OpenIdConnect scheme ของ provider ให้ browser ไป Microsoft Entra (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:44-47,449-505,717-720`, `IdentityAccessWiring.cs:115-153`)
+endpoint public ของ agents ตรวจ AgentMerchantId ตั้งค่าก่อน แล้ว normalize returnTo แล้ว challenge OpenIdConnect scheme ของ provider ให้ browser ไป Microsoft Entra — employee เริ่มที่ `/oauth/authorize` (§ 1.9) (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:45-46,564-604,695-698`, `IdentityAccessWiring.cs:115-153`)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as Employee / Agent applicant
+    actor U as Agent applicant
     participant Browser
     participant API
     participant IdP as Microsoft Entra<br/>(external)
 
     Note over U,API: Phase A — ตรวจ agent config ก่อน normalize returnTo แล้วตรวจ provider
     U->>Browser: คลิก login
-    Browser->>API: GET /api/v1/auth/employees/login?returnTo=<br/>หรือ GET /api/v1/auth/agents/login?returnTo= (AllowAnonymous)
-    alt agents lane และ IdentityAccess:AgentMerchantId ไม่ได้ตั้งค่าหรือ Guid.Empty
+    Browser->>API: GET /api/v1/auth/agents/login?returnTo= (AllowAnonymous)
+    alt IdentityAccess:AgentMerchantId ไม่ได้ตั้งค่าหรือ Guid.Empty
         API-->>Browser: 503 ProblemDetails code capability_not_configured
-    else agents lane พร้อม หรือ employees lane
+    else agent config พร้อม
         API->>API: NormalizeReturnTo, ต้องขึ้นต้นด้วย / และไม่ใช่ //, ไม่ผ่านใช้ / แทน
         alt provider scheme ยังไม่ลงทะเบียน (ClientId หรือ Authority ว่าง)
             API-->>Browser: 404 (Results.NotFound)
         else provider พร้อม
             Note over API: Phase B — เตรียม AuthenticationProperties แล้ว challenge
-            API->>API: RedirectUri=returnTo, identity.expected_issuer=WorkforceIssuer/AgentIssuer,<br/>identity.realm=workforce/external (agents เพิ่ม identity.merchant_id)
-            API-->>Browser: 302 Results.Challenge(scheme)<br/>IdentityWorkforceMicrosoft หรือ IdentityAgentMicrosoft
+            API->>API: RedirectUri=returnTo, identity.expected_issuer=AgentIssuer,<br/>identity.realm=external, identity.merchant_id
+            API-->>Browser: 302 Results.Challenge(scheme) IdentityAgentMicrosoft
             Browser->>IdP: GET authorize (response_type=code, PKCE,<br/>scope จาก provider options, state data-protected ต่อ scheme)
         end
     end
@@ -80,14 +79,15 @@ sequenceDiagram
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| GET | `/api/v1/auth/employees/login` | diagram หลัก: ข้ามการตรวจ AgentMerchantId, realm `workforce`, expected_issuer = `IdentityAccess:WorkforceIssuer`, scheme `IdentityWorkforceMicrosoft` |
 | GET | `/api/v1/auth/agents/login` | ตรวจ AgentMerchantId ก่อน (503 `capability_not_configured`), realm `external` + item `identity.merchant_id`, expected_issuer = `IdentityAccess:AgentIssuer`, scheme `IdentityAgentMicrosoft` |
+
+> employee login-start `GET /api/v1/auth/employees/login` ถูก retire — employee เริ่มที่ `/oauth/authorize` (§ 1.9)
 
 ---
 
-## 1.3 OIDC callback พนักงาน: JIT account + BFF session
+## 1.3 OIDC callback พนักงาน: JIT account + platform authorization code
 
-OpenIdConnect handler ตรวจ state/code/id_token แล้ว OnTicketReceived สร้างหรือค้น Employee account แบบ JIT, ออก OpenIddict refresh token reference, สร้าง BFF ticket แล้วส่ง browser กลับ SPA (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:48-57,132-202,219-256,289-310`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs:25-82`, `Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:69-146`, `OpenIddictRefreshTokenRotator.cs:11-24`)
+OpenIdConnect handler ตรวจ state/code/id_token แล้ว OnTicketReceived สร้างหรือค้น Employee account แบบ JIT, sign บัญชีเข้า short-lived login cookie แล้ววนกลับไป `/oauth/authorize` ให้ OpenIddict ออก authorization code ที่ SPA แลกเป็น platform JWT (source: `src/Api/Api/IdentityAccess/IdentityAccessWiring.cs:18-20,167-194,221-260`, `IdentityAccessEndpoints.cs:348-376`, `src/Application/Modules/Accounts.Application/IdentityAccessContracts.cs:25-80`, `Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:72-152`)
 
 ```mermaid
 sequenceDiagram
@@ -96,8 +96,7 @@ sequenceDiagram
     participant Browser
     participant API as API<br/>OpenIdConnect handler IdentityWorkforceMicrosoft
     participant JIT as EmployeeJitService + DB
-    participant RT as OpenIddictRefreshTokenRotator
-    participant BFF as BffSessionManager + DB
+    participant AZ as /oauth/authorize + OpenIddict
 
     Note over IdP,API: Phase A — callback และแลก token
     IdP-->>Browser: 302 callback?code&state
@@ -145,12 +144,12 @@ sequenceDiagram
                         end
                     end
                 end
-                Note over API,BFF: Phase C — ออก refresh token แล้ว BFF ticket
-                API->>RT: IssueAsync(accountId, now + BffSessionMinutes)
-                RT->>RT: insert oauth.OpenIddictTokens type refresh_token, Subject=accountId
-                API->>BFF: CreateAsync
-                BFF->>BFF: insert acct.BffSessionTickets (hash, AuthorizationVersion, absolute ExpiresAt),<br/>protect payload csrfHash/refreshToken/merchantId null/returnTo
-                API-->>Browser: WriteCookies __Host-pol_session (HttpOnly) + pol_csrf<br/>302 ToWebApp(returnTo, WorkforceWebAppBaseUrl)
+                Note over API,AZ: Phase C — sign login cookie แล้ววนกลับไป /oauth/authorize
+                API->>API: sign accountId เข้า identity-login cookie (pol_login, 2 นาที), Entra tokens ถูกทิ้ง
+                API-->>Browser: 302 ไป pending /oauth/authorize (ReturnUri)
+                Browser->>AZ: GET /oauth/authorize (แนบ login cookie)
+                AZ->>AZ: SignOut(identity-login) แล้ว SignIn OpenIddict ออก authorization code
+                AZ-->>Browser: 302 กลับ SPA พร้อม code แล้ว SPA แลกที่ /oauth/token เป็น platform JWT + refresh
             end
         end
     end
@@ -206,7 +205,7 @@ sequenceDiagram
 
 ## 1.5 อ่านบริบท session / account (identity-platform)
 
-GET ทั้ง 5 ใช้ policy identity-platform (BFF cookie หรือ Bearer) แล้ว handler อ่าน account สดอีกครั้ง ไม่มีการเขียน DB (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:49-50,68-73,116-121,312-319,507-525,629-690,708-715`, `Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:238-245,270-349,439-449`)
+GET ทั้ง 4 ใช้ policy identity-platform (Bearer platform JWT) แล้ว handler อ่าน account สดอีกครั้ง ไม่มีการเขียน DB — `/auth/session` ถูก retire (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:59-64,107-112,403-426`, `Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:217,249-346`)
 
 ```mermaid
 sequenceDiagram
@@ -217,14 +216,12 @@ sequenceDiagram
     participant DB
 
     Note over Client,API: Phase A — authenticate (ดู § 0.2)
-    Client->>API: GET /api/v1/me (รวม /auth/session, /me/merchants, /me/access, /me/sessions)<br/>policy identity-platform, cookie __Host-pol_session หรือ Authorization Bearer
-    alt auth/session และไม่มี feature BffSessionContext (เช่น เรียกด้วย Bearer)
+    Client->>API: GET /api/v1/me (รวม /me/merchants, /me/access, /me/sessions)<br/>policy identity-platform, Authorization Bearer (platform JWT)
+    alt claim sub ไม่ใช่ Guid ที่ไม่ว่าง
         API-->>Client: 401 bare status (ดู § 0.9)
-    else claim sub ไม่ใช่ Guid ที่ไม่ว่าง
-        API-->>Client: 401 bare status
     else sub ถูกต้อง
         Note over API,DB: Phase B — อ่าน account สด (READ-ONLY)
-        API->>DB: FindAccountAsync(sub)<br/>(auth/session ไม่ query เพิ่ม ใช้ ticket ใน feature)
+        API->>DB: FindAccountAsync(sub)
         DB-->>API: account
         alt account ไม่พบหรือไม่ Active
             API-->>Client: 401 bare status
@@ -247,17 +244,9 @@ sequenceDiagram
                     API-->>Client: 200 AuthorizationSnapshot ทั้งก้อน (permissions, roles, branches, HasPlatformAccess)
                 end
             else /api/v1/me/sessions
-                API->>DB: ListBffSessionsAsync(sub) (admin store, ไม่ re-check account ในเส้นนี้)
-                alt account ไม่พบ
-                    DB-->>API: throw NotFoundException
-                    API-->>Client: 404 ProblemDetails Resource not found (ดู § 0.9)
-                else พบ
-                    DB-->>API: BffSessionAdminView[] เรียง IssuedAt ล่าสุดก่อน
-                    API-->>Client: 200 array {id, clientId, issuedAt, expiresAt, revokedAt, isLive}
-                end
-            else /api/v1/auth/session
-                Note right of API: อ่านจาก feature BffSessionContext ที่ authenticate ตั้งไว้ ไม่ query DB เพิ่ม
-                API-->>Client: 200 accountId, clientId, merchantId (จาก payload), issuedAt, expiresAt
+                API->>DB: OpenIddict authorizations ของ (accountId, WorkforceClientId)
+                DB-->>API: EmployeeSessionView[] เรียง IssuedAt ล่าสุดก่อน
+                API-->>Client: 200 array {sessionId, issuedAt, status, isLive}<br/>(ไม่พบ client = array ว่าง)
             end
         end
     end
@@ -265,17 +254,17 @@ sequenceDiagram
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| GET | `/api/v1/auth/session` | อ่าน cookie ผ่าน `ReadSessionToken` + feature `BffSessionContext` เท่านั้น, Bearer ไม่มี cookie = 401 แม้ policy รับ Bearer, ไม่ query DB เพิ่ม |
 | GET | `/api/v1/me` | diagram หลัก: `FindAccountAsync` + `FindLoginEmailAsync` |
 | GET | `/api/v1/me/merchants` | `FindAccountAsync` แล้ว `ListMerchantAccessAsync` กรอง `AccessStatus.Active` |
 | GET | `/api/v1/me/access` | `FindAccountAsync` แล้ว `ResolveAuthorizationAsync`, snapshot null = 401 |
-| GET | `/api/v1/me/sessions` | ไม่ re-check account ใน handler ก่อน, `ListBffSessionsAsync` เอง throw `NotFoundException` 404 เมื่อ account ไม่พบ |
+| GET | `/api/v1/me/sessions` | `ListMySessions`: OpenIddict authorizations ของ (accountId, `WorkforceClientId`), คืน `EmployeeSessionView`, ไม่พบ client = array ว่าง |
 
 ---
 
-## 1.6 หมุน BFF ticket: refresh และเลือก merchant context
 
-ทั้งสอง endpoint ค้น ticket ปัจจุบันจาก cookie แล้วออก ticket ใหม่แทน (revoke เดิม + insert ใหม่ในธุรกรรมเดียว) พร้อม cookie คู่ใหม่, refresh หมุน OpenIddict refresh token ด้วย ส่วน merchant-context ตรวจ MerchantAccess ก่อน (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:51-58,527-604,692-706`, `BffSessionAuthentication.cs:43-44,74-112,135-156`, `OpenIddictRefreshTokenRotator.cs:29-55`)
+## 1.7 เพิกถอน session: logout และลบ login session ที่เลือก
+
+logout เพิกถอน OpenIddict authorization ปัจจุบัน (ทุก token ของ login นั้น) แล้วตอบ 204 idempotent, DELETE me/sessions เพิกถอน authorization แถวที่เลือกของบัญชีตนเอง — ไม่มี cookie แล้ว (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:48-50,113-119,428-444,609-620`)
 
 ```mermaid
 sequenceDiagram
@@ -283,89 +272,27 @@ sequenceDiagram
     actor U as Employee / Agent / SYSTEM client
     participant Client as SPA
     participant API
-    participant RT as OpenIddictRefreshTokenRotator
-    participant DB
+    participant AM as IOpenIddictAuthorizationManager
 
-    Note over Client,API: Phase A — authenticate policy identity-bff + CSRF (ดู § 0.2, § 0.3)
-    Client->>API: POST /api/v1/auth/session/refresh<br/>หรือ POST /api/v1/auth/merchant-context {merchantId}
-    alt merchant-context และ body merchantId = Guid.Empty
-        API-->>Client: 400 ValidationProblem errors.merchantId<br/>A non-empty MerchantId is required
-    else รูปแบบ request ถูกต้อง
-        Note over API,DB: Phase B — หา session ปัจจุบัน
-        API->>DB: FindCurrentSessionAsync (cookie -> hash -> acct.BffSessionTickets) + Unprotect payload
-        alt ticket ไม่พบหรือ unprotect ไม่ได้
-            API-->>Client: 401 bare status (ดู § 0.9)
-        else lane refresh
-            API->>DB: FindAccountAsync(ticket.AccountId)
-            alt account ไม่พบหรือไม่ Active
-                API-->>Client: 401 bare status
-            else payload ไม่มี RefreshToken
-                API-->>Client: 401 ProblemDetails code refresh_unavailable<br/>The BFF session cannot be refreshed
-            else มี RefreshToken
-                API->>RT: RotateAsync(refreshToken, NextExpiresAt)
-                RT->>DB: FindByReferenceId + TryRedeem แถวเดิม (status Redeemed),<br/>insert successor ใน oauth.OpenIddictTokens
-                alt redeem ไม่สำเร็จ (แถวเดิมไม่พบ)
-                    RT-->>API: null
-                    API-->>Client: 401 bare status
-                else redeem สำเร็จ
-                    API->>DB: BffSessionManager.RotateAsync + ReplaceAsync (transaction),<br/>ticket เดิม RevokedAt=now, ticket ใหม่ merchantId เดิม, ExpiresAt=now+BffSessionMinutes
-                    API-->>Client: WriteCookies __Host-pol_session ใหม่ + pol_csrf ใหม่<br/>200 {expiresAt}
-                end
-            end
-        else lane merchant-context
-            API->>DB: FindAccountAsync แล้ว ResolveAuthorizationAsync(account, merchantId)<br/>(AccountMerchantAccess Active + roles)
-            alt account ไม่ Active หรือ snapshot.MerchantId ไม่ตรง merchantId ที่ขอ
-                API-->>Client: 403 (Results.Forbid ผ่าน default scheme)
-            else ตรง
-                API->>DB: RotateAsync + ReplaceAsync (transaction, merchantId ที่เลือก)
-                API-->>Client: WriteCookies ใหม่<br/>200 {merchantId, expiresAt}
-            end
-        end
-    end
-```
-
-| Method | fullPath | ต่างจาก § กลางตรงไหน |
-| --- | --- | --- |
-| POST | `/api/v1/auth/session/refresh` | lane refresh: ตรวจ account Active (401), ต้องมี RefreshToken ใน payload (401 `refresh_unavailable`), หมุน OpenIddict token ก่อน rotate ticket, merchantId คงเดิม |
-| POST | `/api/v1/auth/merchant-context` | lane merchant-context: validate body ก่อนค้น session (400), ไม่แตะ OpenIddict token, `ResolveAuthorizationAsync` ต้องคืน MerchantId ตรง (403), ticket ใหม่ผูก merchantId ที่เลือก |
-
----
-
-## 1.7 เพิกถอน BFF session: logout และลบ session ที่เลือก
-
-logout เพิกถอน ticket ปัจจุบัน + OpenIddict refresh token แล้วลบ cookie เสมอ (idempotent), DELETE me/sessions เพิกถอน ticket แถวที่เลือกของบัญชีตนเองโดยไม่แตะ cookie (source: `src/Api/Api/IdentityAccess/IdentityAccessEndpoints.cs:59-62,122-129,321-329,606-627,692-706`, `Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs:213-218,451-458`)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor U as Employee / Agent / SYSTEM client
-    participant Client as SPA
-    participant API
-    participant TM as IOpenIddictTokenManager
-    participant DB
-
-    Note over Client,API: Phase A — authenticate policy identity-bff + CSRF (ดู § 0.2, § 0.3)
-    Client->>API: POST /api/v1/auth/logout<br/>หรือ DELETE /api/v1/me/sessions/{sessionId:guid}
+    Note over Client,API: Phase A — authenticate policy identity-platform + RequireIdentityPlatformMutation (ดู § 0.2, § 0.3)
+    Client->>API: POST /api/v1/auth/logout<br/>หรือ DELETE /api/v1/me/sessions/{sessionId}
     alt lane logout
-        API->>DB: FindCurrentSessionAsync (cookie -> hash) + Unprotect
-        alt ticket ปัจจุบันพบ
-            alt payload มี RefreshToken และพบใน oauth.OpenIddictTokens
-                API->>TM: TryRevokeAsync (status Revoked)
-            end
-            API->>DB: IBffSessionStore.RevokeAsync RevokedAt=now + SaveChanges
+        API->>AM: FindByIdAsync(claim authorization_id)
+        alt authorization พบและ subject = sub
+            API->>AM: TryRevokeAsync (เพิกถอนทุก token ของ login นั้น)
         end
-        API-->>Client: ClearCookies __Host-pol_session + pol_csrf เสมอ (แม้ไม่พบ ticket)<br/>204 No Content
+        API-->>Client: 204 No Content (idempotent, ไม่มี cookie)
     else lane DELETE me/sessions
         alt claim sub ไม่ใช่ Guid ที่ไม่ว่าง
-            API-->>Client: 401 bare status (ดู § 0.9)
+            API-->>Client: 401 Unauthorized (ดู § 0.9)
         else sub ถูกต้อง
-            API->>DB: RevokeBffSessionAsync(sub, sessionId)<br/>SingleOrDefault Id=sessionId และ AccountId=sub
-            alt แถวไม่พบ (ไม่ใช่ session ของบัญชีตนเอง)
-                DB-->>API: throw NotFoundException Session was not found
-                API-->>Client: 404 ProblemDetails Resource not found
-            else พบ
-                DB->>DB: row.Revoke(now) idempotent (RevokedAt ??= now) + SaveChanges<br/>ไม่แตะ OpenIddict token ไม่ลบ cookie
-                API-->>Client: 204 No Content
+            API->>AM: FindByIdAsync(sessionId = authorizationId)
+            alt authorization ไม่พบ หรือ subject ไม่ใช่ accountId
+                AM-->>API: not found
+                API-->>Client: 404 NotFound
+            else เป็นของบัญชีตนเอง
+                API->>AM: TryRevokeAsync (idempotent)
+                API-->>Client: 204 No Content (ไม่แตะ cookie)
             end
         end
     end
@@ -373,8 +300,8 @@ sequenceDiagram
 
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
-| POST | `/api/v1/auth/logout` | lane logout: ไม่มี 401/404 จาก handler (ticket หายก็ยัง 204), revoke OpenIddict refresh token ก่อน revoke ticket, ลบ cookie คู่เสมอ |
-| DELETE | `/api/v1/me/sessions/{sessionId:guid}` | lane DELETE: 401 เมื่อ claim sub ไม่มี, 404 เมื่อ session ไม่ใช่ของบัญชี, revoke แถวเดียว, ไม่ลบ cookie แม้เลือก session ปัจจุบัน |
+| POST | `/api/v1/auth/logout` | lane logout: อ่าน `authorization_id` จาก JWT, ตรวจ subject = sub, `TryRevokeAsync`, ไม่มี 401/404 จาก handler, ไม่มี cookie |
+| DELETE | `/api/v1/me/sessions/{sessionId}` | lane DELETE: sessionId = authorizationId, 401 เมื่อ claim sub ไม่มี, 404 เมื่อ authorization ไม่ใช่ของบัญชี, `TryRevokeAsync` แถวเดียว |
 
 ---
 
@@ -508,6 +435,6 @@ Deviations และรายละเอียด edge-case ทั้งหม�
 
 - § 1.3 / § 1.4: gate `workforceEligible` ของ activity diagram เป็นจริงเสมอในเลนนี้ (kind กำหนดตายตัวจาก endpoint) จึงไม่วาดเป็น alt แยกในลำดับนี้ ดูรายละเอียดเต็มที่ activities.md
 - § 1.1, § 1.8 lane `authorization_code`/`refresh_token` อื่นนอกเลนที่ตาราง endpoint ของ theme นี้ครอบ, § 1.9 revoke lane token ไม่พบ อยู่นอก frame (ไม่มี test ครอบ) ตามที่บันทึกไว้ใน Notes ของ activities.md
-- authenticate/authorization ของ policy `identity-bff` และ `identity-platform` (ticket ผ่าน, IdentityAccessRequirement, Bearer validation) อ้างที่ § 0.2 ในไฟล์ `00-cross-cutting.sequences.md`, CSRF double-submit อ้างที่ § 0.3, error contract ทั่วไป (ProblemDetails, OIDC 302 reason) อ้างที่ § 0.9
+- authenticate/authorization ของ policy `identity-platform` (Bearer validation, IdentityAccessRequirement) อ้างที่ § 0.2 ในไฟล์ `00-cross-cutting.sequences.md`, CSRF/Bearer-mutation guard อ้างที่ § 0.3, error contract ทั่วไป (ProblemDetails, OIDC 302 reason) อ้างที่ § 0.9
 
 **Render**: GitHub / Obsidian / VS Code Mermaid

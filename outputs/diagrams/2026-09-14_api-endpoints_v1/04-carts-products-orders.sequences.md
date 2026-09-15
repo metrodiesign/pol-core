@@ -191,7 +191,7 @@ sequenceDiagram
 
     Note over CON,API: Phase A — authz (ดู § 0.1 / § 0.2): dual-console + RequireOrderIdentityPermission(payment.view, order.read)
     U->>CON: เปิดดูรายละเอียดคำสั่งซื้อ
-    CON->>API: GET /orders/{orderId} (+ query merchantId เมื่อ Admin, Bearer/BFF cookie เมื่อ identity)
+    CON->>API: GET /orders/{orderId} (+ query merchantId เมื่อ Admin, Authorization Bearer เมื่อ identity)
     alt Admin Console
         API->>DB: RequireAdminOrderAsync(orderId, expectedMerchantId: null): order อยู่ใน accessible merchants?
         alt ไม่พบ
@@ -200,7 +200,7 @@ sequenceDiagram
             API->>API: actorScope.Begin(resource.MerchantId)
         end
     else Merchant Console หรือ identity request
-        alt identity request (Bearer/BFF)
+        alt identity request (Bearer)
             API->>DB: EnsureIdentityOrderOwnerAsync: AccessEvaluator.CanReadOrder(OwnerSaleId, OwnerBranchIdAtCreation)
             alt ไม่ผ่านหรือไม่พบ
                 API-->>CON: 404 Order was not found
@@ -234,7 +234,7 @@ sequenceDiagram
 | Method | fullPath | ต่างจาก § กลางตรงไหน |
 | --- | --- | --- |
 | GET | `/api/v1/orders` | list แบ่งหน้าแทน detail เดี่ยว ผ่าน SFS (`SfsQueryParser.Parse`, maxLimit 100) ดู § 0.6; ไม่มี reveal-audit, ไม่มี ETag; Merchant -> `GetOrdersQuery`, Admin -> `AdminOrderQuery` ตาม accessible merchants (source: `GetOrders.cs`) |
-| GET | `/api/v1/orders/{orderId:guid}/payment-links` | คืน array `PaymentLinkView` (ไม่มี raw token), ไม่มี audit/ETag; identity request ตรวจ owner เหมือน § กลาง; **ไม่มี branch Admin ในซอร์สเลย** — Admin console (cookie ล้วน) ที่เรียกจะได้ `actor.MerchantId` throw แล้วตอบ **409** ตาม § 0.9 (ดู Deviations ของ activities.md) |
+| GET | `/api/v1/orders/{orderId:guid}/payment-links` | คืน array `PaymentLinkView` (ไม่มี raw token), ไม่มี audit/ETag; identity request ตรวจ owner เหมือน § กลาง; **ไม่มี branch Admin ในซอร์สเลย** — Admin console (platform Bearer ไม่มี `merchant_id` claim) ที่เรียกจะได้ `actor.MerchantId` throw แล้วตอบ **409** ตาม § 0.9 (ดู Deviations ของ activities.md) |
 
 ---
 
@@ -256,7 +256,7 @@ sequenceDiagram
 
     Note over C,API: Phase A — authz (ดู § 0.1 / § 0.2 / § 0.3): identity-platform + RequireIdentityPermission(payment.create) + RequireIdentityPlatformMutation
     E->>C: สร้างคำสั่งซื้อ
-    C->>API: POST /api/v1/orders (+ Idempotency-Key, Bearer หรือ BFF cookie)
+    C->>API: POST /api/v1/orders (+ Idempotency-Key, Authorization Bearer)
     API->>API: ValidateCanonicalCreateRequest + NotificationIntentNormalizer + ResolveIdentityMerchantId + actor.UserId ไม่ว่าง
     alt validation ล้มเหลวข้อใดข้อหนึ่ง
         API-->>C: 400 validation_failed / items_required / metadata_invalid / notification_recipient_required<br/>403 merchant_context_missing / merchant_context_mismatch / account_context_missing
@@ -453,7 +453,7 @@ sequenceDiagram
 
     Note over CON,API: Phase A — authz (ดู § 0.1 / § 0.2 / § 0.3)
     U->>CON: ยกเลิกคำสั่งซื้อ
-    CON->>API: POST /orders/{orderId}/cancel (+ reason, query merchantId เมื่อ Admin, Bearer/BFF เมื่อ identity)
+    CON->>API: POST /orders/{orderId}/cancel (+ reason, query merchantId เมื่อ Admin, Authorization Bearer เมื่อ identity)
     API->>API: body.reason (ถ้าส่งมา) ไม่ว่างไม่เกิน 1000 ตัวอักษร
     alt reason ผิด
         API-->>CON: 400 validation_failed
@@ -494,7 +494,7 @@ sequenceDiagram
                     end
                 end
             end
-        else identity request (Bearer/BFF)
+        else identity request (Bearer)
             API->>DB: EnsureIdentityOrderOwnerAsync ผ่าน?
             alt ไม่ผ่าน
                 API-->>CON: 404 Order was not found
@@ -565,7 +565,7 @@ sequenceDiagram
         else พบ
             API->>API: actorScope.Begin(merchantId)
         end
-    else identity request (Bearer/BFF)
+    else identity request (Bearer)
         API->>DB: EnsureIdentityOrderOwnerAsync ผ่าน?
         alt ไม่ผ่าน
             API-->>CON: 404 Order was not found

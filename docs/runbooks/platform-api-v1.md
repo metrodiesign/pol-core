@@ -6,7 +6,7 @@
 
 | บริบท | ใช้กับ | หลักฐานที่ต้องส่ง |
 |---|---|---|
-| `E` Employee/Admin | Account, access, merchant, provider, order, transaction, notification และ audit ตาม permission | platform JWT ใน `Authorization: Bearer` (จาก `/oauth/authorize` + `/oauth/token`), `Authorization` policy และ permission ของ operation; legacy admin session cookie ยังใช้ได้ระหว่าง retire |
+| `E` Employee/Admin | Account, access, merchant, provider, order, transaction, notification และ audit ตาม permission | platform JWT ใน `Authorization: Bearer` (จาก `/oauth/authorize` + `/oauth/token`), `Authorization` policy และ permission ของ operation; ไม่มี admin session cookie แล้ว (retire 2026-09-14) |
 | `A` Agent/Merchant user | Merchant-owned order และ checkout ตาม Merchant scope | Merchant user session cookie; scope มาจาก session ฝั่ง server |
 | `S` SYSTEM client | machine-to-machine ที่เปิดใน inventory | OAuth client authentication และ scope ที่ server ตรวจ |
 | `C` Customer checkout | payment-link access, summary, confirm, status และ verify | payment-link proof/cookie และ checkout CSRF ตาม operation |

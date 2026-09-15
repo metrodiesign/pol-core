@@ -37,7 +37,7 @@ Cross-merchant admin reads ใช้ named port และ explicit accessible se
 
 | Schema | ตัวอย่างข้อมูล |
 |---|---|
-| `acct` | Accounts, Employees, Agents, SystemClients, BFF/registration sessions |
+| `acct` | Accounts, Employees, Agents, SystemClients, registration sessions |
 | `access` | Merchant/Platform access, branch/role/method grants |
 | `admin` | Admin identity, governance, audit, provisioning, control delivery |
 | `iam` | Permission catalog, roles, API clients, secret tickets |
@@ -53,7 +53,7 @@ Physical mapping ให้ยึด `PolDbContextModelSnapshot.cs` และ EF 
 
 ## Migration safety และ readiness
 
-Migration chain ปัจจุบันมี 47 migrations และจบที่ `20260911163519_ReviewFixPaymentLinkNotificationIntent`. Task 9 เพิ่ม deterministic mapping/conflict report, target-owner backfill, transaction-scoped writer lease, pause/watermark recovery และ forward-safe rollback machinery.
+Migration chain ปัจจุบันมี 50 migrations และจบที่ `20260914111802_RetireLegacyAdminIdentityPlane`. Task 9 เพิ่ม deterministic mapping/conflict report, target-owner backfill, transaction-scoped writer lease, pause/watermark recovery และ forward-safe rollback machinery.
 
 Local migration parity, pending-model, schema drift, fresh scratch database และ static checks ผ่านตาม handoff. หลักฐานนั้นเป็น local machinery; sanitized backup, master identity mapping, live provider evidence และ production authorization ยังขาด จึงยังไม่ cutover-ready.
 

@@ -47,7 +47,7 @@ Effective permissions คำนวณจาก account/session assignments แ�
 | Owner | Tables |
 |---|---|
 | `iam` | `PermissionGroups`, `Permissions`, `Roles`, `RolePermissions`, `ApiClients`, `OneTimeSecretTickets` |
-| `admin` | `RoleAssignments` สำหรับ Platform/Admin console |
+| `access` | `PlatformAccessRoles` สำหรับ Platform/Admin console (แทน `admin.RoleAssignments` ที่ retire 2026-09-14) |
 | `merch` | `RoleAssignments` สำหรับ Merchant-user console |
 | `acct`/`access` | `Accounts`, `LoginAccounts`, `Agents`, `Employees`, `SystemClients`, `MerchantAccess`, `PlatformAccess`, branch/role/method grants |
 

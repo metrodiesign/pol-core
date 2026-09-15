@@ -9,7 +9,7 @@
 | Engine | SQL Server 2025 build `17.0.4045.5` ขึ้นไป |
 | Compatibility level | `170` |
 | Collation | `Thai_100_CI_AS` |
-| Migration chain | 47 migrations: `20260807042818_InitialSchema` ถึง `20260911163519_ReviewFixPaymentLinkNotificationIntent`; รายการเต็มอยู่ใน `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/` และ snapshot |
+| Migration chain | 50 migrations: `20260807042818_InitialSchema` ถึง `20260914111802_RetireLegacyAdminIdentityPlane`; รายการเต็มอยู่ใน `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/` และ snapshot |
 | Runtime principal | `pol_app` |
 | Runtime contexts | `ControlPlaneDbContext`, `CommerceDbContext` เท่านั้น |
 | Migration context | `PolDbContext` เท่านั้น |
@@ -26,7 +26,7 @@ Migration `20260808161508_OneBasedPersistedEnumStorage` (`OneBasedPersistedEnumS
 
 | Schema | Tables | Runtime owner |
 |---|---|---|
-| `acct` | business Accounts, LoginAccounts, Employees, Agents, SystemClients, BFF/registration state | `ControlPlaneDbContext` |
+| `acct` | business Accounts, LoginAccounts, Employees, Agents, SystemClients, registration state | `ControlPlaneDbContext` |
 | `access` | Merchant/Platform access, roles, branch/method grants | `ControlPlaneDbContext` |
 | `oauth` | OpenIddict state และ assertion replay | `ControlPlaneDbContext` |
 | `admin` | platform users, sessions, access, role assignments, workforce binding, governance, audit, operation ledger, control delivery | `ControlPlaneDbContext` |
@@ -1319,7 +1319,7 @@ Native SQL Server `json` columns มี 11 จุดตาม `PolDbContextModel
 
 ## Source of truth
 
-1. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/` — 47 tracked migrations ถึง `20260911163519_ReviewFixPaymentLinkNotificationIntent`
+1. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/` — 50 tracked migrations ถึง `20260914111802_RetireLegacyAdminIdentityPlane`
 2. `src/Infrastructure/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
 3. EF configurations ใต้ `src/Infrastructure/Persistence/` และ `src/Infrastructure/Modules/`
 4. Runtime context ownership ใน `src/Infrastructure/Persistence/Persistence.ControlPlane/ControlPlaneDbContext.cs` และ `src/Infrastructure/Persistence/Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs`

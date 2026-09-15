@@ -45,7 +45,7 @@ Actor 3 ฝ่าย + tier การยืนยันตัวตน 2 ระ�
 `Scope` 3 ค่า — `Platform` (control plane, Tier 0), `Merchant` (จัดการผู้ใช้/บทบาทในร้าน, Tier 1) และ **`Shared`**
 (group `payment` = `payment.view/create/redirect`) — endpoint commerce ทั้ง 15 จุด (cart → order → payment session,
 policy `dual-console`) gate ด้วย key `payment.*` เดียวไม่ว่าจะเข้ามาจาก session ระดับใด; role scope `Shared`
-(seed `merchant_staff`) assign ได้ทั้ง `admin.RoleAssignments` และ `merch.RoleAssignments`; role ฝั่ง Platform/Merchant
+(seed `merchant_staff`) assign ได้ทั้ง `access.PlatformAccessRoles` และ `merch.RoleAssignments`; role ฝั่ง Platform/Merchant
 ถือ key ของฝั่งตนรวม `Shared` ได้ แต่ข้ามฝั่งกันยังคง fail-closed. แกน role (action) กับ tier/visibility (เห็นอะไร)
 ยัง orthogonal: role บอกว่าทำอะไรได้ ส่วน tier + query filter บอกว่าเห็นแถวไหน
 

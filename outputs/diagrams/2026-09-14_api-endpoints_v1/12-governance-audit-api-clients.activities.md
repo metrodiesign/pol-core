@@ -51,7 +51,7 @@ flowchart TD
 | --- | --- | --- |
 | GET | `/api/v1/approvals` | permission `settings.manage`, filter page / limit / search ≤ 200 / action ≤ 120 / status (pending, approved, rejected, succeeded, failed, unknown) / merchantId guid D / from, to ต้องมี offset และ from ≤ to, 400 คืน `Problem` ตรงจาก endpoint (`GovernanceEndpoints.cs:198-202`), search เป็น guid = Id หรือ TargetId, ORDER BY CreatedAt desc, Id desc |
 | GET | `/api/v1/approvals/{approvalId:guid}` | permission `settings.manage`, 404 ProblemDetails `not_found` ชัดเจน, body ApprovalDetail (maker, requiredPermission, targetVersion, decision / execution outcome) + ETag จาก `Version` (`GovernanceEndpoints.cs:208-216`) |
-| GET | `/api/v1/api-clients` | permission `apikey.manage`, `RequireCsrf` ต่อไว้แต่ไม่ตรวจ GET, filter page / limit (400 จาก `InvalidRequestException invalid_filter` ผ่าน § 0.9), status ต้องเป็น active / revoked ไม่งั้น 400 `invalid_filter`, search LIKE บน Name หรือ PublicClientId (SfsLike.Escape), ORDER BY Name, Id (`ApiClientStore.cs:29-53`) |
+| GET | `/api/v1/api-clients` | permission `apikey.manage` (policy admin, Bearer ไม่มี CSRF), filter page / limit (400 จาก `InvalidRequestException invalid_filter` ผ่าน § 0.9), status ต้องเป็น active / revoked ไม่งั้น 400 `invalid_filter`, search LIKE บน Name หรือ PublicClientId (SfsLike.Escape), ORDER BY Name, Id (`ApiClientStore.cs:29-53`) |
 | GET | `/api/v1/api-clients/{clientId:guid}` | permission `apikey.manage`, 404 เป็น `Results.NotFound()` ไม่มี code, body ApiClientView (clientId, scopes, ipPolicy, secretHint, status, rotationPending, version) + ETag (`ApiClientEndpoints.cs:25-37`) |
 
 ---
@@ -62,7 +62,7 @@ approve และ reject map จาก handler เดียว (`MapDecision`) �
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission settings.manage<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>ดู § 0.1"]
     GATE --> WHICH{"segment?"}
     WHICH -->|approve| INTENT_A["ApprovalDecision.Approve<br/>operation ApproveRequest"]
     WHICH -->|reject| INTENT_R["ApprovalDecision.Reject<br/>operation RejectRequest"]
@@ -171,7 +171,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission apikey.manage<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission apikey.manage<br/>ดู § 0.1"]
     GATE --> KEY{"Idempotency-Key ไม่ว่าง, ≤ 200, ไม่มี control char?"}
     KEY -->|no| R400_K["400 ProblemDetails<br/>code invalid_idempotency_key"]
     KEY -->|yes| ACC{"body.merchantId อยู่ใน scope ของ admin?"}
@@ -217,7 +217,7 @@ mutation ตรงสองตัวใช้ If-Match + Idempotency-Key ผ่�
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission apikey.manage<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission apikey.manage<br/>ดู § 0.1"]
     GATE --> IFM{"If-Match รูป quoted vN?"}
     IFM -->|no| R400_E["400 code invalid_etag"]
     IFM -->|yes| KEY{"Idempotency-Key ถูกรูป?"}
@@ -278,7 +278,7 @@ maker ยื่นคำขอแบบ maker-checker: stage ticket Pending อ�
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission apikey.manage<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission apikey.manage<br/>ดู § 0.1"]
     GATE --> IFM{"If-Match รูป quoted vN?"}
     IFM -->|no| R400_E["400 code invalid_etag"]
     IFM -->|yes| KEY{"Idempotency-Key ถูกรูป?"}
@@ -349,7 +349,7 @@ consume one-time ticket ด้วย token ที่ได้จาก § 12.4 �
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["RequireCsrf + policy admin + permission apikey.manage ดู § 0.1 / § 0.3<br/>ไม่มี merchant scope check (ticket token คือสิทธิ์)"]
+    START((●)) --> GATE["policy admin (Bearer) + permission apikey.manage ดู § 0.1<br/>ไม่มี merchant scope check (ticket token คือสิทธิ์)"]
     GATE --> KEY{"Idempotency-Key ถูกรูป?<br/>(ตรวจอย่างเดียว ไม่เก็บ OperationRecord)"}
     KEY -->|no| R400["400 code invalid_idempotency_key"]
     KEY -->|yes| TKT{"ticketId ไม่ว่างและ ≤ 200?"}
@@ -391,7 +391,7 @@ flowchart TD
 
 | fullPath | เอกสารบอก | source บอก | อ้างอิง |
 | --- | --- | --- | --- |
-| ไม่พบ deviation ระหว่างเอกสารกับ source | - | policy `admin`, permission (`settings.manage` / `audit.view` / `apikey.manage`) และ CSRF filter ทั้ง 13 แถวตรงกับ chain ใน endpoint, `RequireCsrf` บน GET api-clients ต่อไว้จริงแต่ไม่ตรวจ safe method | `GovernanceEndpoints.cs:72-121,168`, `ApiClientEndpoints.cs:19,32,47,62,77,94,122`, `Admins/CsrfFilter.cs` (ดู § 0.3) |
+| ไม่พบ deviation ระหว่างเอกสารกับ source | - | policy `admin`, permission (`settings.manage` / `audit.view` / `apikey.manage`) ทั้ง 13 แถวตรงกับ chain ใน endpoint; admin เป็น Bearer JWT จึงไม่มี CSRF filter (admin double-submit ถูก retire) | `GovernanceEndpoints.cs:72-121,168`, `ApiClientEndpoints.cs:19,32,47,62,77,94,122`, `Iam/CsrfParity.cs:19` |
 
 ## Notes
 

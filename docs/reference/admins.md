@@ -255,16 +255,18 @@ export const logout = () => adminFetch('/api/v1/auth/logout', { method: 'POST' }
   merchant-user = `Cors__MerchantOrigins` (dev `https://localhost:3002`, เป็น default policy, credentialed เพราะยังเป็น cookie).
   เลือก policy **ตาม path** ผ่าน `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ admin-plane area
   อื่นด้วย (`/approvals`, `/audits`, `/originators`, `/products/documents`, `/orders/export`, `/api-clients`,
-  `/notifications`, `/reports`) ไม่ใช่แค่ `/admins`/`/merchants`; `/oauth/token` และ `/oauth/revoke` อยู่ใน dual-console
-  policy (ทั้งสอง SPA เรียกจาก JavaScript). prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
+  `/notifications`, `/reports`) ไม่ใช่แค่ `/accounts`/`/merchants`; `/oauth/token`, `/oauth/revoke`, `/api/v1/me*` และ
+  `/api/v1/auth/logout` อยู่ใน dual-console policy (ทั้งสอง SPA เรียกจาก JavaScript). prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
 - admin XHR ส่ง `Authorization: Bearer` ไม่ต้อง `credentials: 'include'`
 - backend dev ต้องใส่ Entra client id + secret จริงที่ `IdentityAccess__Workforce__ClientId` /
   `IdentityAccess__Workforce__ClientSecret` (user-secrets หรือ `.env`), tenant-pinned `IdentityAccess__Workforce__Authority`,
   `IdentityAccess__WorkforceTenantId`/`WorkforceIssuer`/`WorkforceAudience`, `IdentityAccess__WorkforceWebAppBaseUrl` และ
   `OAuth__Issuer=https://localhost:5001` ถึงจะ login จริงได้ (ดู [local-dev-run.md](../runbooks/local-dev-run.md) §7).
 - bootstrap Super ไม่ใช้ external allowlist; promote corporate account ผ่าน admin management API ก่อน production.
-- `WorkforceTenantBinding` ยังเป็น deployment singleton และ Authority ยัง pin tenant เดียว Triple identity index
-  ไม่ใช่ multi-tenant admission; ต้องมี approved tenant registry/allowlist design ก่อนรับ tenant ที่สอง.
+- ตาราง `admin.WorkforceTenantBindings` ถูก retire 2026-09-14; tenant pin มาจาก config `IdentityAccess:WorkforceTenantId`
+  ที่ต้องตรงกับ tenant ใน `IdentityAccess:Workforce:Authority` (`Program.cs` `RequireWorkforceAdminProvider`). Authority ยัง
+  pin tenant เดียว Triple identity index ไม่ใช่ multi-tenant admission; ต้องมี approved tenant registry/allowlist design
+  ก่อนรับ tenant ที่สอง.
 - OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish; document `admin` โฆษณา security scheme
   `PlatformToken` (http bearer JWT)
 

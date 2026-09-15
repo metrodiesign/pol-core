@@ -20,11 +20,11 @@
 
 ## 13.1 GET list / detail — notification rule, notification delivery, webhook delivery, webhook endpoint (admin config plane)
 
-ทั้ง 8 endpoint ใช้โครงเดียวกัน: gate policy admin + permission settings.manage (RequireCsrf ต่อไว้แต่ GET ข้าม), scope ด้วย DeliveryAccess (unrestricted หรือ MerchantId ใน accessible) แล้ว list ผ่าน ValidatePage + filter ธรรมดา (ไม่ใช่ SFS parser) หรือ detail ผ่าน SingleOrDefault (source: `src/Api/Api/Notifications/DeliveryEndpoints.cs:14-38,85-107,123-147,195-217`, `Persistence.ControlPlane/Notifications/DeliveryStore.cs:106-129,237-262,283-305,360-391`)
+ทั้ง 8 endpoint ใช้โครงเดียวกัน: gate policy admin (Bearer) + permission settings.manage (ไม่มี CSRF), scope ด้วย DeliveryAccess (unrestricted หรือ MerchantId ใน accessible) แล้ว list ผ่าน ValidatePage + filter ธรรมดา (ไม่ใช่ SFS parser) หรือ detail ผ่าน SingleOrDefault (source: `src/Api/Api/Notifications/DeliveryEndpoints.cs:14-38,85-107,123-147,195-217`, `Persistence.ControlPlane/Notifications/DeliveryStore.cs:106-129,237-262,283-305,360-391`)
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>RequireCsrf ต่อไว้แต่ GET ข้าม ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>ดู § 0.1"]
     GATE --> KIND{"list หรือ detail?"}
     KIND -->|list| FILTER{"page >= 1 และ limit 1..100?"}
     FILTER -->|no| R400["400 ProblemDetails<br/>code invalid_filter"]
@@ -132,7 +132,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>ดู § 0.1"]
     GATE --> MODE{"create, update หรือ delete?"}
     MODE -->|create| IDEM_C{"Idempotency-Key ไม่ว่าง, <=200, ไม่มี control char?"}
     IDEM_C -->|no| R400_I["400 code invalid_idempotency_key"]
@@ -214,7 +214,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>RequireCsrf + Idempotency-Key<br/>ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>Idempotency-Key ดู § 0.5<br/>ดู § 0.1"]
     GATE --> IDEM{"Idempotency-Key ไม่ว่าง, <=200, ไม่มี control char?"}
     IDEM -->|no| R400_I["400 code invalid_idempotency_key"]
     IDEM -->|yes| SCOPE{"merchantId ใน accessible ของ admin?"}
@@ -258,7 +258,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>RequireCsrf ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>ดู § 0.1"]
     GATE --> IFM{"If-Match รูป quoted vN?"}
     IFM -->|no| R400_E["400 code invalid_etag"]
     IFM -->|yes| IDEM{"Idempotency-Key ไม่ว่าง, <=200, ไม่มี control char?"}
@@ -326,7 +326,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>RequireCsrf + Idempotency-Key ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>Idempotency-Key ดู § 0.5, ดู § 0.1"]
     GATE --> IDEM{"Idempotency-Key ไม่ว่าง, <=200, ไม่มี control char?"}
     IDEM -->|no| R400_I["400 code invalid_idempotency_key"]
     IDEM -->|yes| PRIOR{"มี WebhookDelivery ที่<br/>OriginalDeliveryId = id และ ReplayKey = key เดิมอยู่แล้ว?"}
@@ -362,7 +362,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>ดู § 0.1 (PUT ต่อ RequireCsrf ดู § 0.3, GET ไม่มี)"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>ดู § 0.1 (Bearer ไม่มี CSRF)"]
     GATE --> ACCESS{"merchantId != Guid.Empty และ<br/>อยู่ใน accessible ของ admin?"}
     ACCESS -->|no| R403["403 code merchant_scope_forbidden"]
     ACCESS -->|yes| METHOD{"GET หรือ PUT?"}
@@ -424,7 +424,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START((●)) --> GATE["policy admin + permission settings.manage<br/>RequireCsrf + Idempotency-Key ดู § 0.1 / § 0.3"]
+    START((●)) --> GATE["policy admin (Bearer) + permission settings.manage<br/>Idempotency-Key ดู § 0.5, ดู § 0.1"]
     GATE --> REASONQ{"body.Reason ไม่ว่าง, <=1000 ตัว?"}
     REASONQ -->|no| R400["400 code validation_failed"]
     REASONQ -->|yes| IDEM{"Idempotency-Key ไม่ว่าง, <=200, ไม่มี control char?"}
