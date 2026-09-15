@@ -239,12 +239,14 @@ internal static class AgentRegistrationEndpoints
     }
 
     private static async Task<IResult> GetReviewerCase(
-        Guid registrationId, IAdminScope scope, AgentRegistrationService service, CancellationToken ct)
+        HttpContext http, Guid registrationId, IAdminScope scope, AgentRegistrationService service, CancellationToken ct)
     {
         var registration = await service.GetCaseByIdAsync(registrationId, ct);
-        return registration is null || !scope.Accessible.Allows(registration.MerchantId)
-            ? Results.NotFound()
-            : Results.Ok(AgentRegistrationService.ToView(registration));
+        if (registration is null || !scope.Accessible.Allows(registration.MerchantId))
+            return Results.NotFound();
+        // Approve/Reject require If-Match, so the reviewer read is where the ETag comes from.
+        VersionEtags.Set(http, registration.Version);
+        return Results.Ok(AgentRegistrationService.ToView(registration));
     }
 
     private static async Task<IResult> ListReviewerAttempts(

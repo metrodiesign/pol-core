@@ -164,8 +164,12 @@ public sealed class AgentRegistrationHostTests
             AssertPublicHistory(await JsonDocument.ParseAsync(await publicPending.Content.ReadAsStreamAsync()),
                 expectedStatuses: ["Rejected", "Pending"]);
 
+            // The reviewer takes the If-Match value from its own read of the case, not from the applicant.
+            var reviewerCase = await reviewer.GetAsync($"/api/v1/agent-registrations/{registrationId}");
+            Assert.Equal(HttpStatusCode.OK, reviewerCase.StatusCode);
+            Assert.Equal(secondSubmit.Headers.ETag!.Tag, reviewerCase.Headers.ETag!.Tag);
             var approved = await reviewer.SendAsync(ApproveRequest(
-                registrationId, secondAttemptId, secondSubmit.Headers.ETag!.Tag, "official-record"));
+                registrationId, secondAttemptId, reviewerCase.Headers.ETag.Tag, "official-record"));
             Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
 
             var publicApproved = await applicant.GetAsync("/api/v1/agent-registration/history");
