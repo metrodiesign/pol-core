@@ -213,7 +213,7 @@ Tier 1 (Merchant) ยังเป็น server-side BFF cookie. `Client ID`, `Te
 | Tier 1 | ตัวแทน/Merchant | `MerchantAuth__Providers__Microsoft__` | `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0` | `/api/v1/merchants/auth/microsoft/login` | `/api/v1/merchants/auth/microsoft/callback` | `https://localhost:3002` |
 
 Authority ต้อง pin tenant เดียวและลงท้าย `/v2.0`. ห้ามใช้ `/common`, `/organizations` หรือ `/consumers`.
-Current local launch profile มี public Tier 1 Authority, Client ID และ callback ของ `VCP External DEV` แล้ว แต่ไม่มี
+Current local launch profile มี public Tier 1 Authority, Client ID และ callback ของ `Viriyah vCentralPay (External)` (tenant `viriyahexternal`) แล้ว แต่ไม่มี
 client secret ตามหลัก security.
 
 ### 7.2 Inject secret โดยไม่เขียนลง tracked file
