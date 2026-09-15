@@ -223,7 +223,7 @@ CallbackPath `/api/v1/merchants/auth/microsoft/callback` ค่าเดีย�
 ตัวแทนที่อนุมัติแล้ว login ผ่าน `/oauth/authorize?client_id=pol-merchant` (OpenIddict public client ที่ host ลงทะเบียนให้จาก
 `IdentityAccess__AgentClientId` + `AgentWebAppBaseUrl` + `/auth/callback`) การ submit ต้องมี `merch.Sales`/`merch.Branches`
 ของ merchant นั้นอยู่จริง (local ว่างเปล่า seed เองก่อนทดสอบ)
-Current local launch profile มี public Tier 1 Authority, Client ID และ callback ของ `VCP External DEV` แล้ว แต่ไม่มี
+Current local launch profile มี public Tier 1 Authority, Client ID และ callback ของ `Viriyah vCentralPay (External)` (tenant `viriyahexternal`) แล้ว แต่ไม่มี
 client secret ตามหลัก security.
 
 ### 7.2 Inject secret โดยไม่เขียนลง tracked file

@@ -6,8 +6,8 @@ public sealed class LocalDevelopmentOriginTests
 {
     private const string ApiOrigin = "https://localhost:5001";
     private const string MerchantMicrosoftAuthority =
-        "https://vcpexternaldev.ciamlogin.com/2a6d4554-88f1-4089-a995-0bf31c622493/v2.0";
-    private const string MerchantMicrosoftClientId = "dd7d2f17-60dc-4bd9-99a4-e2a93077bc9a";
+        "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0";
+    private const string MerchantMicrosoftClientId = "fb0e40a7-afbc-42c4-a025-b87f74a96321";
     private const string MerchantMicrosoftCallbackPath = "/api/v1/merchants/auth/microsoft/callback";
     private const string CustomerOrigin = "https://localhost:3000";
     private const string AdminOrigin = "https://localhost:3001";

@@ -9,8 +9,8 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "MerchantSession__WebAppBaseUrl": "https://localhost:3002",
-        "MerchantAuth__Providers__Microsoft__Authority": "https://vcpexternaldev.ciamlogin.com/2a6d4554-88f1-4089-a995-0bf31c622493/v2.0",
-        "MerchantAuth__Providers__Microsoft__ClientId": "dd7d2f17-60dc-4bd9-99a4-e2a93077bc9a",
+        "MerchantAuth__Providers__Microsoft__Authority": "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0",
+        "MerchantAuth__Providers__Microsoft__ClientId": "fb0e40a7-afbc-42c4-a025-b87f74a96321",
         "MerchantAuth__Providers__Microsoft__CallbackPath": "/api/v1/merchants/auth/microsoft/callback",
         "AdminSession__WebAppBaseUrl": "https://localhost:3001",
         "IdentityAccess__Workforce__Authority": "https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0",
