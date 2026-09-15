@@ -28,6 +28,8 @@ file sealed class AgentLoginFactory : WebApplicationFactory<ApiHost::Program>
     public const string AgentAuthority = "https://agent.login.test/agent-tenant/v2.0";
     public const string AgentWebApp = "https://agent-spa.task2.test";
     public static readonly Guid AgentMerchant = Guid.Parse("e1000000-0000-4000-8000-0000000000e1");
+    public const string LegacyMerchantClientId = "22222222-bbbb-bbbb-bbbb-222222222222";
+    public const string LegacyMerchantWebApp = "https://legacy-spa.task2.test";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -40,12 +42,18 @@ file sealed class AgentLoginFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("IdentityAccess:Agent:Authority", AgentAuthority);
         builder.UseSetting("IdentityAccess:Agent:ClientId", AgentClientId);
         builder.UseSetting("IdentityAccess:Agent:ClientSecret", "test-secret");
-        builder.UseSetting("IdentityAccess:Agent:CallbackPath", "/api/v1/auth/agents/callback");
         builder.UseSetting("IdentityAccess:AgentIssuer", AgentAuthority);
         builder.UseSetting("IdentityAccess:AgentTenantId", AgentTenant);
         builder.UseSetting("IdentityAccess:AgentAudience", AgentClientId);
         builder.UseSetting("IdentityAccess:AgentMerchantId", AgentMerchant.ToString("D"));
         builder.UseSetting("IdentityAccess:AgentWebAppBaseUrl", AgentWebApp);
+        // The legacy merchant-user scheme shares the agent callback path (the only redirect URI on the Entra app).
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:Authority",
+            "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0");
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", LegacyMerchantClientId);
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientSecret", "legacy-secret");
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:CallbackPath", ApiIdentity.IdentityAccessWiring.AgentCallbackPath);
+        builder.UseSetting("MerchantSession:WebAppBaseUrl", LegacyMerchantWebApp);
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.IgnoreMachineLocalDevelopmentSettings();
@@ -58,6 +66,16 @@ file sealed class AgentLoginFactory : WebApplicationFactory<ApiHost::Program>
         {
             services.PostConfigure<OpenIddictServerAspNetCoreOptions>(
                 options => options.DisableTransportSecurityRequirement = true);
+            services.PostConfigure<OpenIdConnectOptions>(
+                ApiHost::Api.Merchants.UserOidcAuthentication.SchemePrefix + "Microsoft", options =>
+                    options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                        new OpenIdConnectConfiguration
+                        {
+                            Issuer = "https://1aee3cad-1e4d-4de5-9e25-424d0d12520b.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0",
+                            AuthorizationEndpoint = "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/oauth2/v2.0/authorize",
+                            TokenEndpoint = "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/oauth2/v2.0/token",
+                            JwksUri = "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/discovery/v2.0/keys",
+                        }));
             services.PostConfigure<OpenIdConnectOptions>("IdentityAgentMicrosoft", options =>
                 options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
                     new OpenIdConnectConfiguration
@@ -92,7 +110,7 @@ public sealed class AgentLoginTests
         var query = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
         Assert.Equal("agent.login.test", response.Headers.Location.Host);
         Assert.Equal(AgentLoginFactory.AgentClientId, query["client_id"]);
-        Assert.EndsWith("/api/v1/auth/agents/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal);
+        Assert.EndsWith(ApiIdentity.IdentityAccessWiring.AgentCallbackPath, query["redirect_uri"].ToString(), StringComparison.Ordinal);
 
         var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
             .Get("IdentityAgentMicrosoft");
@@ -102,6 +120,32 @@ public sealed class AgentLoginTests
         Assert.Equal("external", properties.Items["identity.realm"]);
         Assert.Equal(AgentLoginFactory.AgentAuthority, properties.Items["identity.expected_issuer"]);
         Assert.Equal(AgentLoginFactory.AgentMerchant.ToString("D"), properties.Items["identity.merchant_id"]);
+    }
+
+    [Fact]
+    public async Task A_legacy_merchant_callback_on_the_shared_path_is_passed_through_by_the_agent_scheme()
+    {
+        using var factory = new AgentLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var start = await client.GetAsync("/api/v1/merchants/auth/microsoft/login");
+        Assert.Equal(HttpStatusCode.Found, start.StatusCode);
+        var query = QueryHelpers.ParseQuery(start.Headers.Location!.Query);
+        Assert.Equal(AgentLoginFactory.LegacyMerchantClientId, query["client_id"]);
+        Assert.EndsWith(ApiIdentity.IdentityAccessWiring.AgentCallbackPath, query["redirect_uri"].ToString(), StringComparison.Ordinal);
+
+        // The provider bounces back with the legacy scheme's state. The agent scheme is registered first on the
+        // same path and cannot unprotect that state, so it must pass the request on to the legacy scheme instead
+        // of failing it to the agent SPA error page.
+        var callback = new HttpRequestMessage(HttpMethod.Get,
+            ApiIdentity.IdentityAccessWiring.AgentCallbackPath + "?error=access_denied&state=" + Uri.EscapeDataString(query["state"]!));
+        if (start.Headers.TryGetValues("Set-Cookie", out var cookies))
+            callback.Headers.Add("Cookie", string.Join("; ", cookies.Select(cookie => cookie.Split(';')[0])));
+        var response = await client.SendAsync(callback);
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.Equal(AgentLoginFactory.LegacyMerchantWebApp + "/login-error?reason=access-denied",
+            response.Headers.Location!.ToString());
     }
 
     [Fact]

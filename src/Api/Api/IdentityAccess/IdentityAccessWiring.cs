@@ -86,7 +86,9 @@ internal static class IdentityAccessWiring
             configuration.GetSection("IdentityAccess:Agent").Get<IdentityOidcProviderOptions>()
                 ?? new IdentityOidcProviderOptions(),
             scheme: "IdentityAgentMicrosoft",
-            callbackPath: "/api/v1/auth/agents/callback",
+            // The merchant Entra app only has the legacy merchant redirect URI registered, so the agent scheme shares
+            // it with the legacy merchant-user scheme (same pattern as the workforce scheme on the admin callback).
+            callbackPath: AgentCallbackPath,
             kind: IdentityLoginKind.Agent,
             services,
             environment);
@@ -124,6 +126,10 @@ internal static class IdentityAccessWiring
             await next();
         });
 
+    /// <summary>The redirect URI registered on the merchant Entra app, relative to the API's public origin; the
+    /// legacy merchant-user OIDC scheme answers on the same path.</summary>
+    public const string AgentCallbackPath = "/api/v1/merchants/auth/microsoft/callback";
+
     private static void AddHumanProvider(
         AuthenticationBuilder authentication,
         IdentityAccessProviders providers,
@@ -147,10 +153,12 @@ internal static class IdentityAccessWiring
             options.ClientId = provider.ClientId;
             options.ClientSecret = provider.ClientSecret;
             options.CallbackPath = provider.CallbackPath;
-            // This handler is the only one on its CallbackPath (the redirect URI registered on the Entra app), so a
-            // callback whose state cannot be unprotected is a failed login: OnRemoteFailure sends the browser to the
-            // SPA error page instead of falling through to a bare 404.
-            options.SkipUnrecognizedRequests = false;
+            // The employee handler is the only one on its CallbackPath, so a callback whose state cannot be
+            // unprotected is a failed login: OnRemoteFailure sends the browser to the SPA error page instead of a
+            // bare 404. The agent handler shares its CallbackPath with the legacy merchant-user scheme registered
+            // after it; state is data-protected per scheme, so a callback it cannot unprotect belongs to the legacy
+            // scheme and is passed through instead of failed.
+            options.SkipUnrecognizedRequests = kind == IdentityLoginKind.Agent;
             options.SignInScheme = LoginCookieScheme;
             options.ResponseType = "code";
             options.UsePkce = true;
