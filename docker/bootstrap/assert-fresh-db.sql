@@ -74,9 +74,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260911163519_ReviewFixPaymentLinkNotificationIntent'),
     (N'20260913174013_RetireBffSessionTickets'),
     (N'20260914051532_RetireAdminSessions'),
-    (N'20260914111802_RetireLegacyAdminIdentityPlane');
+    (N'20260914111802_RetireLegacyAdminIdentityPlane'),
+    (N'20260915065613_AgentRegistrationPhotos');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 50
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 51
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -85,7 +86,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 50
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 50 expected migrations through RetireLegacyAdminIdentityPlane; ';
+    SET @fail += N'migration history must contain exactly 51 expected migrations through AgentRegistrationPhotos; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

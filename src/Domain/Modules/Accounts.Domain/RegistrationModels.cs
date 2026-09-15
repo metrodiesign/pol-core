@@ -31,6 +31,12 @@ public sealed class AgentRegistration : AggregateRoot<Guid>
     public string Email { get; private set; } = default!;
     public string PhoneNumber { get; private set; } = default!;
     public string ProfileJson { get; private set; } = default!;
+    /// <summary>Object-store key of the applicant photo (null until uploaded; required to submit).</summary>
+    public string? PhotoObjectKey { get; private set; }
+    public string? PhotoContentType { get; private set; }
+    /// <summary>Optional KYC document photo.</summary>
+    public string? KycPhotoObjectKey { get; private set; }
+    public string? KycPhotoContentType { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public long Version { get; private set; }
@@ -75,12 +81,32 @@ public sealed class AgentRegistration : AggregateRoot<Guid>
         Version++;
     }
 
+    /// <summary>Attaches the uploaded photos to the draft. Same edit gate as <see cref="UpdateDraft"/>; a null KYC
+    /// pair clears the optional KYC photo.</summary>
+    public void SetPhotos(string photoObjectKey, string photoContentType,
+        string? kycPhotoObjectKey, string? kycPhotoContentType, DateTime now)
+    {
+        if (Status is AgentRegistrationStatus.Pending or AgentRegistrationStatus.Approved)
+            throw new InvalidOperationException("A pending or approved registration cannot be edited.");
+        PhotoObjectKey = Required(photoObjectKey, nameof(photoObjectKey), 256);
+        PhotoContentType = Required(photoContentType, nameof(photoContentType), 64);
+        if ((kycPhotoObjectKey is null) != (kycPhotoContentType is null))
+            throw new ArgumentException("KYC photo key and content type must be supplied together.");
+        KycPhotoObjectKey = kycPhotoObjectKey is null ? null : Required(kycPhotoObjectKey, nameof(kycPhotoObjectKey), 256);
+        KycPhotoContentType = kycPhotoContentType is null ? null : Required(kycPhotoContentType, nameof(kycPhotoContentType), 64);
+        Status = AgentRegistrationStatus.Draft;
+        UpdatedAt = now;
+        Version++;
+    }
+
     public void StartAttempt(Guid attemptId, int attemptNo, DateTime now)
     {
         if (attemptId == Guid.Empty || attemptNo <= 0)
             throw new ArgumentException("Attempt identity is required.");
         if (Status is AgentRegistrationStatus.Pending or AgentRegistrationStatus.Approved)
             throw new InvalidOperationException("The registration cannot accept another attempt.");
+        if (PhotoObjectKey is null)
+            throw new InvalidOperationException("A photo is required before the registration can be submitted.");
         if (attemptNo != CurrentAttemptNo + 1)
             throw new InvalidOperationException("Attempt numbers must be consecutive.");
         CurrentAttemptId = attemptId;
@@ -128,6 +154,11 @@ public sealed class AgentRegistrationAttempt : Entity<Guid>
     public string Email { get; private set; } = default!;
     public string PhoneNumber { get; private set; } = default!;
     public string ProfileJson { get; private set; } = default!;
+    /// <summary>Photo snapshot taken at submit; the reviewer reads exactly what was submitted.</summary>
+    public string? PhotoObjectKey { get; private set; }
+    public string? PhotoContentType { get; private set; }
+    public string? KycPhotoObjectKey { get; private set; }
+    public string? KycPhotoContentType { get; private set; }
     public string IdempotencyKey { get; private set; } = default!;
     public string IntentHash { get; private set; } = default!;
     public AgentRegistrationAttemptStatus Status { get; private set; }
@@ -178,9 +209,17 @@ public sealed class AgentRegistrationAttempt : Entity<Guid>
     public static AgentRegistrationAttempt Create(Guid registrationId, Guid merchantId, int attemptNo,
         ExternalIdentity identity, string saleCode, Guid saleId, Guid branchId, long saleVersion,
         long branchVersion, string email, string phoneNumber, string profileJson, string idempotencyKey,
-        string intentHash, DateTime submittedAt) =>
+        string intentHash, DateTime submittedAt,
+        string? photoObjectKey = null, string? photoContentType = null,
+        string? kycPhotoObjectKey = null, string? kycPhotoContentType = null) =>
         new(Guid.CreateVersion7(), registrationId, merchantId, attemptNo, identity, saleCode, saleId, branchId,
-            saleVersion, branchVersion, email, phoneNumber, profileJson, idempotencyKey, intentHash, submittedAt);
+            saleVersion, branchVersion, email, phoneNumber, profileJson, idempotencyKey, intentHash, submittedAt)
+        {
+            PhotoObjectKey = photoObjectKey,
+            PhotoContentType = photoContentType,
+            KycPhotoObjectKey = kycPhotoObjectKey,
+            KycPhotoContentType = kycPhotoContentType,
+        };
 
     public bool MatchesIntent(string idempotencyKey, string intentHash) =>
         string.Equals(IdempotencyKey, idempotencyKey, StringComparison.Ordinal)

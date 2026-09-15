@@ -160,6 +160,15 @@ internal sealed class IdentityAccessStore
                 && x.ExternalUserId == identity.ExternalUserId,
             cancellationToken);
 
+    public Task<Account?> FindApprovedAccountAsync(
+        ExternalIdentity identity, CancellationToken cancellationToken) =>
+        db.LoginAccounts.AsNoTracking()
+            .Where(x => x.Provider == identity.Provider
+                && x.TenantId == identity.TenantId
+                && x.ExternalUserId == identity.ExternalUserId)
+            .Join(db.Accounts.AsNoTracking(), login => login.AccountId, account => account.Id, (_, account) => account)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<RegistrationSession> IssueAsync(
         ExternalIdentity identity, Guid merchantId, byte[] sessionReferenceHash, DateTime now, TimeSpan lifetime,
         CancellationToken cancellationToken)

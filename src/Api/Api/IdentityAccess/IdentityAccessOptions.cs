@@ -24,6 +24,10 @@ public sealed class IdentityAccessOptions
     /// <summary>OpenIddict client_id of the workforce SPA (public client, authorization code + PKCE).</summary>
     public string WorkforceClientId { get; set; } = "pol-admin";
 
+    /// <summary>OpenIddict client_id of the agent SPA (public client, authorization code + PKCE). Approved agents
+    /// log in through /oauth/authorize with this client, which selects the "agents" OIDC provider.</summary>
+    public string AgentClientId { get; set; } = "pol-merchant";
+
     /// <summary>Origin of the workforce SPA. The OIDC callback lands on the API origin, so a relative returnTo is
     /// made absolute against this (blank = redirect stays on the API origin). Mirrors AdminSession:WebAppBaseUrl.</summary>
     public string WorkforceWebAppBaseUrl { get; set; } = string.Empty;
@@ -44,6 +48,10 @@ public sealed class IdentityAccessOptions
             throw new InvalidOperationException("IdentityAccess:RefreshTokenMinutes must be greater than zero.");
         if (string.IsNullOrWhiteSpace(WorkforceClientId))
             throw new InvalidOperationException("IdentityAccess:WorkforceClientId is required.");
+        if (string.IsNullOrWhiteSpace(AgentClientId))
+            throw new InvalidOperationException("IdentityAccess:AgentClientId is required.");
+        if (string.Equals(WorkforceClientId, AgentClientId, StringComparison.Ordinal))
+            throw new InvalidOperationException("IdentityAccess:AgentClientId must differ from WorkforceClientId.");
     }
 
     private static void ValidateOrigin(string value, string name)

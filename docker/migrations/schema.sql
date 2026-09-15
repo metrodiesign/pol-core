@@ -8376,3 +8376,96 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [KycPhotoContentType] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [KycPhotoObjectKey] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [PhotoContentType] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [PhotoObjectKey] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ADD [KycPhotoContentType] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ADD [KycPhotoObjectKey] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ADD [PhotoContentType] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ADD [PhotoObjectKey] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260915065613_AgentRegistrationPhotos'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260915065613_AgentRegistrationPhotos', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

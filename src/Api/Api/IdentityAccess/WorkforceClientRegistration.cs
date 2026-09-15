@@ -4,9 +4,12 @@ using OpenIddict.Abstractions;
 
 namespace Api.IdentityAccess;
 
-/// <summary>Registers the workforce SPA as an OpenIddict public client (authorization code + PKCE, refresh token,
-/// revocation) at startup so employees can obtain platform JWTs without any confidential material in the browser.
-/// The redirect URI is derived from <see cref="IdentityAccessOptions.WorkforceWebAppBaseUrl"/>.</summary>
+/// <summary>
+/// Registers the two public OpenIddict clients (authorization code + PKCE) at startup: the workforce SPA
+/// (<c>IdentityAccess:WorkforceClientId</c>, only when the "employees" provider is configured) and the agent SPA
+/// (<c>IdentityAccess:AgentClientId</c>, only when the "agents" provider is configured). Both share one callback
+/// path on their own origin; /oauth/authorize picks the OIDC provider from the client_id it receives.
+/// </summary>
 internal sealed class WorkforceClientRegistration(
     IServiceScopeFactory scopes,
     IdentityAccessProviders providers,
@@ -17,15 +20,19 @@ internal sealed class WorkforceClientRegistration(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        // Without the workforce Entra provider no employee can reach /oauth/authorize, so there is nothing to
-        // register (and test hosts without a database boot without touching it).
-        if (!providers.ContainsKey("employees"))
-            return;
+        var settings = options.Value;
+        if (providers.ContainsKey("employees"))
+            await RegisterAsync(Describe(settings), cancellationToken);
+        if (providers.ContainsKey("agents"))
+            await RegisterAsync(DescribeAgent(settings), cancellationToken);
+    }
+
+    private async Task RegisterAsync(OpenIddictApplicationDescriptor descriptor, CancellationToken cancellationToken)
+    {
         try
         {
             await using var scope = scopes.CreateAsyncScope();
             var applications = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-            var descriptor = Describe(options.Value);
             var existing = await applications.FindByClientIdAsync(descriptor.ClientId!, cancellationToken);
             if (existing is null)
                 await applications.CreateAsync(descriptor, cancellationToken);
@@ -34,24 +41,27 @@ internal sealed class WorkforceClientRegistration(
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            // Test hosts boot without a reachable database; a production failure surfaces as invalid_client at
-            // /oauth/authorize and in this log line, never as a silent success.
-            logger.LogError(exception, "Workforce OpenIddict client {ClientId} could not be registered.",
-                options.Value.WorkforceClientId);
+            logger.LogError(exception, "OpenIddict client {ClientId} could not be registered.", descriptor.ClientId);
         }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    internal static OpenIddictApplicationDescriptor Describe(IdentityAccessOptions settings)
+    internal static OpenIddictApplicationDescriptor Describe(IdentityAccessOptions settings) =>
+        Describe(settings.WorkforceClientId, "Workforce web app", settings.WorkforceWebAppBaseUrl);
+
+    internal static OpenIddictApplicationDescriptor DescribeAgent(IdentityAccessOptions settings) =>
+        Describe(settings.AgentClientId, "Agent web app", settings.AgentWebAppBaseUrl);
+
+    private static OpenIddictApplicationDescriptor Describe(string clientId, string displayName, string webAppBaseUrl)
     {
         var descriptor = new OpenIddictApplicationDescriptor
         {
             ApplicationType = OpenIddictConstants.ApplicationTypes.Web,
-            ClientId = settings.WorkforceClientId,
+            ClientId = clientId,
             ClientType = OpenIddictConstants.ClientTypes.Public,
             ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
-            DisplayName = "Workforce web app",
+            DisplayName = displayName,
             Permissions =
             {
                 OpenIddictConstants.Permissions.Endpoints.Authorization,
@@ -67,8 +77,8 @@ internal sealed class WorkforceClientRegistration(
             },
             Requirements = { OpenIddictConstants.Requirements.Features.ProofKeyForCodeExchange },
         };
-        if (!string.IsNullOrEmpty(settings.WorkforceWebAppBaseUrl))
-            descriptor.RedirectUris.Add(new Uri(settings.WorkforceWebAppBaseUrl.TrimEnd('/') + CallbackPath));
+        if (!string.IsNullOrEmpty(webAppBaseUrl))
+            descriptor.RedirectUris.Add(new Uri(webAppBaseUrl.TrimEnd('/') + CallbackPath));
         return descriptor;
     }
 }

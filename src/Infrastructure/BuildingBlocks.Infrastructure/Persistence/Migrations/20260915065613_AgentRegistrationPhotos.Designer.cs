@@ -5,16 +5,19 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace BuildingBlocks.Infrastructure.Persistence.Migrations
+namespace Infrastructure.BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    partial class PolDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260915065613_AgentRegistrationPhotos")]
+    partial class AgentRegistrationPhotos
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
