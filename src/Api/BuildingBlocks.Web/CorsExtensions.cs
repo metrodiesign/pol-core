@@ -51,14 +51,16 @@ public static class CorsExtensions
             {
                 if (origins.MerchantOrigins.Length == 0)
                     return; // no origins configured -> no cross-origin request is allowed
-                policy.WithOrigins(origins.MerchantOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // merchant-user: cookie XHR
+                policy.WithOrigins(origins.MerchantOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()
+                    .WithExposedHeaders("ETag", "Location"); // merchant-user: cookie XHR; ETag feeds If-Match
             });
 
             options.AddPolicy(AdminPolicyName, policy =>
             {
                 if (origins.AdminOrigins.Length == 0)
                     return; // no admin origin configured -> no cross-origin admin XHR
-                policy.WithOrigins(origins.AdminOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // admin: cookie XHR
+                policy.WithOrigins(origins.AdminOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()
+                    .WithExposedHeaders("ETag", "Location"); // admin: cookie XHR; ETag feeds If-Match
             });
 
             options.AddPolicy(DualConsolePolicyName, policy =>
@@ -68,7 +70,8 @@ public static class CorsExtensions
                     .Distinct(StringComparer.Ordinal).ToArray();
                 if (combined.Length == 0)
                     return;
-                policy.WithOrigins(combined).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+                policy.WithOrigins(combined).AllowAnyHeader().AllowAnyMethod().AllowCredentials()
+                    .WithExposedHeaders("ETag", "Location");
             });
         });
 

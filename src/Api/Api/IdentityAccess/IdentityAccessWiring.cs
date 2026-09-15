@@ -257,6 +257,29 @@ internal sealed class IdentityBffLoginService(
             return;
         }
 
+        // API-009: an already-approved agent logs in (login cookie -> the pending /oauth/authorize request issues
+        // the code for the agent client); everyone else (no account, Pending, Rejected) gets a registration
+        // session and lands on /register, where nextAction tells the SPA what to show. Suspended is a deny.
+        var approved = await registrationSessions.FindApprovedAccountAsync(
+            verified, settings.AgentIssuer, settings.AgentTenantId, settings.AgentAudience,
+            context.HttpContext.RequestAborted);
+        if (approved is not null)
+        {
+            if (approved.Status != AccountStatus.Active)
+                throw new IdentityAccessException("agent_account_suspended", "The agent account is not active.");
+            var identity = new ClaimsIdentity(IdentityAccessWiring.LoginCookieScheme);
+            identity.AddClaim(new Claim("sub", approved.Id.ToString("D")));
+            context.Principal = new ClaimsPrincipal(identity);
+            context.Properties = new AuthenticationProperties
+            {
+                IsPersistent = false,
+                ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(2),
+            };
+            if (!IsAuthorizeRequest(context.ReturnUri))
+                context.ReturnUri = ToWebApp("/", settings.AgentWebAppBaseUrl);
+            return;
+        }
+
         var session = await registrationSessions.StartAsync(
             verified,
             ParseMerchant(properties.GetString("identity.merchant_id")),

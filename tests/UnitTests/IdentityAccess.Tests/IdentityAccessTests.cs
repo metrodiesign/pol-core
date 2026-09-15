@@ -263,6 +263,9 @@ public sealed class IdentityAccessTests
         public Task<bool> HasApprovedAccountAsync(ExternalIdentity identity, CancellationToken cancellationToken) =>
             Task.FromResult(approved);
 
+        public Task<Account?> FindApprovedAccountAsync(ExternalIdentity identity, CancellationToken cancellationToken) =>
+            Task.FromResult<Account?>(null);
+
         public Task<RegistrationSession> IssueAsync(
             ExternalIdentity identity,
             Guid merchantId,
