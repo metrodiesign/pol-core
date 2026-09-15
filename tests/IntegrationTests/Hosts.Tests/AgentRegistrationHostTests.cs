@@ -55,10 +55,46 @@ public sealed class AgentRegistrationHostTests
                 saleCode = "host-sale",
                 email = "old-contact@example.test",
                 phoneNumber = "0811111111",
-                profile = new { displayName = "Host Applicant", privateField = "must-not-be-public" },
+                profile = new { schemaVersion = 1, firstName = "Host", lastName = "Applicant", personType = "Individual", idNumber = "1234567890123", privateField = "must-not-be-public" },
             });
             Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
-            var draftEtag = draft.Headers.ETag!.Tag;
+            using (var draftJson = await JsonDocument.ParseAsync(await draft.Content.ReadAsStreamAsync()))
+            {
+                // The applicant's own case carries the draft back for prefill (gap 6 of the SPA migration brief).
+                var registration = draftJson.RootElement.GetProperty("registration");
+                Assert.Equal("host-sale", registration.GetProperty("saleCode").GetString());
+                Assert.Equal("old-contact@example.test", registration.GetProperty("email").GetString());
+                Assert.Equal("Host", registration.GetProperty("profile").GetProperty("firstName").GetString());
+                Assert.False(registration.GetProperty("hasPhoto").GetBoolean());
+                Assert.Equal("submit", draftJson.RootElement.GetProperty("nextAction").GetString());
+            }
+
+            // Profile contract (schemaVersion 1): firstName/lastName/personType/idNumber are required.
+            var invalidProfile = await applicant.PutAsJsonAsync("/api/v1/agent-registration", new
+            {
+                saleCode = "host-sale",
+                email = "old-contact@example.test",
+                phoneNumber = "0811111111",
+                profile = new { lastName = "Applicant", personType = "Company", idNumber = "1" },
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, invalidProfile.StatusCode);
+            Assert.Contains("validation_failed", await invalidProfile.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            // Submitting without a photo is a coded 400, not a 409/500.
+            using var noPhotoSubmit = new HttpRequestMessage(HttpMethod.Post, "/api/v1/agent-registration/submissions");
+            noPhotoSubmit.Headers.TryAddWithoutValidation("Cookie", $"pol_registration_session={fixture.SessionA}");
+            noPhotoSubmit.Headers.TryAddWithoutValidation("If-Match", draft.Headers.ETag!.Tag);
+            noPhotoSubmit.Headers.TryAddWithoutValidation("Idempotency-Key", "host-submit-0");
+            var noPhoto = await applicant.SendAsync(noPhotoSubmit);
+            Assert.Equal(HttpStatusCode.BadRequest, noPhoto.StatusCode);
+            Assert.Contains("photo_required", await noPhoto.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            var photos = await applicant.PutAsync("/api/v1/agent-registration/photos", PhotoForm(includeKyc: false));
+            Assert.True(photos.StatusCode == HttpStatusCode.OK, await photos.Content.ReadAsStringAsync());
+            using (var photosJson = await JsonDocument.ParseAsync(await photos.Content.ReadAsStreamAsync()))
+                Assert.True(photosJson.RootElement.GetProperty("registration").GetProperty("hasPhoto").GetBoolean());
+            var draftEtag = photos.Headers.ETag!.Tag;
+            Assert.NotEqual(draft.Headers.ETag!.Tag, draftEtag);
 
             using var submitRequest = new HttpRequestMessage(
                 HttpMethod.Post, "/api/v1/agent-registration/submissions")
@@ -75,10 +111,21 @@ public sealed class AgentRegistrationHostTests
             var attemptId = submitJson.RootElement.GetProperty("attempt").GetProperty("attemptId").GetGuid();
             var submitEtag = submit.Headers.ETag!.Tag;
 
+            // Editing while an attempt is pending is a coded 409 the SPA can branch on.
+            var editWhilePending = await applicant.PutAsJsonAsync("/api/v1/agent-registration", new
+            {
+                saleCode = "host-sale",
+                email = "old-contact@example.test",
+                phoneNumber = "0811111111",
+                profile = new { schemaVersion = 1, firstName = "Host", lastName = "Applicant", personType = "Individual", idNumber = "1234567890123" },
+            });
+            Assert.Equal(HttpStatusCode.Conflict, editWhilePending.StatusCode);
+            Assert.Contains("registration_pending", await editWhilePending.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
             var publicBeforeDecision = await applicant.GetAsync("/api/v1/agent-registration/history");
             Assert.Equal(HttpStatusCode.OK, publicBeforeDecision.StatusCode);
             AssertPublicHistory(await JsonDocument.ParseAsync(await publicBeforeDecision.Content.ReadAsStreamAsync()),
-                expectedStatuses: ["PENDING"]);
+                expectedStatuses: ["Pending"]);
 
             using var reviewer = factory.CreateClient();
             var rejected = await reviewer.SendAsync(RejectRequest(
@@ -96,7 +143,7 @@ public sealed class AgentRegistrationHostTests
                 saleCode = "host-sale",
                 email = "new-contact@example.test",
                 phoneNumber = "0822222222",
-                profile = new { displayName = "Corrected Applicant", privateField = "edited-private" },
+                profile = new { schemaVersion = 1, firstName = "Corrected", lastName = "Applicant", personType = "Juristic", idNumber = "0105551234567", licenseNumber = "LIC-1", acceptedTermsAt = "2026-09-15T00:00:00Z" },
             });
             Assert.Equal(HttpStatusCode.OK, correctedDraft.StatusCode);
             using var secondSubmitRequest = new HttpRequestMessage(
@@ -115,7 +162,7 @@ public sealed class AgentRegistrationHostTests
 
             var publicPending = await applicant.GetAsync("/api/v1/agent-registration/history");
             AssertPublicHistory(await JsonDocument.ParseAsync(await publicPending.Content.ReadAsStreamAsync()),
-                expectedStatuses: ["REJECTED", "PENDING"]);
+                expectedStatuses: ["Rejected", "Pending"]);
 
             var approved = await reviewer.SendAsync(ApproveRequest(
                 registrationId, secondAttemptId, secondSubmit.Headers.ETag!.Tag, "official-record"));
@@ -123,7 +170,7 @@ public sealed class AgentRegistrationHostTests
 
             var publicApproved = await applicant.GetAsync("/api/v1/agent-registration/history");
             AssertPublicHistory(await JsonDocument.ParseAsync(await publicApproved.Content.ReadAsStreamAsync()),
-                expectedStatuses: ["REJECTED", "APPROVED"]);
+                expectedStatuses: ["Rejected", "Approved"]);
 
             var reviewerAttempts = await reviewer.GetAsync($"/api/v1/agent-registrations/{registrationId}/attempts");
             Assert.Equal(HttpStatusCode.OK, reviewerAttempts.StatusCode);
@@ -133,6 +180,16 @@ public sealed class AgentRegistrationHostTests
             Assert.Equal("old-contact@example.test", firstReviewerAttempt.GetProperty("email").GetString());
             Assert.Equal("0811111111", firstReviewerAttempt.GetProperty("phoneNumber").GetString());
             Assert.True(firstReviewerAttempt.TryGetProperty("profileJson", out _));
+            Assert.True(firstReviewerAttempt.GetProperty("hasPhoto").GetBoolean());
+            Assert.False(firstReviewerAttempt.GetProperty("hasKycPhoto").GetBoolean());
+
+            // The reviewer reads the submitted photo snapshot; the optional KYC photo was never uploaded.
+            var reviewerPhoto = await reviewer.GetAsync($"/api/v1/agent-registrations/{registrationId}/attempts/{attemptId}/photos/photo");
+            Assert.Equal(HttpStatusCode.OK, reviewerPhoto.StatusCode);
+            Assert.Equal("image/png", reviewerPhoto.Content.Headers.ContentType!.MediaType);
+            Assert.Equal(OnePixelPng, await reviewerPhoto.Content.ReadAsByteArrayAsync());
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await reviewer.GetAsync($"/api/v1/agent-registrations/{registrationId}/attempts/{attemptId}/photos/kyc")).StatusCode);
 
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(fixture.Database)))
             {
@@ -172,6 +229,24 @@ public sealed class AgentRegistrationHostTests
         }
     }
 
+    private static readonly byte[] OnePixelPng = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
+    private static MultipartFormDataContent PhotoForm(bool includeKyc)
+    {
+        var form = new MultipartFormDataContent();
+        var photo = new ByteArrayContent(OnePixelPng);
+        photo.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        form.Add(photo, "photo", "photo.png");
+        if (includeKyc)
+        {
+            var kyc = new ByteArrayContent(OnePixelPng);
+            kyc.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            form.Add(kyc, "kycPhoto", "kyc.png");
+        }
+        return form;
+    }
+
     private static void AssertPublicHistory(JsonDocument document, string[] expectedStatuses)
     {
         var attempts = document.RootElement.GetProperty("attempts").EnumerateArray().ToArray();
@@ -184,7 +259,7 @@ public sealed class AgentRegistrationHostTests
             Assert.False(attempt.TryGetProperty("phoneNumber", out _));
             Assert.False(attempt.TryGetProperty("profileJson", out _));
         }
-        if (expectedStatuses.Contains("REJECTED", StringComparer.Ordinal))
+        if (expectedStatuses.Contains("Rejected", StringComparer.Ordinal))
             Assert.Equal("public rejection", attempts[0].GetProperty("rejectionReason").GetString());
     }
 

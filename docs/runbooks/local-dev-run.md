@@ -213,6 +213,16 @@ Tier 1 (Merchant) ยังเป็น server-side BFF cookie. `Client ID`, `Te
 | Tier 1 | ตัวแทน/Merchant | `MerchantAuth__Providers__Microsoft__` | `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0` | `/api/v1/merchants/auth/microsoft/login` | `/api/v1/merchants/auth/microsoft/callback` | `https://localhost:3002` |
 
 Authority ต้อง pin tenant เดียวและลงท้าย `/v2.0`. ห้ามใช้ `/common`, `/organizations` หรือ `/consumers`.
+
+Tier 1 canonical (agent registration + login หลังอนุมัติ) ใช้ prefix `IdentityAccess__Agent__` (Authority, ClientId, ClientSecret,
+CallbackPath `/api/v1/auth/agents/callback`) ร่วมกับ `IdentityAccess__AgentIssuer` (issuer ตาม discovery metadata ของ CIAM
+ซึ่งเป็นรูป `https://<tenant-id>.ciamlogin.com/<tenant-id>/v2.0`), `IdentityAccess__AgentTenantId`, `IdentityAccess__AgentAudience`,
+`IdentityAccess__AgentMerchantId` (merchant ที่ผู้สมัครทุกคนผูก) และ `IdentityAccess__AgentWebAppBaseUrl` (`https://localhost:3002`)
+ใช้ Entra app เดียวกับ `MerchantAuth__Providers__Microsoft__*` ได้ แต่ต้องลงทะเบียน redirect URI ที่สองบน app นั้น
+ค่าเหล่านี้ตั้งใน `.env` เท่านั้น (launch profile ไม่ override) ว่างไว้ = `/api/v1/auth/agents/login` ตอบ 503 `capability_not_configured`
+ตัวแทนที่อนุมัติแล้ว login ผ่าน `/oauth/authorize?client_id=pol-merchant` (OpenIddict public client ที่ host ลงทะเบียนให้จาก
+`IdentityAccess__AgentClientId` + `AgentWebAppBaseUrl` + `/auth/callback`) การ submit ต้องมี `merch.Sales`/`merch.Branches`
+ของ merchant นั้นอยู่จริง (local ว่างเปล่า seed เองก่อนทดสอบ)
 Current local launch profile มี public Tier 1 Authority, Client ID และ callback ของ `VCP External DEV` แล้ว แต่ไม่มี
 client secret ตามหลัก security.
 

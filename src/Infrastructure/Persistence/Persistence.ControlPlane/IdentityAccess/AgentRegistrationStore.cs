@@ -59,6 +59,7 @@ internal sealed class AgentRegistrationStore(
                 if (registration.MerchantId != session.MerchantId)
                     throw new ConflictException("The registration is bound to another merchant.", "registration_merchant_mismatch");
                 EnsureVersion(registration.Version, expectedVersion);
+                EnsureEditable(registration);
                 registration.UpdateDraft(draft.SaleCode, draft.Email, draft.PhoneNumber,
                     draft.Profile.GetRawText(), clock.UtcNow);
             }
@@ -66,6 +67,38 @@ internal sealed class AgentRegistrationStore(
             await unitOfWork.SaveChangesAsync(ct);
             return registration;
         }, cancellationToken);
+    }
+
+    public async Task<AgentRegistration> SavePhotosAsync(
+        RegistrationSession session, RegistrationPhotos photos, long? expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        var identity = new ExternalIdentity(session.Provider, session.TenantId, session.ExternalUserId);
+        return await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            await locks.AcquireAsync(IdentityLock(identity), ct);
+            var registration = await db.AgentRegistrations.SingleOrDefaultAsync(x =>
+                x.Provider == identity.Provider && x.TenantId == identity.TenantId
+                && x.ExternalUserId == identity.ExternalUserId, ct)
+                ?? throw new NotFoundException("Registration draft was not found.");
+            if (registration.MerchantId != session.MerchantId)
+                throw new ConflictException("The registration is bound to another merchant.", "registration_merchant_mismatch");
+            EnsureVersion(registration.Version, expectedVersion);
+            EnsureEditable(registration);
+            registration.SetPhotos(photos.PhotoObjectKey, photos.PhotoContentType,
+                photos.KycPhotoObjectKey, photos.KycPhotoContentType, clock.UtcNow);
+            await unitOfWork.SaveChangesAsync(ct);
+            return registration;
+        }, cancellationToken);
+    }
+
+    /// <summary>Same gate as the domain's edit guard, but as a coded 409 the SPA can branch on.</summary>
+    private static void EnsureEditable(AgentRegistration registration)
+    {
+        if (registration.Status == AgentRegistrationStatus.Pending)
+            throw new ConflictException("A registration attempt is already pending.", "registration_pending");
+        if (registration.Status == AgentRegistrationStatus.Approved)
+            throw new ConflictException("The identity already has an approved account.", "account_already_approved");
     }
 
     public async Task<RegistrationSubmitResult> SubmitAsync(
@@ -99,13 +132,17 @@ internal sealed class AgentRegistrationStore(
             if (registration.Status == AgentRegistrationStatus.Approved)
                 throw new ConflictException("The identity already has an approved account.", "account_already_approved");
 
+            if (registration.PhotoObjectKey is null)
+                throw new InvalidRequestException("Photo is required.", "photo_required");
             var sale = await ReadCurrentSaleAsync(registration.MerchantId, registration.SaleCode, ct)
                 ?? throw new ConflictException("The sale is not available for this registration.", "registration_sale_invalid");
             var attempt = AgentRegistrationAttempt.Create(
                 registration.Id, registration.MerchantId, registration.CurrentAttemptNo + 1, identity,
                 registration.SaleCode, sale.SaleId, sale.BranchId, sale.SaleVersion, sale.BranchVersion,
                 registration.Email, registration.PhoneNumber, registration.ProfileJson, idempotencyKey,
-                intentHash, clock.UtcNow);
+                intentHash, clock.UtcNow,
+                registration.PhotoObjectKey, registration.PhotoContentType,
+                registration.KycPhotoObjectKey, registration.KycPhotoContentType);
             registration.StartAttempt(attempt.Id, attempt.AttemptNo, clock.UtcNow);
             db.AgentRegistrationAttempts.Add(attempt);
             await unitOfWork.SaveChangesAsync(ct);
@@ -275,7 +312,7 @@ internal sealed class AgentRegistrationStore(
 
     private static string HashIntent(AgentRegistration registration) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{registration.SaleCode}\0{registration.Email}\0{registration.PhoneNumber}\0{registration.ProfileJson}")))
+            $"{registration.SaleCode}\0{registration.Email}\0{registration.PhoneNumber}\0{registration.ProfileJson}\0{registration.PhotoObjectKey}\0{registration.KycPhotoObjectKey}")))
             .ToLowerInvariant();
 
     private static string HashDecision(string decision, string reason, string? internalReviewNote) =>

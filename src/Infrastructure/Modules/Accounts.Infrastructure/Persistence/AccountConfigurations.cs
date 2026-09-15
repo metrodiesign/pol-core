@@ -168,6 +168,10 @@ public sealed class AgentRegistrationConfiguration : IEntityTypeConfiguration<Ag
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.PhoneNumber).HasMaxLength(64).IsRequired();
         builder.Property(x => x.ProfileJson).HasColumnType("json").IsRequired();
+        builder.Property(x => x.PhotoObjectKey).HasMaxLength(256);
+        builder.Property(x => x.PhotoContentType).HasMaxLength(64);
+        builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
+        builder.Property(x => x.KycPhotoContentType).HasMaxLength(64);
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.UpdatedAt).IsRequired();
         builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
@@ -197,6 +201,10 @@ public sealed class AgentRegistrationAttemptConfiguration : IEntityTypeConfigura
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.PhoneNumber).HasMaxLength(64).IsRequired();
         builder.Property(x => x.ProfileJson).HasColumnType("json").IsRequired();
+        builder.Property(x => x.PhotoObjectKey).HasMaxLength(256);
+        builder.Property(x => x.PhotoContentType).HasMaxLength(64);
+        builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
+        builder.Property(x => x.KycPhotoContentType).HasMaxLength(64);
         builder.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
         builder.Property(x => x.IntentHash).HasMaxLength(64).IsUnicode(false).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();

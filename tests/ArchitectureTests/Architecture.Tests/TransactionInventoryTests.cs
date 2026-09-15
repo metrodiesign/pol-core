@@ -70,7 +70,7 @@ public sealed class TransactionInventoryTests
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/Payments/LegacyPaymentRemediationService.cs"] = 2, // task 9 offline remediation: env backfill + per-merchant legacy-snapshot upgrade write phase
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/Payments/AdminPaymentsApprovalExecutor.cs"] = 3, // rows 38-39 + environment activation (task 7)
         ["src/Infrastructure/Persistence/Persistence.MerchantRuntime/Idempotency/AdminOperationExecutor.cs"] = 3, // row 40: atomic flow + recoverable claim/result
-        ["src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/AgentRegistrationStore.cs"] = 4, // registration case/attempt/decision transactions
+        ["src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/AgentRegistrationStore.cs"] = 5, // registration case/photos/attempt/decision transactions
         ["src/Infrastructure/Persistence/Persistence.ControlPlane/IdentityAccess/IdentityAccessStore.cs"] = 1, // account/access atomic identity flow
         ["src/Infrastructure/Persistence/Persistence.MerchantRuntime/Notifications/NotificationDeliveryDispatcher.cs"] = 2, // bounded delivery claim/retry transactions
         ["src/Infrastructure/Persistence/Persistence.MerchantRuntime/Notifications/NotificationMaterializer.cs"] = 1, // notification inbox/materialization transaction

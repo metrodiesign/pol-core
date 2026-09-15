@@ -13,6 +13,14 @@ public sealed record RegistrationDraftRequest(
     string PhoneNumber,
     JsonElement Profile);
 
+/// <summary>Uploaded photo object keys to attach to the draft (the API validates bytes and stores them first).</summary>
+public sealed record RegistrationPhotos(
+    string PhotoObjectKey,
+    string PhotoContentType,
+    string? KycPhotoObjectKey,
+    string? KycPhotoContentType);
+
+/// <summary>The applicant's own case: draft fields ride along so the SPA can prefill after a rejection.</summary>
 public sealed record RegistrationCaseView(
     Guid RegistrationId,
     Guid MerchantId,
@@ -20,7 +28,13 @@ public sealed record RegistrationCaseView(
     int CurrentAttemptNo,
     Guid? CurrentAttemptId,
     string? RejectionReason,
-    long Version);
+    long Version,
+    string SaleCode,
+    string Email,
+    string PhoneNumber,
+    JsonElement Profile,
+    bool HasPhoto,
+    bool HasKycPhoto);
 
 public sealed record RegistrationAttemptView(
     Guid AttemptId,
@@ -35,7 +49,9 @@ public sealed record RegistrationAttemptView(
     string? ProfileJson,
     string? InternalReviewNote,
     Guid? DecidedByAccountId,
-    DateTime? DecidedAt);
+    DateTime? DecidedAt,
+    bool HasPhoto = false,
+    bool HasKycPhoto = false);
 
 public sealed record RegistrationSubmitResult(RegistrationCaseView Registration, RegistrationAttemptView Attempt, bool Replayed);
 
@@ -55,6 +71,10 @@ public interface IAgentRegistrationStore
 
     Task<AgentRegistration> SaveDraftAsync(
         RegistrationSession session, RegistrationDraftRequest draft, long? expectedVersion,
+        CancellationToken cancellationToken);
+
+    Task<AgentRegistration> SavePhotosAsync(
+        RegistrationSession session, RegistrationPhotos photos, long? expectedVersion,
         CancellationToken cancellationToken);
 
     Task<RegistrationSubmitResult> SubmitAsync(
@@ -102,6 +122,14 @@ public sealed class AgentRegistrationService(IAgentRegistrationStore store)
         return await store.SaveDraftAsync(session, request with { Profile = request.Profile.Clone() }, expectedVersion, ct);
     }
 
+    public Task<AgentRegistration> SavePhotosAsync(
+        RegistrationSession session, RegistrationPhotos photos, long? expectedVersion, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(photos.PhotoObjectKey) || string.IsNullOrWhiteSpace(photos.PhotoContentType))
+            throw new InvalidRequestException("Photo is required.", "photo_required");
+        return store.SavePhotosAsync(session, photos, expectedVersion, ct);
+    }
+
     public Task<RegistrationSubmitResult> SubmitAsync(
         RegistrationSession session, string idempotencyKey, long? expectedVersion, CancellationToken ct)
     {
@@ -144,16 +172,30 @@ public sealed class AgentRegistrationService(IAgentRegistrationStore store)
 
     public static RegistrationCaseView ToView(AgentRegistration registration, string? rejectionReason = null) =>
         new(registration.Id, registration.MerchantId, registration.Status, registration.CurrentAttemptNo,
-            registration.CurrentAttemptId, rejectionReason, registration.Version);
+            registration.CurrentAttemptId, rejectionReason, registration.Version,
+            registration.SaleCode, registration.Email, registration.PhoneNumber, ParseProfile(registration.ProfileJson),
+            registration.PhotoObjectKey is not null, registration.KycPhotoObjectKey is not null);
 
     public static RegistrationAttemptView ToApplicantAttemptView(AgentRegistrationAttempt attempt) =>
         new(attempt.Id, attempt.AttemptNo, attempt.Status, attempt.SubmittedAt, attempt.RejectionReason,
-            attempt.Version, null, null, null, null, null, attempt.DecidedByAccountId, attempt.DecidedAt);
+            attempt.Version, null, null, null, null, null, attempt.DecidedByAccountId, attempt.DecidedAt,
+            attempt.PhotoObjectKey is not null, attempt.KycPhotoObjectKey is not null);
 
     public static RegistrationAttemptView ToReviewerAttemptView(AgentRegistrationAttempt attempt) =>
         new(attempt.Id, attempt.AttemptNo, attempt.Status, attempt.SubmittedAt, attempt.RejectionReason,
             attempt.Version, attempt.SaleCode, attempt.Email, attempt.PhoneNumber, attempt.ProfileJson,
-            attempt.InternalReviewNote, attempt.DecidedByAccountId, attempt.DecidedAt);
+            attempt.InternalReviewNote, attempt.DecidedByAccountId, attempt.DecidedAt,
+            attempt.PhotoObjectKey is not null, attempt.KycPhotoObjectKey is not null);
+
+    private static JsonElement ParseProfile(string profileJson)
+    {
+        using var document = JsonDocument.Parse(profileJson);
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>Profile contract shared with the agent SPA and the reviewer console (schemaVersion 1):
+    /// firstName, lastName, personType (Individual|Juristic), idNumber required; licenseNumber, acceptedTermsAt optional.</summary>
+    private static readonly string[] RequiredProfileFields = ["firstName", "lastName", "idNumber"];
 
     private static void ValidateDraft(RegistrationDraftRequest request)
     {
@@ -171,6 +213,29 @@ public sealed class AgentRegistrationService(IAgentRegistrationStore store)
         var raw = request.Profile.GetRawText();
         if (raw.Length > 32_768)
             throw new InvalidRequestException("Profile is too large.", "validation_failed");
+        ValidateProfile(request.Profile);
+    }
+
+    private static void ValidateProfile(JsonElement profile)
+    {
+        if (profile.TryGetProperty("schemaVersion", out var schemaVersion)
+            && (schemaVersion.ValueKind != JsonValueKind.Number || schemaVersion.GetInt32() != 1))
+            throw new InvalidRequestException("Profile schemaVersion must be 1.", "validation_failed");
+        foreach (var field in RequiredProfileFields)
+        {
+            if (!profile.TryGetProperty(field, out var value) || value.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(value.GetString()) || value.GetString()!.Trim().Length > 200)
+                throw new InvalidRequestException($"Profile {field} is required.", "validation_failed");
+        }
+        if (!profile.TryGetProperty("personType", out var personType) || personType.ValueKind != JsonValueKind.String
+            || personType.GetString() is not ("Individual" or "Juristic"))
+            throw new InvalidRequestException("Profile personType must be Individual or Juristic.", "validation_failed");
+        if (profile.TryGetProperty("licenseNumber", out var license)
+            && license.ValueKind is not (JsonValueKind.Null or JsonValueKind.String))
+            throw new InvalidRequestException("Profile licenseNumber must be a string or null.", "validation_failed");
+        if (profile.TryGetProperty("acceptedTermsAt", out var acceptedAt)
+            && (acceptedAt.ValueKind != JsonValueKind.String || !acceptedAt.TryGetDateTimeOffset(out _)))
+            throw new InvalidRequestException("Profile acceptedTermsAt must be an ISO-8601 timestamp.", "validation_failed");
     }
 
     private static void RequireIdempotencyKey(string value)
