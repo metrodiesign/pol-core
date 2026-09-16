@@ -10,6 +10,7 @@ using Admins.Application.Users;
 using BuildingBlocks.Application;
 using Iam.Domain.Permissions;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -19,6 +20,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using OpenIddict.Server;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
@@ -44,6 +46,12 @@ internal static class IdentityAccessEndpoints
 
         auth.MapGet("/agents/login", BeginAgentLogin)
             .AllowAnonymous().WithName("BeginAgentLogin").WithTags("การเข้าสู่ระบบ");
+
+        auth.MapGet("/agents/logout", EndAgentCiamSession)
+            .AllowAnonymous().WithName("EndAgentCiamSession").WithTags("การเข้าสู่ระบบ")
+            .WithSummary("จบ Microsoft CIAM session ของ Agent")
+            .WithDescription("redirect ไป end_session_endpoint จาก OIDC metadata โดยใช้ post-logout URI ที่ server กำหนดเท่านั้น")
+            .Produces(StatusCodes.Status302Found).ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         auth.MapPost("/logout", Logout)
             .RequireIdentityPlatformMutation()
@@ -314,6 +322,7 @@ internal static class IdentityAccessEndpoints
             authorization_endpoint = $"{issuer}/oauth/authorize",
             token_endpoint = $"{issuer}/oauth/token",
             revocation_endpoint = $"{issuer}/oauth/revoke",
+            end_session_endpoint = $"{issuer}/api/v1/auth/agents/logout",
             jwks_uri = $"{issuer}/.well-known/jwks.json",
             response_types_supported = new[] { "code" },
             grant_types_supported = new[] { "authorization_code", "refresh_token", "client_credentials" },
@@ -359,7 +368,25 @@ internal static class IdentityAccessEndpoints
         // The client_id (already validated by OpenIddict against the registered clients) selects the human realm:
         // the agent SPA challenges the "agents" (Entra External ID) provider, everything else the workforce one.
         var isAgentClient = string.Equals(request.ClientId, options.Value.AgentClientId, StringComparison.Ordinal);
+        var accountSelectionRequested = isAgentClient && string.Equals(
+            request.Prompt, OpenIdConnectPrompt.SelectAccount, StringComparison.Ordinal);
+        if (isAgentClient
+            && !string.IsNullOrWhiteSpace(request.Prompt)
+            && !accountSelectionRequested)
+            return OAuthError(OpenIddictConstants.Errors.InvalidRequest, "The prompt value is not supported for this client.");
+
         var login = await http.AuthenticateAsync(IdentityAccessWiring.LoginCookieScheme);
+        var accountSelectionCompleted = login.Properties?.Items.TryGetValue(
+            IdentityAccessWiring.AgentAccountSelectionItem, out var selectionStatus) == true
+            && string.Equals(selectionStatus, "completed", StringComparison.Ordinal);
+        if (login.Principal?.Identity?.IsAuthenticated == true
+            && accountSelectionRequested
+            && !accountSelectionCompleted)
+        {
+            await http.SignOutAsync(IdentityAccessWiring.LoginCookieScheme);
+            login = AuthenticateResult.NoResult();
+        }
+
         if (login.Principal?.Identity?.IsAuthenticated != true)
         {
             if (!providers.TryGetValue(isAgentClient ? "agents" : "employees", out var scheme))
@@ -375,6 +402,11 @@ internal static class IdentityAccessEndpoints
             properties.Items["identity.realm"] = isAgentClient ? "external" : "workforce";
             if (isAgentClient && options.Value.AgentMerchantId is { } agentMerchantId)
                 properties.Items["identity.merchant_id"] = agentMerchantId.ToString("D");
+            if (accountSelectionRequested)
+            {
+                properties.Items[IdentityAccessWiring.AgentAccountSelectionItem] = "requested";
+                properties.SetParameter(OpenIdConnectParameterNames.Prompt, OpenIdConnectPrompt.SelectAccount);
+            }
             return Results.Challenge(properties, [scheme]);
         }
 
@@ -613,6 +645,48 @@ internal static class IdentityAccessEndpoints
         properties.Items["identity.expected_issuer"] = expectedIssuer;
         configure(properties);
         return Results.Challenge(properties, [scheme]);
+    }
+
+    /// <summary>Returns a browser to the Agent CIAM end-session endpoint. Both destinations are server-owned:
+    /// provider metadata owns the logout endpoint and IdentityAccess configuration owns the final SPA path.</summary>
+    private static async Task<IResult> EndAgentCiamSession(
+        IOptionsMonitor<OpenIdConnectOptions> oidcOptions,
+        IOptions<IdentityAccessOptions> identityOptions,
+        CancellationToken cancellationToken)
+    {
+        var options = oidcOptions.Get(IdentityAccessWiring.AgentScheme);
+        OpenIdConnectConfiguration configuration;
+        try
+        {
+            configuration = options.ConfigurationManager is null
+                ? options.Configuration
+                    ?? throw new InvalidOperationException("Agent OIDC configuration is unavailable.")
+                : await options.ConfigurationManager.GetConfigurationAsync(cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Agent end-session configuration is unavailable.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "end_session_configuration_unavailable",
+                });
+        }
+
+        if (!Uri.TryCreate(configuration.EndSessionEndpoint, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(endpoint.UserInfo)
+            || !string.IsNullOrEmpty(endpoint.Fragment))
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Agent end-session endpoint is not configured.",
+                extensions: new Dictionary<string, object?> { ["code"] = "end_session_not_configured" });
+
+        var postLogout = identityOptions.Value.AgentWebAppBaseUrl.TrimEnd('/') + "/login";
+        var destination = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(
+            endpoint.ToString(), "post_logout_redirect_uri", postLogout);
+        return Results.Redirect(destination);
     }
 
     /// <summary>Ends the login the Bearer token belongs to: revoking its OpenIddict authorization rejects every

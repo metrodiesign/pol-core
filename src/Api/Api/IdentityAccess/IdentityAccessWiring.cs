@@ -21,17 +21,23 @@ internal static class IdentityAccessWiring
     /// the code is issued and is never accepted by any API route.</summary>
     public const string LoginCookieScheme = "identity-login";
     public const string LoginCookieName = "pol_login";
+    public const string AgentScheme = "IdentityAgentMicrosoft";
+    public const string AgentAccountSelectionItem = "identity.agent_account_selection";
 
     public static IServiceCollection AddIdentityAccess(
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
+        var agentProvider = configuration.GetSection("IdentityAccess:Agent").Get<IdentityOidcProviderOptions>()
+            ?? new IdentityOidcProviderOptions();
+        var agentProviderConfigured = !string.IsNullOrWhiteSpace(agentProvider.ClientId)
+            && !string.IsNullOrWhiteSpace(agentProvider.Authority);
         services.AddOptions<IdentityAccessOptions>()
             .Bind(configuration.GetSection(IdentityAccessOptions.SectionName))
             .Validate(options =>
             {
                 try
                 {
-                    options.Validate();
+                    options.Validate(agentProviderConfigured);
                     return true;
                 }
                 catch
@@ -83,9 +89,8 @@ internal static class IdentityAccessWiring
         AddHumanProvider(
             authentication,
             providers,
-            configuration.GetSection("IdentityAccess:Agent").Get<IdentityOidcProviderOptions>()
-                ?? new IdentityOidcProviderOptions(),
-            scheme: "IdentityAgentMicrosoft",
+            agentProvider,
+            scheme: AgentScheme,
             // The merchant Entra app only has the legacy merchant redirect URI registered, so the agent scheme shares
             // it with the legacy merchant-user scheme (same pattern as the workforce scheme on the admin callback).
             callbackPath: AgentCallbackPath,
@@ -237,6 +242,9 @@ internal sealed class IdentityBffLoginService(
         var principal = context.Principal
             ?? throw new InvalidOperationException("OIDC callback did not contain a principal.");
         var properties = context.Properties ?? new AuthenticationProperties();
+        var accountSelectionRequested = properties.Items.TryGetValue(
+            IdentityAccessWiring.AgentAccountSelectionItem, out var accountSelectionStatus)
+            && string.Equals(accountSelectionStatus, "requested", StringComparison.Ordinal);
         var verified = FromPrincipal(principal, properties.GetTokenValue("id_token"), workforceEligible: kind == IdentityLoginKind.Employee);
         var settings = options.Value;
         if (kind == IdentityLoginKind.Employee)
@@ -283,6 +291,8 @@ internal sealed class IdentityBffLoginService(
                 IsPersistent = false,
                 ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(2),
             };
+            if (accountSelectionRequested)
+                context.Properties.Items[IdentityAccessWiring.AgentAccountSelectionItem] = "completed";
             if (!IsAuthorizeRequest(context.ReturnUri))
                 context.ReturnUri = ToWebApp("/", settings.AgentWebAppBaseUrl);
             return;

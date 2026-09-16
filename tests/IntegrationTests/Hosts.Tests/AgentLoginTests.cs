@@ -21,7 +21,7 @@ using ApiIdentity = ApiHost::Api.IdentityAccess;
 namespace Hosts.Tests;
 
 /// <summary>Host with BOTH human providers configured so /oauth/authorize can pick the agent one from client_id.</summary>
-file sealed class AgentLoginFactory : WebApplicationFactory<ApiHost::Program>
+file sealed class AgentLoginFactory(bool includeEndSessionEndpoint = true) : WebApplicationFactory<ApiHost::Program>
 {
     public const string AgentTenant = "agent-tenant";
     public const string AgentClientId = "agent-entra-client";
@@ -84,6 +84,9 @@ file sealed class AgentLoginFactory : WebApplicationFactory<ApiHost::Program>
                         AuthorizationEndpoint = "https://agent.login.test/oauth2/v2.0/authorize",
                         TokenEndpoint = "https://agent.login.test/oauth2/v2.0/token",
                         JwksUri = "https://agent.login.test/discovery/v2.0/keys",
+                        EndSessionEndpoint = includeEndSessionEndpoint
+                            ? "https://agent.login.test/agent-tenant/oauth2/v2.0/logout"
+                            : null,
                     }));
         });
     }
@@ -111,6 +114,7 @@ public sealed class AgentLoginTests
         Assert.Equal("agent.login.test", response.Headers.Location.Host);
         Assert.Equal(AgentLoginFactory.AgentClientId, query["client_id"]);
         Assert.EndsWith(ApiIdentity.IdentityAccessWiring.AgentCallbackPath, query["redirect_uri"].ToString(), StringComparison.Ordinal);
+        Assert.False(query.ContainsKey("prompt"));
 
         var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
             .Get("IdentityAgentMicrosoft");
@@ -120,6 +124,78 @@ public sealed class AgentLoginTests
         Assert.Equal("external", properties.Items["identity.realm"]);
         Assert.Equal(AgentLoginFactory.AgentAuthority, properties.Items["identity.expected_issuer"]);
         Assert.Equal(AgentLoginFactory.AgentMerchant.ToString("D"), properties.Items["identity.merchant_id"]);
+    }
+
+    [Fact]
+    public async Task Agent_select_account_prompt_is_forwarded_to_ciam()
+    {
+        using var factory = new AgentLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync(AuthorizeUrl("agent-challenge", "select_account"));
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
+        Assert.Equal("select_account", query["prompt"]);
+    }
+
+    [Fact]
+    public async Task Agent_select_account_prompt_does_not_reuse_a_temporary_login_cookie()
+    {
+        using var factory = new AgentLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var request = new HttpRequestMessage(HttpMethod.Get, AuthorizeUrl("agent-challenge", "select_account"));
+        request.Headers.Add("Cookie", EmployeeTokenFlow.LoginCookie(factory.Services, Guid.CreateVersion7()));
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.Equal("agent.login.test", response.Headers.Location!.Host);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location.Query);
+        Assert.Equal("select_account", query["prompt"]);
+    }
+
+    [Fact]
+    public async Task Agent_prompt_outside_the_allowlist_is_rejected_as_invalid_request()
+    {
+        using var factory = new AgentLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync(AuthorizeUrl("agent-challenge", "login"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("invalid_request", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Agent_ciam_logout_uses_metadata_and_the_server_owned_post_logout_uri()
+    {
+        using var factory = new AgentLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync(
+            "/api/v1/auth/agents/logout?returnTo=https%3A%2F%2Fevil.test&post_logout_redirect_uri=https%3A%2F%2Fevil.test");
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.Equal("agent.login.test", response.Headers.Location!.Host);
+        Assert.Equal("/agent-tenant/oauth2/v2.0/logout", response.Headers.Location.AbsolutePath);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location.Query);
+        Assert.Equal(AgentLoginFactory.AgentWebApp + "/login", query["post_logout_redirect_uri"]);
+        Assert.DoesNotContain("evil.test", response.Headers.Location.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("token", response.Headers.Location.Query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Agent_ciam_logout_fails_closed_without_an_end_session_endpoint()
+    {
+        using var factory = new AgentLoginFactory(includeEndSessionEndpoint: false);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync("/api/v1/auth/agents/logout");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Contains("end_session_not_configured", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Null(response.Headers.Location);
     }
 
     [Fact]
@@ -195,6 +271,16 @@ public sealed class AgentLoginTests
             me.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
             using var meResponse = await client.SendAsync(me);
             Assert.True(meResponse.StatusCode == HttpStatusCode.OK, await meResponse.Content.ReadAsStringAsync());
+
+            using var logout = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
+            logout.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            using var logoutResponse = await client.SendAsync(logout);
+            Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
+
+            using var revokedMe = new HttpRequestMessage(HttpMethod.Get, "/api/v1/me");
+            revokedMe.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            using var revokedMeResponse = await client.SendAsync(revokedMe);
+            Assert.Equal(HttpStatusCode.Unauthorized, revokedMeResponse.StatusCode);
         }
         finally
         {
@@ -202,7 +288,8 @@ public sealed class AgentLoginTests
         }
     }
 
-    private static string AuthorizeUrl(string challenge) => QueryHelpers.AddQueryString("/oauth/authorize",
+    private static string AuthorizeUrl(string challenge, string? prompt = null) => QueryHelpers.AddQueryString(
+        "/oauth/authorize",
         new Dictionary<string, string?>
         {
             ["client_id"] = AgentSpaClientId,
@@ -212,6 +299,7 @@ public sealed class AgentLoginTests
             ["state"] = "agent-state",
             ["code_challenge"] = challenge,
             ["code_challenge_method"] = "S256",
+            ["prompt"] = prompt,
         });
 
     /// <summary>What ApproveAsync leaves behind for the login path: an Active Agent account with its external login.</summary>

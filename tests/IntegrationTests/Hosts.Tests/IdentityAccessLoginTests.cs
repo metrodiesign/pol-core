@@ -98,6 +98,7 @@ public sealed class IdentityAccessLoginTests
         Assert.False(string.IsNullOrWhiteSpace(query["code_challenge"]));
         Assert.False(string.IsNullOrWhiteSpace(query["state"]));
         Assert.False(string.IsNullOrWhiteSpace(query["nonce"]));
+        Assert.False(query.ContainsKey("prompt"));
         Assert.EndsWith("/api/v1/auth/employees/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal);
 
         var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
@@ -106,6 +107,24 @@ public sealed class IdentityAccessLoginTests
         Assert.NotNull(properties);
         Assert.Equal(authorizeUrl, properties!.RedirectUri);
         Assert.Equal("workforce", properties.Items["identity.realm"]);
+    }
+
+    [Fact]
+    public async Task Employee_authorize_does_not_forward_the_agent_account_selection_prompt()
+    {
+        using var factory = new IdentityAccessLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var authorizeUrl = QueryHelpers.AddQueryString(
+            EmployeeTokenFlow.AuthorizeUrl("login-challenge", $"{IdentityAccessLoginFactory.WebApp}/auth/callback"),
+            "prompt",
+            "select_account");
+
+        var response = await client.GetAsync(authorizeUrl);
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
+        Assert.Equal("login.task2.test", response.Headers.Location.Host);
+        Assert.False(query.ContainsKey("prompt"));
     }
 
     [Theory]
