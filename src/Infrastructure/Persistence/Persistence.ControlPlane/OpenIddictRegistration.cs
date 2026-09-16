@@ -66,6 +66,14 @@ public static class OpenIddictRegistration
             options.AddEventHandler<OpenIddictServerEvents.ValidateTokenRequestContext>(descriptor => descriptor
                 .UseScopedHandler<SystemClientTokenRequestHandler>()
                 .SetOrder(100_000));
+            options.AddEventHandler<OpenIddictServerEvents.HandleConfigurationRequestContext>(descriptor => descriptor
+                .UseInlineHandler(context =>
+                {
+                    context.EndSessionEndpoint = new Uri(
+                        context.Issuer!, "/api/v1/auth/agents/logout");
+                    return default;
+                })
+                .SetOrder(OpenIddictServerHandlers.Discovery.AttachEndpoints.Descriptor.Order + 500));
 
             options.RegisterScopes(SystemClientScopeRegistry.All.ToArray());
 

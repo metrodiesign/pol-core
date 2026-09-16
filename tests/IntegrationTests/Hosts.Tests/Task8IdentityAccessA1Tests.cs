@@ -81,6 +81,8 @@ public sealed class Task8IdentityAccessA1Tests
         Assert.True(discovery.StatusCode == HttpStatusCode.OK, discoveryBody);
         var discoveryJson = JsonDocument.Parse(discoveryBody).RootElement;
         Assert.Equal("/oauth/token", new Uri(discoveryJson.GetProperty("token_endpoint").GetString()!).AbsolutePath);
+        Assert.Equal("/api/v1/auth/agents/logout",
+            new Uri(discoveryJson.GetProperty("end_session_endpoint").GetString()!).AbsolutePath);
         Assert.Equal("/.well-known/jwks.json", new Uri(discoveryJson.GetProperty("jwks_uri").GetString()!).AbsolutePath);
 
         using var jwks = await client.GetAsync("/.well-known/jwks.json");

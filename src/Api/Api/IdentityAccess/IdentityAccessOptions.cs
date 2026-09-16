@@ -32,14 +32,17 @@ public sealed class IdentityAccessOptions
     /// made absolute against this (blank = redirect stays on the API origin). Mirrors AdminSession:WebAppBaseUrl.</summary>
     public string WorkforceWebAppBaseUrl { get; set; } = string.Empty;
 
-    /// <summary>Origin of the agent (external user) SPA; the post-callback /register redirect is made absolute
-    /// against this (blank = stays on the API origin).</summary>
+    /// <summary>Server-owned origin of the agent (external user) SPA. It owns post-callback redirects and the
+    /// fixed CIAM post-logout destination <c>/login</c>; it is required whenever the Agent OIDC provider is enabled.</summary>
     public string AgentWebAppBaseUrl { get; set; } = string.Empty;
 
-    public void Validate()
+    public void Validate(bool agentProviderConfigured = false)
     {
         ValidateOrigin(WorkforceWebAppBaseUrl, nameof(WorkforceWebAppBaseUrl));
-        ValidateOrigin(AgentWebAppBaseUrl, nameof(AgentWebAppBaseUrl));
+        ValidateOrigin(AgentWebAppBaseUrl, nameof(AgentWebAppBaseUrl), requireBareOrigin: true);
+        if (agentProviderConfigured && string.IsNullOrWhiteSpace(AgentWebAppBaseUrl))
+            throw new InvalidOperationException(
+                "IdentityAccess:AgentWebAppBaseUrl is required when the Agent OIDC provider is configured.");
         if (RegistrationSessionMinutes <= 0)
             throw new InvalidOperationException("IdentityAccess:RegistrationSessionMinutes must be greater than zero.");
         if (AccessTokenMinutes <= 0)
@@ -54,13 +57,20 @@ public sealed class IdentityAccessOptions
             throw new InvalidOperationException("IdentityAccess:AgentClientId must differ from WorkforceClientId.");
     }
 
-    private static void ValidateOrigin(string value, string name)
+    private static void ValidateOrigin(string value, string name, bool requireBareOrigin = false)
     {
         if (string.IsNullOrEmpty(value))
             return;
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
-            throw new InvalidOperationException($"IdentityAccess:{name} must be an absolute HTTP(S) origin.");
+            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
+            || (requireBareOrigin
+                && (!string.IsNullOrEmpty(uri.UserInfo)
+                    || uri.AbsolutePath != "/"
+                    || !string.IsNullOrEmpty(uri.Query)
+                    || !string.IsNullOrEmpty(uri.Fragment))))
+            throw new InvalidOperationException(requireBareOrigin
+                ? $"IdentityAccess:{name} must be an absolute HTTP(S) origin without a path, query, fragment, or user info."
+                : $"IdentityAccess:{name} must be an absolute HTTP(S) origin.");
     }
 }
 
