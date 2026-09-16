@@ -3,14 +3,23 @@ using global::Accounts.Domain;
 using Admins.Application;
 using Api.Iam;
 using Iam.Domain.Permissions;
+using Merchants.Application.Users;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 
 namespace Api.Accounts;
 
 public sealed record AgentRegistrationApproveRequest(string ContactEvidenceReference);
 public sealed record AgentRegistrationRejectRequest(string RejectionReason, string? InternalReviewNote);
+
+/// <summary>OpenAPI shape of the multipart photo upload (jpeg/png/webp, each at most 2 MB).</summary>
+public sealed class AgentRegistrationPhotosRequest
+{
+    public IFormFile Photo { get; init; } = null!;
+    public IFormFile? KycPhoto { get; init; }
+}
 
 internal static class AgentRegistrationEndpoints
 {
@@ -24,6 +33,13 @@ internal static class AgentRegistrationEndpoints
         applicant.MapPut("", SaveApplicantDraft)
             .AllowAnonymous().WithMetadata(new EtagResponseMarker("200"))
             .WithName("SaveAgentRegistrationDraft").WithTags("Agent registration");
+        applicant.MapPut("/photos", SaveApplicantPhotos)
+            .AllowAnonymous().DisableAntiforgery().WithMetadata(new EtagResponseMarker("200"))
+            .Accepts<AgentRegistrationPhotosRequest>("multipart/form-data")
+            .WithName("SaveAgentRegistrationPhotos").WithTags("Agent registration")
+            .WithSummary("อัปโหลดรูปถ่ายผู้สมัคร (photo บังคับ, kycPhoto ไม่บังคับ)")
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
         applicant.MapPost("/submissions", SubmitApplicantDraft)
             .AllowAnonymous().WithMetadata(new IfMatchMutationMarker("201"), new IdempotencyMutationMarker())
             .WithName("SubmitAgentRegistration").WithTags("Agent registration");
@@ -43,6 +59,12 @@ internal static class AgentRegistrationEndpoints
         review.MapGet("/{registrationId:guid}/attempts", ListReviewerAttempts)
             .RequirePermission(Keys.MerchantUserView)
             .WithName("ListAgentRegistrationAttempts").WithTags("Agent registration");
+        review.MapGet("/{registrationId:guid}/attempts/{attemptId:guid}/photos/{kind}", GetReviewerAttemptPhoto)
+            .RequirePermission(Keys.MerchantUserView)
+            .WithName("GetAgentRegistrationAttemptPhoto").WithTags("Agent registration")
+            .WithSummary("อ่านรูปถ่ายที่ผู้สมัครยื่นในรอบนั้น (kind = photo | kyc)")
+            .Produces(StatusCodes.Status200OK, contentType: "image/jpeg")
+            .ProducesProblem(StatusCodes.Status404NotFound);
         review.MapPost("/{registrationId:guid}/attempts/{attemptId:guid}/approve", Approve)
             .RequirePermission(Keys.MerchantUserApprove)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
@@ -78,6 +100,92 @@ internal static class AgentRegistrationEndpoints
         var registration = await service.SaveDraftAsync(session, body, version, ct);
         VersionEtags.Set(http, registration.Version);
         return Results.Ok(ApplicantCase(registration, null));
+    }
+
+    /// <summary>Multipart photo upload: bytes are validated (jpeg/png/webp, magic bytes, size) and stored BEFORE the
+    /// draft is updated, so the draft only ever references stored objects. Same rules as the legacy merchant-user
+    /// register form; the photo is required to submit, the KYC photo is optional.</summary>
+    private static async Task<IResult> SaveApplicantPhotos(
+        HttpRequest request, HttpContext http, AgentRegistrationService service, IPhotoStore photos, CancellationToken ct)
+    {
+        var session = await Session(http, service, ct);
+        if (session is null)
+            return Results.Unauthorized();
+
+        var sizeFeature = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (sizeFeature is { IsReadOnly: false })
+            sizeFeature.MaxRequestBodySize = (2 * PhotoValidation.DefaultMaxBytes) + 64 * 1024;
+        if (!request.HasFormContentType)
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "multipart/form-data is required.",
+                extensions: new Dictionary<string, object?> { ["code"] = "validation_failed" });
+        IFormCollection form;
+        try
+        {
+            form = await request.ReadFormAsync(ct);
+        }
+        catch (BadHttpRequestException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "The upload exceeds the size limit.");
+        }
+
+        var photo = await ReadPhotoAsync(form.Files["photo"], ct);
+        if (photo.Error is not null)
+            return photo.Error;
+        if (photo.Bytes is null)
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "photo is required.",
+                extensions: new Dictionary<string, object?> { ["code"] = "validation_failed" });
+        var kyc = await ReadPhotoAsync(form.Files["kycPhoto"], ct);
+        if (kyc.Error is not null)
+            return kyc.Error;
+
+        var version = OptionalVersion(http);
+        var photoKey = await photos.PutAsync(photo.Bytes, photo.ContentType!, ct);
+        var kycKey = kyc.Bytes is null ? null : await photos.PutAsync(kyc.Bytes, kyc.ContentType!, ct);
+        var registration = await service.SavePhotosAsync(session,
+            new RegistrationPhotos(photoKey, photo.ContentType!, kycKey, kyc.ContentType), version, ct);
+        VersionEtags.Set(http, registration.Version);
+        return Results.Ok(ApplicantCase(registration, null));
+    }
+
+    private static async Task<(byte[]? Bytes, string? ContentType, IResult? Error)> ReadPhotoAsync(
+        IFormFile? file, CancellationToken ct)
+    {
+        if (file is not { Length: > 0 })
+            return (null, null, null);
+        if (file.Length > PhotoValidation.DefaultMaxBytes)
+            return (null, null, Results.Problem(statusCode: StatusCodes.Status413PayloadTooLarge,
+                title: $"{file.Name} exceeds the size limit."));
+        var buffer = new byte[file.Length];
+        await using (var stream = file.OpenReadStream())
+            await stream.ReadExactlyAsync(buffer, ct);
+        var validation = PhotoValidation.Validate(
+            file.ContentType, buffer.AsSpan(0, Math.Min(16, buffer.Length)), buffer.Length, PhotoValidation.DefaultMaxBytes);
+        if (!validation.IsValid)
+            return (null, null, Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: validation.Error,
+                extensions: new Dictionary<string, object?> { ["code"] = "validation_failed" }));
+        return (buffer, validation.ContentType, null);
+    }
+
+    private static async Task<IResult> GetReviewerAttemptPhoto(
+        Guid registrationId, Guid attemptId, string kind, IAdminScope scope, AgentRegistrationService service,
+        IPhotoStore photos, CancellationToken ct)
+    {
+        var registration = await service.GetCaseByIdAsync(registrationId, ct);
+        if (registration is null || !scope.Accessible.Allows(registration.MerchantId))
+            return Results.NotFound();
+        var attempt = (await service.ListAttemptsAsync(registrationId, ct)).SingleOrDefault(x => x.Id == attemptId);
+        var key = kind switch
+        {
+            "photo" => attempt?.PhotoObjectKey,
+            "kyc" => attempt?.KycPhotoObjectKey,
+            _ => null,
+        };
+        if (key is null)
+            return Results.NotFound();
+        var stored = await photos.GetAsync(key, ct);
+        return stored is null
+            ? Results.NotFound()
+            : Results.File(stored.Value.Bytes, stored.Value.ContentType);
     }
 
     private static async Task<IResult> SubmitApplicantDraft(
@@ -131,12 +239,14 @@ internal static class AgentRegistrationEndpoints
     }
 
     private static async Task<IResult> GetReviewerCase(
-        Guid registrationId, IAdminScope scope, AgentRegistrationService service, CancellationToken ct)
+        HttpContext http, Guid registrationId, IAdminScope scope, AgentRegistrationService service, CancellationToken ct)
     {
         var registration = await service.GetCaseByIdAsync(registrationId, ct);
-        return registration is null || !scope.Accessible.Allows(registration.MerchantId)
-            ? Results.NotFound()
-            : Results.Ok(AgentRegistrationService.ToView(registration));
+        if (registration is null || !scope.Accessible.Allows(registration.MerchantId))
+            return Results.NotFound();
+        // Approve/Reject require If-Match, so the reviewer read is where the ETag comes from.
+        VersionEtags.Set(http, registration.Version);
+        return Results.Ok(AgentRegistrationService.ToView(registration));
     }
 
     private static async Task<IResult> ListReviewerAttempts(
@@ -200,7 +310,7 @@ internal static class AgentRegistrationEndpoints
     {
         attemptId = attempt.AttemptId,
         attemptNo = attempt.AttemptNo,
-        status = attempt.Status.ToString().ToUpperInvariant(),
+        status = attempt.Status.ToString(),
         submittedAt = attempt.SubmittedAt,
         rejectionReason = attempt.RejectionReason,
         version = attempt.Version,

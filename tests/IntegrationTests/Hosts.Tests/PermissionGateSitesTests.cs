@@ -97,6 +97,7 @@ public sealed class PermissionGateSitesTests
         new("GET", "/api/v1/agent-registrations/", "admin", "merchants.users.view"),
         new("GET", "/api/v1/agent-registrations/{registrationId:guid}", "admin", "merchants.users.view"),
         new("GET", "/api/v1/agent-registrations/{registrationId:guid}/attempts", "admin", "merchants.users.view"),
+        new("GET", "/api/v1/agent-registrations/{registrationId:guid}/attempts/{attemptId:guid}/photos/{kind}", "admin", "merchants.users.view"),
         new("POST", "/api/v1/agent-registrations/{registrationId:guid}/attempts/{attemptId:guid}/approve", "admin", "merchants.users.approve"),
         new("POST", "/api/v1/agent-registrations/{registrationId:guid}/attempts/{attemptId:guid}/reject", "admin", "merchants.users.reject"),
         new("GET", "/api/v1/audit-logs", "admin", "audit.view"),
@@ -311,7 +312,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_210_active_gate_sites_are_pinned() => Assert.Equal(210, Sites.Length);
+    public void Exactly_211_active_gate_sites_are_pinned() => Assert.Equal(211, Sites.Length);
 
     [Fact]
     public void Api078_order_list_carries_the_identity_owner_scope_marker()

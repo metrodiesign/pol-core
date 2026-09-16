@@ -41,3 +41,6 @@ tsconfig.tsbuildinfo
 secrets/
 
 .pipeline/
+
+# runtime photo store of the legacy merchant-user register form (LocalPhotoStore, relative to the API cwd)
+src/Api/merchant-user-photos/

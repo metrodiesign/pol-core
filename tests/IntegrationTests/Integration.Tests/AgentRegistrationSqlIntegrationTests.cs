@@ -40,6 +40,7 @@ public sealed class AgentRegistrationSqlIntegrationTests
             var draft = fixture.Draft("first@example.test", "0812345678");
 
             var registration = await service.SaveDraftAsync(fixture.Session, draft, null, default);
+            registration = await service.SavePhotosAsync(fixture.Session, fixture.Photos, registration.Version, default);
             Assert.Equal(AgentRegistrationStatus.Draft, registration.Status);
             Assert.Equal(0, registration.CurrentAttemptNo);
             Assert.Equal(0, await db.AgentRegistrationAttempts.CountAsync());
@@ -79,6 +80,7 @@ public sealed class AgentRegistrationSqlIntegrationTests
             var service = new AgentRegistrationService(NewStore(db));
             var registration = await service.SaveDraftAsync(
                 fixture.Session, fixture.Draft("reject@example.test", "0899991111"), null, default);
+            registration = await service.SavePhotosAsync(fixture.Session, fixture.Photos, registration.Version, default);
             var first = await service.SubmitAsync(fixture.Session, "submit-1", registration.Version, default);
 
             var rejected = await service.RejectAsync(
@@ -227,6 +229,7 @@ public sealed class AgentRegistrationSqlIntegrationTests
         AgentRegistrationService service, Fixture fixture, string email, string key)
     {
         var registration = await service.SaveDraftAsync(fixture.Session, fixture.Draft(email, "0800000000"), null, default);
+        registration = await service.SavePhotosAsync(fixture.Session, fixture.Photos, registration.Version, default);
         return await service.SubmitAsync(fixture.Session, key, registration.Version, default);
     }
 
@@ -353,7 +356,12 @@ public sealed class AgentRegistrationSqlIntegrationTests
     private sealed record Fixture(RegistrationSession Session, Guid MerchantId, Guid BranchId, Guid SaleId)
     {
         public RegistrationDraftRequest Draft(string email, string phone) =>
-            new("sale-1", email, phone, JsonDocument.Parse("{\"displayName\":\"Task4 Applicant\"}").RootElement.Clone());
+            new("sale-1", email, phone, JsonDocument.Parse(
+                "{\"schemaVersion\":1,\"firstName\":\"Task4\",\"lastName\":\"Applicant\",\"personType\":\"Individual\",\"idNumber\":\"1234567890123\"}")
+                .RootElement.Clone());
+
+        // Submit refuses a case without a photo (photo_required); the SQL tests attach a placeholder key.
+        public RegistrationPhotos Photos => new("photos/task4.png", "image/png", null, null);
     }
 
     private sealed record DecisionResult(bool Succeeded, RegistrationDecisionResult? Decision);

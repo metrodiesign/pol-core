@@ -356,20 +356,25 @@ internal static class IdentityAccessEndpoints
         if (request is null || string.IsNullOrWhiteSpace(request.RedirectUri))
             return Results.Json(new { error = OpenIddictConstants.Errors.InvalidRequest }, statusCode: 400);
 
+        // The client_id (already validated by OpenIddict against the registered clients) selects the human realm:
+        // the agent SPA challenges the "agents" (Entra External ID) provider, everything else the workforce one.
+        var isAgentClient = string.Equals(request.ClientId, options.Value.AgentClientId, StringComparison.Ordinal);
         var login = await http.AuthenticateAsync(IdentityAccessWiring.LoginCookieScheme);
         if (login.Principal?.Identity?.IsAuthenticated != true)
         {
-            if (!providers.TryGetValue("employees", out var scheme))
+            if (!providers.TryGetValue(isAgentClient ? "agents" : "employees", out var scheme))
                 return Results.Problem(
                     statusCode: StatusCodes.Status503ServiceUnavailable,
-                    title: "Employee login is not configured.",
+                    title: isAgentClient ? "Agent login is not configured." : "Employee login is not configured.",
                     extensions: new Dictionary<string, object?> { ["code"] = "capability_not_configured" });
             var properties = new AuthenticationProperties
             {
                 RedirectUri = http.Request.GetEncodedPathAndQuery(),
             };
-            properties.Items["identity.expected_issuer"] = options.Value.WorkforceIssuer;
-            properties.Items["identity.realm"] = "workforce";
+            properties.Items["identity.expected_issuer"] = isAgentClient ? options.Value.AgentIssuer : options.Value.WorkforceIssuer;
+            properties.Items["identity.realm"] = isAgentClient ? "external" : "workforce";
+            if (isAgentClient && options.Value.AgentMerchantId is { } agentMerchantId)
+                properties.Items["identity.merchant_id"] = agentMerchantId.ToString("D");
             return Results.Challenge(properties, [scheme]);
         }
 
@@ -378,6 +383,9 @@ internal static class IdentityAccessEndpoints
             return Results.Json(new { error = OpenIddictConstants.Errors.LoginRequired }, statusCode: 401);
         var account = await identities.FindAccountAsync(accountId, cancellationToken);
         if (account is null || account.Status != AccountStatus.Active)
+            return Results.Json(new { error = OpenIddictConstants.Errors.AccessDenied }, statusCode: 403);
+        // A login cookie minted for one realm must not turn into a code for the other realm's client.
+        if (isAgentClient != (account.AccountType == AccountType.Agent))
             return Results.Json(new { error = OpenIddictConstants.Errors.AccessDenied }, statusCode: 403);
 
         var identity = new ClaimsIdentity(
@@ -401,13 +409,16 @@ internal static class IdentityAccessEndpoints
         HttpContext http,
         IOpenIddictAuthorizationManager authorizations,
         IOpenIddictApplicationManager applications,
+        IIdentityAccessQuery identities,
         IOptions<IdentityAccessOptions> options,
         CancellationToken cancellationToken)
     {
         var accountId = GetAccountId(http.User);
         if (accountId is null)
             return Results.Unauthorized();
-        var application = await applications.FindByClientIdAsync(options.Value.WorkforceClientId, cancellationToken);
+        var account = await identities.FindAccountAsync(accountId.Value, cancellationToken);
+        var clientId = account?.AccountType == AccountType.Agent ? options.Value.AgentClientId : options.Value.WorkforceClientId;
+        var application = await applications.FindByClientIdAsync(clientId, cancellationToken);
         if (application is null)
             return Results.Ok(Array.Empty<EmployeeSessionView>());
         var client = await applications.GetIdAsync(application, cancellationToken) ?? string.Empty;

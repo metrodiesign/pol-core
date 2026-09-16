@@ -85,6 +85,9 @@ public interface IRegistrationSessionStore
 {
     Task<bool> HasApprovedAccountAsync(ExternalIdentity identity, CancellationToken cancellationToken);
 
+    /// <summary>The Account an approved registration bound to this external identity (null = never approved).</summary>
+    Task<Account?> FindApprovedAccountAsync(ExternalIdentity identity, CancellationToken cancellationToken);
+
     Task<RegistrationSession> IssueAsync(
         ExternalIdentity identity, Guid merchantId, byte[] sessionReferenceHash, DateTime now, TimeSpan lifetime,
         CancellationToken cancellationToken);
@@ -94,6 +97,22 @@ public sealed record RegistrationSessionIssue(RegistrationSession Session, strin
 
 public sealed class RegistrationSessionService(IRegistrationSessionStore store)
 {
+    /// <summary>Resolves the approved Account behind a verified agent identity for the post-approval login path
+    /// (same iss/tid/aud gate as <see cref="StartAsync"/>; null = not approved yet, so registration applies).</summary>
+    public async Task<Account?> FindApprovedAccountAsync(
+        VerifiedHumanIdentity identity, string expectedIssuer, string expectedTenantId, string expectedAudience,
+        CancellationToken cancellationToken)
+    {
+        var validation = HumanIdentityPolicy.Validate(identity, expectedIssuer, expectedTenantId, expectedAudience);
+        if (!validation.IsValid)
+            throw new IdentityAccessException(
+                validation.Code!,
+                $"Human identity validation failed ({validation.Code}): iss='{identity.Issuer}' aud='{identity.Audience}' tid='{identity.Identity.TenantId}'.");
+        if (identity.WorkforceEligible)
+            throw new IdentityAccessException("registration_identity_not_agent", "Workforce identities cannot use agent login.");
+        return await store.FindApprovedAccountAsync(identity.Identity, cancellationToken);
+    }
+
     public async Task<RegistrationSessionIssue> StartAsync(
         VerifiedHumanIdentity identity, Guid merchantId, DateTime now, TimeSpan lifetime,
         string expectedIssuer, string expectedTenantId, string expectedAudience,
