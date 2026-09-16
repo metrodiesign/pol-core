@@ -383,6 +383,19 @@ invitation เทียบ verified email ซึ่ง Entra ให้เป็�
 registration flow; การเชิญฝั่ง Admin ยังสร้าง invitation ได้แต่ลิงก์ในอีเมลไม่มี SSO entry point จนกว่าจะมี spec
 pre-bind `(provider, subject)`.
 
+### 10.1.1 รัน canonical agent e2e ซ้ำด้วย identity เดิม
+
+หลัง reviewer approve แล้ว identity เดิมสมัครซ้ำไม่ได้ (`POST /api/v1/agent-registration/submissions` ตอบ `409 account_already_approved`)
+เพราะ approve สร้าง account graph ของตัวแทนแล้ว ล้างเฉพาะ registration นั้นด้วย
+
+```bash
+scripts/dev-db-reset-agent.sh <registrationId>
+```
+
+script ลบ `acct.AgentRegistrations` + attempts และ account graph ที่ผูกกับ identity ของ registration นั้น
+(`access.AccessRoles` -> `access.MerchantAccess` -> `acct.Agents` -> `acct.LoginAccounts` -> `acct.Accounts`) ใน transaction เดียว
+ไม่แตะ `admin.GovernanceOutboxMessages` และปฏิเสธ server ที่ไม่ใช่ localhost ไม่ต้อง restart API.
+
 ### 10.2 Tier 0: Admin
 
 1. เปิด Admin SPA `https://localhost:3001` แล้วกด sign in; SPA redirect ไป `https://localhost:5001/oauth/authorize?...` (PKCE) และ API challenge Microsoft เอง (ห้ามเปิด `/api/v1/admins/auth/microsoft/callback` ตรง ๆ).
