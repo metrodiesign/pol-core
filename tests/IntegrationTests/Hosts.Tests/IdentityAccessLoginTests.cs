@@ -15,7 +15,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
 
-file sealed class IdentityAccessLoginFactory : WebApplicationFactory<ApiHost::Program>
+file sealed class IdentityAccessLoginFactory(bool includeEndSessionEndpoint = false) : WebApplicationFactory<ApiHost::Program>
 {
     public const string Tenant = "task2-tenant";
     public const string ClientId = "task2-workforce-client";
@@ -57,6 +57,9 @@ file sealed class IdentityAccessLoginFactory : WebApplicationFactory<ApiHost::Pr
                         AuthorizationEndpoint = "https://login.task2.test/oauth2/v2.0/authorize",
                         TokenEndpoint = "https://login.task2.test/oauth2/v2.0/token",
                         JwksUri = "https://login.task2.test/discovery/v2.0/keys",
+                        EndSessionEndpoint = includeEndSessionEndpoint
+                            ? "https://login.task2.test/task2-tenant/oauth2/v2.0/logout"
+                            : null,
                     }));
         });
     }
@@ -98,7 +101,7 @@ public sealed class IdentityAccessLoginTests
         Assert.False(string.IsNullOrWhiteSpace(query["code_challenge"]));
         Assert.False(string.IsNullOrWhiteSpace(query["state"]));
         Assert.False(string.IsNullOrWhiteSpace(query["nonce"]));
-        Assert.False(query.ContainsKey("prompt"));
+        Assert.Equal("login", query["prompt"]);
         Assert.EndsWith("/api/v1/auth/employees/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal);
 
         var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
@@ -124,7 +127,8 @@ public sealed class IdentityAccessLoginTests
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         var query = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
         Assert.Equal("login.task2.test", response.Headers.Location.Host);
-        Assert.False(query.ContainsKey("prompt"));
+        // The client-requested "select_account" is ignored; the server still forces its own "login" prompt.
+        Assert.Equal("login", query["prompt"]);
     }
 
     [Theory]
@@ -161,4 +165,33 @@ public sealed class IdentityAccessLoginTests
         Assert.DoesNotContain("provider rejected", callback.Headers.Location.ToString());
     }
 
+    [Fact]
+    public async Task Employee_ciam_logout_uses_metadata_and_the_server_owned_post_logout_uri()
+    {
+        using var factory = new IdentityAccessLoginFactory(includeEndSessionEndpoint: true);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync(
+            "/api/v1/auth/employees/logout?post_logout_redirect_uri=https%3A%2F%2Fevil.test");
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.Equal("login.task2.test", response.Headers.Location!.Host);
+        Assert.Equal("/task2-tenant/oauth2/v2.0/logout", response.Headers.Location.AbsolutePath);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location.Query);
+        Assert.Equal(IdentityAccessLoginFactory.WebApp + "/login", query["post_logout_redirect_uri"]);
+        Assert.DoesNotContain("evil.test", response.Headers.Location.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Employee_ciam_logout_fails_closed_without_an_end_session_endpoint()
+    {
+        using var factory = new IdentityAccessLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync("/api/v1/auth/employees/logout");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Contains("end_session_not_configured", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Null(response.Headers.Location);
+    }
 }
