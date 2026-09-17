@@ -484,16 +484,25 @@ FE code ไม่ต้องเปลี่ยน.
 | `iam.Permissions` | `Key` (PK), `GroupKey`, `Name`, `Status`, `SortOrder` | catalog permission key เช่น `user.manage`, `user.roles` (`PermissionConfiguration.cs:30`) |
 | `iam.PermissionGroups` | `Key` (PK), `Scope`, `Name`, `SortOrder` | จัดกลุ่ม permission ตาม side (`PermissionConfiguration.cs:16`) |
 
-### schema `admin` — เหลือเฉพาะ audit ของ control plane
+### schema `admin` — control-plane operations (ไม่ใช่ identity)
+
+schema `admin` เป็น namespace ของ control-plane **operations** ไม่ใช่ตัวตน — ตัวตนของ admin อยู่ที่ `acct` ทางเดียว
+(`admin` กับ `acct` จึงไม่ซ้ำซ้อนกัน แยกกันคนละความรับผิดชอบ). table ที่ผูกกับ admin action โดยตรง:
 
 | Table | บทบาท |
 |---|---|
 | `admin.UserAudits` | audit log แบบ append-only ของ admin action (`AuditConfiguration.cs:16`) |
 | `admin.ProvisioningOperations` | บันทึก provisioning operation (`ProvisioningOperationConfiguration.cs:19`) |
 
-ตาราง legacy ของ admin identity plane (`admin.Users`, `admin.MerchantAccess`, `admin.RoleAssignments`,
-`admin.AuthAudits`, `admin.WorkforceTenantBindings`) ถูก drop แล้วใน migration
-`20260914111802_RetireLegacyAdminIdentityPlane` — ปัจจุบันข้อมูลตัวตน/สิทธิ์ทั้งหมดอยู่ที่ `acct`/`access`/`iam`.
+schema เดียวกันนี้ยังเก็บ table ของ control plane อื่นที่อยู่นอกขอบเขตเอกสารนี้ (ดู governance/notifications reference):
+governance — `ApprovalRequests`, `ApprovalEvents`, `OperationRecords`, `AuditHeads`, `AuditRecords`,
+`GovernanceOutboxMessages` (`GovernanceConfigurations.cs`); notifications — `WebhookEndpoints`, `WebhookDeliveries`,
+`NotificationRules`, `NotificationDeliveries`, `DeliverySecretVersions` (`DeliveryStore.cs`).
+
+**ไม่มี identity table ใน `admin` แล้ว**: ตาราง legacy ของ admin identity plane (`admin.Users`, `admin.MerchantAccess`,
+`admin.RoleAssignments`, `admin.AuthAudits`, `admin.WorkforceTenantBindings`) ถูก drop ใน migration
+`20260914111802_RetireLegacyAdminIdentityPlane` — ตัวตน/สิทธิ์ทั้งหมดย้ายไป `acct`/`access`/`iam`.
+(หมายเหตุ: comment ใน `SchemaNames.cs:18` ยังพูดถึง `PlatformUsers`/RBAC catalog เป็น comment ที่ล้าสมัย ไม่ตรงกับ schema จริง.)
 
 ## Source of truth
 
