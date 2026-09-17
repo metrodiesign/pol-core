@@ -49,8 +49,8 @@ public sealed class IdentityAccessAccessPersistenceTests
             VALUES (@account, 1, N'Access test', 1, 0, @now, @now),
                    (@agent, 2, N'Agent test', 1, 0, @now, @now),
                    (@employee, 1, N'Employee test', 1, 0, @now, @now);
-            INSERT acct.Employees (AccountId, EmployeeCode, DepartmentCode, Metadata, Id)
-            VALUES (@employee, NULL, NULL, N'{}', @employee);
+            INSERT acct.Employees (AccountId, EmployeeCode, DepartmentCode, Metadata)
+            VALUES (@employee, NULL, NULL, N'{}');
             INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
             VALUES (@access, @account, @merchantA, 1, 1, 1);
             """,
