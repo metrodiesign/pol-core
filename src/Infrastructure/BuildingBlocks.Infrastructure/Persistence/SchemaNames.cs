@@ -15,7 +15,11 @@ public static class SchemaNames
     public const string Txn = "txn";
 
     /// <summary>
-    /// Control plane: PlatformUsers, PlatformMerchantAccess, RBAC catalog.
+    /// Control-plane operations: governance (approvals, operation/audit records, outbox), notification and
+    /// webhook delivery, and admin action audit (UserAudits, ProvisioningOperations). Identity and RBAC do
+    /// NOT live here — accounts are in <c>acct</c>, access grants in <c>access</c>, the RBAC catalog in
+    /// <c>iam</c>; the legacy admin identity plane (PlatformUsers, PlatformMerchantAccess) was retired in
+    /// migration <c>20260914111802_RetireLegacyAdminIdentityPlane</c>.
     /// Deliberately stays singular even though the <c>Admins.*</c> module projects are plural
     /// (hierarchical-naming L3/L7, design.md §1) — schemas are SQL namespaces, singular is the SQL
     /// convention, and rf1 already locked this schema name. Do not "fix" it to match the module name.
