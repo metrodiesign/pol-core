@@ -53,6 +53,12 @@ internal static class IdentityAccessEndpoints
             .WithDescription("redirect ไป end_session_endpoint จาก OIDC metadata โดยใช้ post-logout URI ที่ server กำหนดเท่านั้น")
             .Produces(StatusCodes.Status302Found).ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        auth.MapGet("/employees/logout", EndEmployeeCiamSession)
+            .AllowAnonymous().WithName("EndEmployeeCiamSession").WithTags("การเข้าสู่ระบบ")
+            .WithSummary("จบ Microsoft Entra session ของพนักงาน")
+            .WithDescription("redirect ไป end_session_endpoint จาก OIDC metadata โดยใช้ post-logout URI ที่ server กำหนดเท่านั้น")
+            .Produces(StatusCodes.Status302Found).ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         auth.MapPost("/logout", Logout)
             .RequireIdentityPlatformMutation()
             .RequireAuthorization("identity-platform").WithName("LogoutIdentitySession").WithTags("การเข้าสู่ระบบ")
@@ -407,6 +413,12 @@ internal static class IdentityAccessEndpoints
                 properties.Items[IdentityAccessWiring.AgentAccountSelectionItem] = "requested";
                 properties.SetParameter(OpenIdConnectParameterNames.Prompt, OpenIdConnectPrompt.SelectAccount);
             }
+            else if (!isAgentClient)
+            {
+                // Server-owned, not client-controllable: every employee login re-prompts Entra for credentials,
+                // ignoring any lingering SSO/"stay signed in" session, so the email step never gets silently skipped.
+                properties.SetParameter(OpenIdConnectParameterNames.Prompt, OpenIdConnectPrompt.Login);
+            }
             return Results.Challenge(properties, [scheme]);
         }
 
@@ -649,25 +661,46 @@ internal static class IdentityAccessEndpoints
 
     /// <summary>Returns a browser to the Agent CIAM end-session endpoint. Both destinations are server-owned:
     /// provider metadata owns the logout endpoint and IdentityAccess configuration owns the final SPA path.</summary>
-    private static async Task<IResult> EndAgentCiamSession(
+    private static Task<IResult> EndAgentCiamSession(
         IOptionsMonitor<OpenIdConnectOptions> oidcOptions,
         IOptions<IdentityAccessOptions> identityOptions,
+        CancellationToken cancellationToken) =>
+        EndCiamSession(
+            IdentityAccessWiring.AgentScheme, "Agent", identityOptions.Value.AgentWebAppBaseUrl,
+            oidcOptions, cancellationToken);
+
+    /// <summary>Returns a browser to the workforce Entra end-session endpoint, mirroring <see cref="EndAgentCiamSession"/>.
+    /// Without this, revoking the platform authorization alone leaves the browser's Entra SSO session intact, so the
+    /// next login skips the email/account prompt entirely.</summary>
+    private static Task<IResult> EndEmployeeCiamSession(
+        IOptionsMonitor<OpenIdConnectOptions> oidcOptions,
+        IOptions<IdentityAccessOptions> identityOptions,
+        CancellationToken cancellationToken) =>
+        EndCiamSession(
+            IdentityAccessWiring.WorkforceScheme, "Employee", identityOptions.Value.WorkforceWebAppBaseUrl,
+            oidcOptions, cancellationToken);
+
+    private static async Task<IResult> EndCiamSession(
+        string scheme,
+        string errorCodePrefix,
+        string postLogoutBaseUrl,
+        IOptionsMonitor<OpenIdConnectOptions> oidcOptions,
         CancellationToken cancellationToken)
     {
-        var options = oidcOptions.Get(IdentityAccessWiring.AgentScheme);
+        var options = oidcOptions.Get(scheme);
         OpenIdConnectConfiguration configuration;
         try
         {
             configuration = options.ConfigurationManager is null
                 ? options.Configuration
-                    ?? throw new InvalidOperationException("Agent OIDC configuration is unavailable.")
+                    ?? throw new InvalidOperationException($"{errorCodePrefix} OIDC configuration is unavailable.")
                 : await options.ConfigurationManager.GetConfigurationAsync(cancellationToken);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return Results.Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "Agent end-session configuration is unavailable.",
+                title: $"{errorCodePrefix} end-session configuration is unavailable.",
                 extensions: new Dictionary<string, object?>
                 {
                     ["code"] = "end_session_configuration_unavailable",
@@ -680,10 +713,10 @@ internal static class IdentityAccessEndpoints
             || !string.IsNullOrEmpty(endpoint.Fragment))
             return Results.Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "Agent end-session endpoint is not configured.",
+                title: $"{errorCodePrefix} end-session endpoint is not configured.",
                 extensions: new Dictionary<string, object?> { ["code"] = "end_session_not_configured" });
 
-        var postLogout = identityOptions.Value.AgentWebAppBaseUrl.TrimEnd('/') + "/login";
+        var postLogout = postLogoutBaseUrl.TrimEnd('/') + "/login";
         var destination = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(
             endpoint.ToString(), "post_logout_redirect_uri", postLogout);
         return Results.Redirect(destination);

@@ -22,6 +22,7 @@ internal static class IdentityAccessWiring
     public const string LoginCookieScheme = "identity-login";
     public const string LoginCookieName = "pol_login";
     public const string AgentScheme = "IdentityAgentMicrosoft";
+    public const string WorkforceScheme = "IdentityWorkforceMicrosoft";
     public const string AgentAccountSelectionItem = "identity.agent_account_selection";
 
     public static IServiceCollection AddIdentityAccess(
@@ -81,7 +82,7 @@ internal static class IdentityAccessWiring
             providers,
             configuration.GetSection("IdentityAccess:Workforce").Get<IdentityOidcProviderOptions>()
                 ?? new IdentityOidcProviderOptions(),
-            scheme: "IdentityWorkforceMicrosoft",
+            scheme: WorkforceScheme,
             callbackPath: "/api/v1/auth/employees/callback",
             kind: IdentityLoginKind.Employee,
             services,
