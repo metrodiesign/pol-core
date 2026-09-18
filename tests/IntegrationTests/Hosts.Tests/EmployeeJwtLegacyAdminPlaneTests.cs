@@ -124,8 +124,8 @@ public sealed class EmployeeJwtLegacyAdminPlaneTests
         await IntegrationDb.ExecAsync(seed, """
             INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
             VALUES (@account, 1, @name, 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-            INSERT acct.Employees (Id, AccountId, EmployeeCode, DepartmentCode, Metadata)
-            VALUES (NEWID(), @account, @employeeCode, N'OPS', N'{}');
+            INSERT acct.Employees (AccountId, EmployeeCode, DepartmentCode, Metadata)
+            VALUES (@account, @employeeCode, N'OPS', N'{}');
             INSERT access.PlatformAccess (Id, EmployeeAccountId, Status, Version) VALUES (@access, @account, 1, 1);
             INSERT access.PlatformAccessRoles (Id, PlatformAccessId, RoleId, RoleScope) VALUES (@accessRole, @access, @role, 1);
             """, ("@account", accountId), ("@name", displayName), ("@access", Guid.CreateVersion7()),

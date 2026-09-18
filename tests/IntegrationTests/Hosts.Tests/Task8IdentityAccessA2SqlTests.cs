@@ -49,8 +49,8 @@ public sealed class Task8IdentityAccessA2SqlTests
                 INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
                 VALUES (@agent, 2, N'A2 Agent', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
                        (@employee, 1, N'A2 Employee', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                INSERT acct.Employees (AccountId, EmployeeCode, DepartmentCode, Metadata, Id)
-                VALUES (@employee, N'A2-EMP', N'OPS', N'{}', NEWID());
+                INSERT acct.Employees (AccountId, EmployeeCode, DepartmentCode, Metadata)
+                VALUES (@employee, N'A2-EMP', N'OPS', N'{}');
                 INSERT iam.Roles (Id, Code, Name, Description, Color, Status, Scope, MerchantId)
                 VALUES (@merchantRole, @roleCode, N'A2 Merchant Role', NULL, N'blue', 1, 2, @merchantA);
                 INSERT iam.RolePermissions (Id, RoleId, PermissionKey)

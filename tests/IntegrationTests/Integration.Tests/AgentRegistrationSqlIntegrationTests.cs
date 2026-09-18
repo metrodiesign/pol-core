@@ -263,8 +263,8 @@ public sealed class AgentRegistrationSqlIntegrationTests
         await IntegrationDb.ExecAsync(connection, """
             INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
             VALUES (@account, 2, N'Bound agent', 1, 0, @now, @now);
-            INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata, Id)
-            VALUES (@account, @merchant, @sale, N'{}', @account);
+            INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata)
+            VALUES (@account, @merchant, @sale, N'{}');
             """, ("@account", accountId), ("@merchant", merchantId), ("@sale", saleId), ("@now", now));
     }
 
