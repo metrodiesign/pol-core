@@ -523,8 +523,8 @@ public sealed class CanonicalIdentityOrderAuthSqlTests
                     INSERT acct.Accounts (Id, AccountType, DisplayName, Status, AuthorizationVersion, CreatedAt, UpdatedAt)
                     VALUES (@agent, 2, N'Order Agent', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME()),
                            (@system, 3, N'Order System', 1, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
-                    INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata, Id)
-                    VALUES (@agent, @merchant, @sale, N'{}', @agent);
+                    INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata)
+                    VALUES (@agent, @merchant, @sale, N'{}');
                     INSERT access.MerchantAccess (Id, AccountId, MerchantId, DataScope, Status, Version)
                     VALUES (@agentAccess, @agent, @merchant, 1, 1, 1),
                            (@systemAccess, @system, @merchant, 1, 1, 1);

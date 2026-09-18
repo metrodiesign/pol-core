@@ -65,6 +65,9 @@ public sealed class AgentConfiguration : IEntityTypeConfiguration<Agent>
     {
         builder.ToTable("Agents", SchemaNames.Acct);
         builder.HasKey(x => x.AccountId);
+        // Id (from Entity<Guid>) is redundant here — shared-PK on AccountId, Id always equals it
+        // and nothing reads Agent.Id in query or SQL. Don't map it as a column.
+        builder.Ignore(x => x.Id);
         builder.Property(x => x.AccountId).ValueGeneratedNever();
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.SaleId).IsRequired();

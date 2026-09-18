@@ -8498,3 +8498,32 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260918014926_DropAgentIdColumn'
+)
+BEGIN
+    DECLARE @var17 nvarchar(max);
+    SELECT @var17 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[Agents]') AND [c].[name] = N'Id');
+    IF @var17 IS NOT NULL EXEC(N'ALTER TABLE [acct].[Agents] DROP CONSTRAINT ' + @var17 + ';');
+    ALTER TABLE [acct].[Agents] DROP COLUMN [Id];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260918014926_DropAgentIdColumn'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260918014926_DropAgentIdColumn', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

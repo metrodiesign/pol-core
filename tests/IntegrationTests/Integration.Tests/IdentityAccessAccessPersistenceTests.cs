@@ -91,7 +91,7 @@ public sealed class IdentityAccessAccessPersistenceTests
         Assert.Equal(AuthorizationDecisionReason.MerchantMismatch,
             AccessEvaluator.ValidateReferenceMerchants(merchantA, [merchantB], [merchantA], saleMerchantId: merchantB).Reason);
         await AssertSqlRejectedAsync(() => IntegrationDb.ExecAsync(connection,
-            "INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata, Id) VALUES (@account, @merchant, @sale, N'{}', @account);",
+            "INSERT acct.Agents (AccountId, MerchantId, SaleId, Metadata) VALUES (@account, @merchant, @sale, N'{}');",
             ("@account", agentAccountId), ("@merchant", merchantA), ("@sale", saleId)));
 
         await AssertSqlRejectedAsync(() => IntegrationDb.ExecAsync(connection,
