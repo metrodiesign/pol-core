@@ -5,16 +5,19 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace BuildingBlocks.Infrastructure.Persistence.Migrations
+namespace Infrastructure.BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    partial class PolDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917151749_DropEmployeeIdColumn")]
+    partial class DropEmployeeIdColumn
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -235,6 +238,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Accounts.Domain.Agent", b =>
                 {
                     b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("MerchantId")

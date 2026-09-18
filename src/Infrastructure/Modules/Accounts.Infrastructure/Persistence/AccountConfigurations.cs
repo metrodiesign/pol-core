@@ -48,6 +48,9 @@ public sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
     {
         builder.ToTable("Employees", SchemaNames.Acct);
         builder.HasKey(x => x.AccountId);
+        // Id (from Entity<Guid>) is redundant here — the table is shared-PK on AccountId and Id
+        // always equals it. Don't map it as a column; nothing reads Employee.Id in query or SQL.
+        builder.Ignore(x => x.Id);
         builder.Property(x => x.AccountId).ValueGeneratedNever();
         builder.Property(x => x.EmployeeCode).HasMaxLength(128);
         builder.Property(x => x.DepartmentCode).HasMaxLength(128);
@@ -62,6 +65,9 @@ public sealed class AgentConfiguration : IEntityTypeConfiguration<Agent>
     {
         builder.ToTable("Agents", SchemaNames.Acct);
         builder.HasKey(x => x.AccountId);
+        // Id (from Entity<Guid>) is redundant here — shared-PK on AccountId, Id always equals it
+        // and nothing reads Agent.Id in query or SQL. Don't map it as a column.
+        builder.Ignore(x => x.Id);
         builder.Property(x => x.AccountId).ValueGeneratedNever();
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.SaleId).IsRequired();

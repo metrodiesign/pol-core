@@ -29,7 +29,7 @@ public sealed class Tier0MicrosoftTenantAwareIdentityMigrationTests
         await using var verify = await database.OpenAsync();
         // The committed migration lineage contains the complete 51-entry chain; the script must apply
         // every recorded migration exactly once and remain idempotent on the second pass.
-        Assert.Equal(51, Convert.ToInt32(await ScalarAsync(
+        Assert.Equal(53, Convert.ToInt32(await ScalarAsync(
             verify, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
         Assert.Equal(5, Convert.ToInt32(await ScalarAsync(verify, """
             SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
