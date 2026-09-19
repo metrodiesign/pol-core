@@ -144,9 +144,11 @@ public sealed class RegistrationSessionConfiguration : IEntityTypeConfiguration<
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.Property(x => x.SessionReferenceHash).HasMaxLength(32).IsRequired();
-        builder.Property(x => x.Provider).HasMaxLength(64).IsRequired();
-        builder.Property(x => x.TenantId).HasMaxLength(128).IsRequired();
-        builder.Property(x => x.ExternalUserId).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.Provider).HasMaxLength(64);
+        builder.Property(x => x.TenantId).HasMaxLength(128);
+        builder.Property(x => x.ExternalUserId).HasMaxLength(256);
+        builder.Ignore(x => x.Identity);
+        builder.HasIndex(x => x.RegistrationId);
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.IssuedAt).IsRequired();
         builder.Property(x => x.ExpiresAt).IsRequired();
@@ -164,9 +166,16 @@ public sealed class AgentRegistrationConfiguration : IEntityTypeConfiguration<Ag
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.Property(x => x.MerchantId).IsRequired();
-        builder.Property(x => x.Provider).HasMaxLength(64).IsRequired();
-        builder.Property(x => x.TenantId).HasMaxLength(128).IsRequired();
-        builder.Property(x => x.ExternalUserId).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.Provider).HasMaxLength(64);
+        builder.Property(x => x.TenantId).HasMaxLength(128);
+        builder.Property(x => x.ExternalUserId).HasMaxLength(256);
+        builder.Ignore(x => x.Identity);
+        builder.Ignore(x => x.PhoneVerified);
+        builder.Property(x => x.EmailNormalized).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.PhoneVerifiedNumber).HasMaxLength(10);
+        builder.Property(x => x.PhoneVerifiedAt);
+        builder.HasIndex(x => new { x.MerchantId, x.EmailNormalized }).IsUnique();
+        builder.HasIndex(x => x.AccountId).IsUnique().HasFilter("[AccountId] IS NOT NULL");
         builder.Property(x => x.CurrentAttemptId);
         builder.Property(x => x.CurrentAttemptNo).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
@@ -181,7 +190,8 @@ public sealed class AgentRegistrationConfiguration : IEntityTypeConfiguration<Ag
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.UpdatedAt).IsRequired();
         builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
-        builder.HasIndex(x => new { x.Provider, x.TenantId, x.ExternalUserId }).IsUnique();
+        builder.HasIndex(x => new { x.Provider, x.TenantId, x.ExternalUserId }).IsUnique()
+            .HasFilter("[Provider] IS NOT NULL AND [TenantId] IS NOT NULL AND [ExternalUserId] IS NOT NULL");
         builder.HasIndex(x => new { x.MerchantId, x.Status, x.UpdatedAt });
     }
 }
@@ -196,9 +206,9 @@ public sealed class AgentRegistrationAttemptConfiguration : IEntityTypeConfigura
         builder.Property(x => x.RegistrationId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.AttemptNo).IsRequired();
-        builder.Property(x => x.Provider).HasMaxLength(64).IsRequired();
-        builder.Property(x => x.TenantId).HasMaxLength(128).IsRequired();
-        builder.Property(x => x.ExternalUserId).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.Provider).HasMaxLength(64);
+        builder.Property(x => x.TenantId).HasMaxLength(128);
+        builder.Property(x => x.ExternalUserId).HasMaxLength(256);
         builder.Property(x => x.SaleCode).HasMaxLength(64).IsRequired();
         builder.Property(x => x.SaleId).IsRequired();
         builder.Property(x => x.BranchId).IsRequired();

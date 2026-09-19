@@ -77,9 +77,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260914111802_RetireLegacyAdminIdentityPlane'),
     (N'20260915065613_AgentRegistrationPhotos'),
     (N'20260917151749_DropEmployeeIdColumn'),
-    (N'20260918014926_DropAgentIdColumn');
+    (N'20260918014926_DropAgentIdColumn'),
+    (N'20260919102405_AgentAnonymousRegistrationOtp');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 53
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 54
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -88,7 +89,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 53
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 53 expected migrations through DropAgentIdColumn; ';
+    SET @fail += N'migration history must contain exactly 54 expected migrations through AgentAnonymousRegistrationOtp; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

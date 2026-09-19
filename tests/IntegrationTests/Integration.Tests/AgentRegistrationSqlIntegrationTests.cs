@@ -46,6 +46,10 @@ public sealed class AgentRegistrationSqlIntegrationTests
             Assert.Equal(0, await db.AgentRegistrationAttempts.CountAsync());
             Assert.Equal(0, await db.Accounts.CountAsync(x => x.Id == registration.Id));
 
+            var gate = await Assert.ThrowsAsync<InvalidRequestException>(() =>
+                service.SubmitAsync(fixture.Session, "unverified", registration.Version, default));
+            Assert.Equal("phone_verification_required", gate.Code);
+            registration = await VerifyAsync(service, fixture.Session);
             var submitted = await service.SubmitAsync(fixture.Session, "intent-1", registration.Version, default);
             Assert.False(submitted.Replayed);
             Assert.Equal(1, submitted.Attempt.AttemptNo);
@@ -81,6 +85,7 @@ public sealed class AgentRegistrationSqlIntegrationTests
             var registration = await service.SaveDraftAsync(
                 fixture.Session, fixture.Draft("reject@example.test", "0899991111"), null, default);
             registration = await service.SavePhotosAsync(fixture.Session, fixture.Photos, registration.Version, default);
+            registration = await VerifyAsync(service, fixture.Session);
             var first = await service.SubmitAsync(fixture.Session, "submit-1", registration.Version, default);
 
             var rejected = await service.RejectAsync(
@@ -100,6 +105,7 @@ public sealed class AgentRegistrationSqlIntegrationTests
 
             var corrected = await service.SaveDraftAsync(
                 fixture.Session, fixture.Draft("corrected@example.test", "0811112222"), rejected.Registration.Version, default);
+            corrected = await VerifyAsync(service, fixture.Session);
             var second = await service.SubmitAsync(fixture.Session, "submit-2", corrected.Version, default);
             Assert.Equal(first.Registration.RegistrationId, second.Registration.RegistrationId);
             Assert.Equal(2, second.Attempt.AttemptNo);
@@ -225,11 +231,218 @@ public sealed class AgentRegistrationSqlIntegrationTests
         }
     }
 
+    [Fact]
+    [Trait("Requirement", "Issue-274")]
+    public async Task Anonymous_approval_creates_account_then_callback_binds_login_idempotently()
+    {
+        try
+        {
+            var fixture = await CreateFixtureAsync();
+            await using var db = NewContext();
+            var service = new AgentRegistrationService(NewStore(db));
+            var created = await service.StartAnonymousAsync(fixture.MerchantId, fixture.Draft("anon@example.test", "0812345678"),
+                DateTime.UtcNow, TimeSpan.FromMinutes(30), default);
+            var session = (await service.ResolveSessionAsync(created.RawReference, default))!;
+            Assert.Null(created.Registration.Identity);
+            Assert.Equal(created.Registration.Id, session.RegistrationId);
+            var registration = await service.SavePhotosAsync(session, fixture.Photos, created.Registration.Version, default);
+            registration = await VerifyAsync(service, session);
+            var submitted = await service.SubmitAsync(session, "anonymous-submit", registration.Version, default);
+            var approved = await service.ApproveAsync(registration.Id, submitted.Attempt.AttemptId, Guid.NewGuid(),
+                "reviewer-evidence", "anonymous-approve", submitted.Registration.Version, default);
+            Assert.Equal(AgentRegistrationStatus.Approved, approved.Registration.Status);
+            Assert.NotNull((await service.GetCaseAsync(session, default))!.AccountId);
+            Assert.Equal(0, await db.LoginAccounts.CountAsync());
+            var identity = ExternalIdentity.Create("microsoft", "anonymous-tenant", "anonymous-person");
+            var bound = await service.BindIdentityByEmailAsync(identity, " ANON@EXAMPLE.TEST ", "Agent", fixture.MerchantId, default);
+            Assert.Equal(registration.Id, bound!.Id);
+            Assert.Equal(bound.AccountId, (await db.LoginAccounts.SingleAsync()).AccountId);
+            await service.BindIdentityByEmailAsync(identity, "no-longer-the-email@example.test", "Agent", fixture.MerchantId, default);
+            Assert.Equal(1, await db.LoginAccounts.CountAsync());
+            var conflict = await Assert.ThrowsAsync<IdentityAccessException>(() => service.BindIdentityByEmailAsync(
+                identity with { ExternalUserId = "another" }, "anon@example.test", "Other", fixture.MerchantId, default));
+            Assert.Equal("registration_identity_conflict", conflict.Code);
+        }
+        finally { await DropDatabaseAsync(); }
+    }
+
+    [Fact]
+    [Trait("Requirement", "Issue-274")]
+    [Trait("Requirement", "AC-PHONE-5")]
+    [Trait("Requirement", "AC-PHONE-6")]
+    [Trait("Requirement", "AC-PHONE-7")]
+    public async Task Otp_attempts_cooldown_send_limit_and_phone_binding_persist_in_sql()
+    {
+        try
+        {
+            var fixture = await CreateFixtureAsync();
+            var clock = new VerificationClock { UtcNow = DateTime.UtcNow };
+            await using var db = NewContext();
+            var store = new AgentRegistrationStore(db, clock, new ControlPlaneUnitOfWork(db, NoOpSecurityTelemetry.Instance), new GovernanceSqlLockManager(db));
+            var service = new AgentRegistrationService(store);
+            var registration = await service.SaveDraftAsync(fixture.Session, fixture.Draft("otp@example.test", "0812345678"), null, default);
+            var first = await service.IssueContactVerificationAsync(fixture.Session, default);
+            var cooldown = await Assert.ThrowsAsync<ConflictException>(() => service.IssueContactVerificationAsync(fixture.Session, default));
+            Assert.Equal("verification_cooldown", cooldown.Code);
+            var wrong = first.Code == "000000" ? "000001" : "000000";
+            for (var i = 0; i < 5; i++)
+            {
+                var invalid = await Assert.ThrowsAsync<InvalidRequestException>(() => service.ConfirmContactVerificationAsync(fixture.Session, first.Verification.Id, wrong, default));
+                Assert.Equal("verification_code_invalid", invalid.Code);
+                db.ChangeTracker.Clear();
+            }
+            Assert.Equal(5, (await db.ContactVerifications.AsNoTracking().SingleAsync()).Attempts);
+            var exhausted = await Assert.ThrowsAsync<ConflictException>(() => service.ConfirmContactVerificationAsync(fixture.Session, first.Verification.Id, first.Code, default));
+            Assert.Equal("verification_attempts_exceeded", exhausted.Code);
+            ContactVerificationIssue latest = first;
+            for (var i = 1; i < 5; i++)
+            {
+                clock.UtcNow = clock.UtcNow.AddSeconds(60);
+                latest = await service.IssueContactVerificationAsync(fixture.Session, default);
+            }
+            clock.UtcNow = clock.UtcNow.AddSeconds(60);
+            var limited = await Assert.ThrowsAsync<ConflictException>(() => service.IssueContactVerificationAsync(fixture.Session, default));
+            Assert.Equal("verification_send_limit", limited.Code);
+            registration = (await service.ConfirmContactVerificationAsync(fixture.Session, latest.Verification.Id, latest.Code, default)).Registration;
+            registration = await service.SaveDraftAsync(fixture.Session, fixture.Draft("otp@example.test", "0812345678"), registration.Version, default);
+            Assert.True(registration.PhoneVerified);
+            registration = await service.SaveDraftAsync(fixture.Session, fixture.Draft("otp@example.test", "0899999999"), registration.Version, default);
+            Assert.False(registration.PhoneVerified);
+            Assert.Null(registration.PhoneVerifiedAt);
+            Assert.Null(registration.PhoneVerifiedNumber);
+            db.ChangeTracker.Clear();
+            var mismatch = await Assert.ThrowsAsync<ConflictException>(() => service.ConfirmContactVerificationAsync(fixture.Session, latest.Verification.Id, latest.Code, default));
+            Assert.Equal("phone_mismatch", mismatch.Code);
+            Assert.Equal(5, await db.ContactVerifications.CountAsync());
+            var changed = await service.IssueContactVerificationAsync(fixture.Session, default);
+            Assert.Equal("0899999999", changed.Verification.Recipient);
+            clock.UtcNow = clock.UtcNow.AddMinutes(5);
+            var expired = await Assert.ThrowsAsync<ConflictException>(() => service.ConfirmContactVerificationAsync(
+                fixture.Session, changed.Verification.Id, changed.Code, default));
+            Assert.Equal("verification_expired", expired.Code);
+            await Assert.ThrowsAsync<NotFoundException>(() => service.ConfirmContactVerificationAsync(
+                fixture.Session, Guid.NewGuid(), changed.Code, default));
+        }
+        finally { await DropDatabaseAsync(); }
+    }
+
+    [Fact]
+    [Trait("Requirement", "Issue-274")]
+    public async Task Pending_binding_and_rejected_email_edit_keep_identity_first_recovery()
+    {
+        try
+        {
+            var fixture = await CreateFixtureAsync();
+            await using var db = NewContext();
+            var service = new AgentRegistrationService(NewStore(db));
+            var created = await service.StartAnonymousAsync(fixture.MerchantId, fixture.Draft("original@example.test", "0812345678"),
+                DateTime.UtcNow, TimeSpan.FromMinutes(30), default);
+            var session = (await service.ResolveSessionAsync(created.RawReference, default))!;
+            var registration = await service.SavePhotosAsync(session, fixture.Photos, created.Registration.Version, default);
+            registration = await VerifyAsync(service, session);
+            var submitted = await service.SubmitAsync(session, "pending-bind", registration.Version, default);
+            var identity = ExternalIdentity.Create("microsoft", "pending-tenant", "pending-person");
+            var bound = await service.BindIdentityByEmailAsync(identity, "original@example.test", "Agent", fixture.MerchantId, default);
+            Assert.Equal(AgentRegistrationStatus.Pending, bound!.Status);
+            Assert.Equal(identity, bound.Identity);
+            Assert.Null(bound.AccountId);
+            Assert.Empty(await db.LoginAccounts.ToListAsync());
+            var rejected = await service.RejectAsync(bound.Id, submitted.Attempt.AttemptId, Guid.NewGuid(), "correct email",
+                null, "reject-bind", bound.Version, default);
+            await service.SaveDraftAsync(session, fixture.Draft("edited@example.test", "0812345678"), rejected.Registration.Version, default);
+            await service.StartAnonymousAsync(fixture.MerchantId, fixture.Draft("original@example.test", "0899999999"),
+                DateTime.UtcNow, TimeSpan.FromMinutes(30), default);
+            var recovered = await service.BindIdentityByEmailAsync(identity, "original@example.test", "Agent", fixture.MerchantId, default);
+            Assert.Equal(bound.Id, recovered!.Id);
+            Assert.Equal("edited@example.test", recovered.Email);
+            var foreign = await Assert.ThrowsAsync<IdentityAccessException>(() => service.BindIdentityByEmailAsync(identity,
+                "original@example.test", "Agent", Guid.NewGuid(), default));
+            Assert.Equal("identity_already_bound", foreign.Code);
+            Assert.Null(await service.BindIdentityByEmailAsync(identity with { ExternalUserId = "missing" },
+                "missing@example.test", "Missing", fixture.MerchantId, default));
+        }
+        finally { await DropDatabaseAsync(); }
+    }
+
+    [Fact]
+    [Trait("Requirement", "AC-PHONE-3")]
+    [Trait("Requirement", "AC-PHONE-4")]
+    public async Task Submission_revalidates_a_legacy_noncanonical_phone_before_verification_gate()
+    {
+        try
+        {
+            var fixture = await CreateFixtureAsync();
+            await using var db = NewContext();
+            var service = new AgentRegistrationService(NewStore(db));
+            var registration = await service.SaveDraftAsync(fixture.Session, fixture.Draft("legacy@example.test", "0812345678"), null, default);
+            registration = await service.SavePhotosAsync(fixture.Session, fixture.Photos, registration.Version, default);
+            await using var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(Database));
+            await IntegrationDb.ExecAsync(connection, "UPDATE acct.AgentRegistrations SET PhoneNumber=N'+66812345678' WHERE Id=@id;", ("@id", registration.Id));
+            db.ChangeTracker.Clear();
+            var invalid = await Assert.ThrowsAsync<InvalidRequestException>(() => service.SubmitAsync(fixture.Session, "legacy-phone", registration.Version, default));
+            Assert.Equal("phone_invalid", invalid.Code);
+            Assert.Empty(await db.AgentRegistrationAttempts.ToListAsync());
+        }
+        finally { await DropDatabaseAsync(); }
+    }
+
+    [Theory]
+    [InlineData(false, 51000)]
+    [InlineData(true, 51001)]
+    [Trait("Requirement", "Issue-274")]
+    public async Task Migration_refuses_duplicate_email_or_unlinked_approved_case_without_changing_rows(bool approved, int errorNumber)
+    {
+        try
+        {
+            await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(Database);
+            await using var migration = NewMigrationContext();
+            await migration.GetService<IMigrator>().MigrateAsync("20260918014926_DropAgentIdColumn");
+            await using var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(Database));
+            await IntegrationDb.ExecAsync(connection, """
+                INSERT acct.AgentRegistrations
+                    (Id, MerchantId, Provider, TenantId, ExternalUserId, CurrentAttemptNo, Status,
+                     SaleCode, Email, PhoneNumber, ProfileJson, CreatedAt, UpdatedAt, Version)
+                VALUES (@id, @merchant, N'microsoft', N'migration-tenant', N'one', 0, @status,
+                        N'sale', N' Duplicate@Example.Test ', N'0812345678', N'{}', SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                """, ("@id", Guid.NewGuid()), ("@merchant", Guid.Empty), ("@status", approved ? 3 : 1));
+            if (!approved)
+                await IntegrationDb.ExecAsync(connection, """
+                    INSERT acct.AgentRegistrations
+                        (Id, MerchantId, Provider, TenantId, ExternalUserId, CurrentAttemptNo, Status,
+                         SaleCode, Email, PhoneNumber, ProfileJson, CreatedAt, UpdatedAt, Version)
+                    VALUES (@id, @merchant, N'microsoft', N'migration-tenant', N'two', 0, 4,
+                            N'sale', N'duplicate@example.test', N'0899999999', N'{}', SYSUTCDATETIME(), SYSUTCDATETIME(), 1);
+                    """, ("@id", Guid.NewGuid()), ("@merchant", Guid.Empty));
+            var exception = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => migration.GetService<IMigrator>().MigrateAsync());
+            Assert.Equal(errorNumber, exception.Number);
+            Assert.Equal(approved ? 1 : 2, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection,
+                "SELECT COUNT(*) FROM acct.AgentRegistrations;")));
+            Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(connection,
+                "SELECT COL_LENGTH('acct.AgentRegistrations', 'EmailNormalized');"));
+        }
+        finally { await DropDatabaseAsync(); }
+    }
+
+    private sealed class VerificationClock : IClock
+    {
+        public DateTime UtcNow { get; set; }
+    }
+
+    private static async Task<AgentRegistration> VerifyAsync(AgentRegistrationService service, RegistrationSession session)
+    {
+        var current = await service.GetCaseAsync(session, default);
+        if (current!.PhoneVerified)
+            return current;
+        var issue = await service.IssueContactVerificationAsync(session, default);
+        return (await service.ConfirmContactVerificationAsync(session, issue.Verification.Id, issue.Code, default)).Registration;
+    }
+
     private static async Task<RegistrationSubmitResult> SubmitNewAsync(
         AgentRegistrationService service, Fixture fixture, string email, string key)
     {
         var registration = await service.SaveDraftAsync(fixture.Session, fixture.Draft(email, "0800000000"), null, default);
         registration = await service.SavePhotosAsync(fixture.Session, fixture.Photos, registration.Version, default);
+        registration = await VerifyAsync(service, fixture.Session);
         return await service.SubmitAsync(fixture.Session, key, registration.Version, default);
     }
 

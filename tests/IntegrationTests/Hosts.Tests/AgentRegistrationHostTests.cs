@@ -7,6 +7,9 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Accounts.Domain;
+using Notifications.Application;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Admins.Application;
 using Admins.Application.Users;
 using BuildingBlocks.Application;
@@ -36,6 +39,132 @@ namespace Hosts.Tests;
 [Trait("Category", "Integration")]
 public sealed class AgentRegistrationHostTests
 {
+    private static async Task<string> VerifyPhoneAsync(HttpClient client, ConcurrentDictionary<Guid, SmsDeliveryRequest> messages)
+    {
+        var sent = await client.PostAsync("/api/v1/agent-registration/contact-verifications", null);
+        Assert.True(sent.StatusCode == HttpStatusCode.Accepted,
+            await sent.Content.ReadAsStringAsync() + string.Join("\n", RegistrationErrorLog.Messages));
+        using var payload = JsonDocument.Parse(await sent.Content.ReadAsStringAsync());
+        var id = payload.RootElement.GetProperty("verificationId").GetGuid();
+        var code = Regex.Match(messages[id].Body, @"\b[0-9]{6}\b").Value;
+        Assert.DoesNotContain(code, await sent.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var confirmed = await client.PostAsJsonAsync($"/api/v1/agent-registration/contact-verifications/{id}/confirm", new { code });
+        Assert.True(confirmed.StatusCode == HttpStatusCode.OK, await confirmed.Content.ReadAsStringAsync());
+        return confirmed.Headers.ETag!.Tag;
+    }
+
+    [Fact]
+    [Trait("Requirement", "Issue-274")]
+    [Trait("Requirement", "AC-PHONE-1")]
+    [Trait("Requirement", "AC-PHONE-2")]
+    [Trait("Requirement", "AC-PHONE-3")]
+    [Trait("Requirement", "AC-PHONE-4")]
+    [Trait("Requirement", "AC-PHONE-8")]
+    public async Task Anonymous_registration_validates_phone_sets_cookie_and_completes_otp_submission()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            using var factory = new RegistrationHostFactory(IntegrationDb.SaConnFor(fixture.Database), fixture.MerchantA, true);
+            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost"), HandleCookies = false,
+            });
+            object Draft(string phone, string email = "anonymous@example.test") => new
+            {
+                saleCode = "host-sale", email, phoneNumber = phone,
+                profile = new { firstName = "Anonymous", lastName = "Applicant", personType = "Individual", idNumber = "1234567890123" },
+            };
+            foreach (var phone in new[] { "+66812345678", "66812345678", "081-234-5678", "081 234 5678",
+                "0212345678", "0712345678", "081234567", "08123456789", " 0812345678", "0812345678 " })
+            {
+                var invalid = await client.PutAsJsonAsync("/api/v1/agent-registration", Draft(phone));
+                Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+                Assert.Contains("phone_invalid", await invalid.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+                Assert.False(invalid.Headers.Contains("Set-Cookie"));
+            }
+            foreach (var prefix in new[] { "06", "09" })
+            {
+                var valid = await client.PutAsJsonAsync("/api/v1/agent-registration", Draft(prefix + "12345678", prefix + "@example.test"));
+                Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+                using var data = JsonDocument.Parse(await valid.Content.ReadAsStringAsync());
+                Assert.Equal(prefix + "12345678", data.RootElement.GetProperty("registration").GetProperty("phoneNumber").GetString());
+            }
+            var draft = await client.PutAsJsonAsync("/api/v1/agent-registration", Draft("0812345678"));
+            Assert.True(draft.StatusCode == HttpStatusCode.OK, await draft.Content.ReadAsStringAsync());
+            var setCookie = draft.Headers.GetValues("Set-Cookie").Single(x => x.StartsWith("pol_registration_session=", StringComparison.Ordinal));
+            Assert.Contains("httponly", setCookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("secure", setCookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("samesite=lax", setCookie, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("max-age=1800", setCookie, StringComparison.OrdinalIgnoreCase);
+            var duplicate = await client.PutAsJsonAsync("/api/v1/agent-registration", Draft("0812345678", " ANONYMOUS@example.test "));
+            Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+            Assert.Contains("email_already_registered", await duplicate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", setCookie.Split(';')[0]);
+            var photos = await client.PutAsync("/api/v1/agent-registration/photos", PhotoForm(false));
+            Assert.Equal(HttpStatusCode.OK, photos.StatusCode);
+            using var blockedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/agent-registration/submissions");
+            blockedRequest.Headers.TryAddWithoutValidation("If-Match", photos.Headers.ETag!.Tag);
+            blockedRequest.Headers.TryAddWithoutValidation("Idempotency-Key", "before-otp");
+            var blocked = await client.SendAsync(blockedRequest);
+            Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
+            Assert.Contains("phone_verification_required", await blocked.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            var etag = await VerifyPhoneAsync(client, factory.Sms.Messages);
+            Assert.NotEqual(photos.Headers.ETag.Tag, etag);
+            Assert.Equal("0812345678", factory.Sms.Messages.Values.Single().Recipient);
+            var current = await client.GetAsync("/api/v1/agent-registration");
+            using var currentBody = JsonDocument.Parse(await current.Content.ReadAsStringAsync());
+            Assert.True(currentBody.RootElement.GetProperty("registration").GetProperty("phoneVerified").GetBoolean());
+            using var submitRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/agent-registration/submissions");
+            submitRequest.Headers.TryAddWithoutValidation("If-Match", etag);
+            submitRequest.Headers.TryAddWithoutValidation("Idempotency-Key", "after-otp");
+            var submitted = await client.SendAsync(submitRequest);
+            Assert.True(submitted.StatusCode == HttpStatusCode.Created, await submitted.Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            await DropDatabaseAsync(fixture.Database);
+        }
+    }
+
+    [Fact]
+    [Trait("Requirement", "Issue-274")]
+    public async Task Missing_configuration_fails_closed_and_rate_limits_are_partitioned_by_cookie()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            using var missingMerchant = new RegistrationHostFactory(IntegrationDb.SaConnFor(fixture.Database), fixture.MerchantA, true, configureMerchant: false);
+            using var anonymous = missingMerchant.CreateClient();
+            var unavailable = await anonymous.PutAsJsonAsync("/api/v1/agent-registration", new
+            {
+                saleCode = "host-sale", email = "missing@example.test", phoneNumber = "0812345678",
+                profile = new { firstName = "Test", lastName = "User", personType = "Individual", idNumber = "1234567890123" },
+            });
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
+            Assert.Contains("capability_not_configured", await unavailable.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            using var factory = new RegistrationHostFactory(IntegrationDb.SaConnFor(fixture.Database), fixture.MerchantA, true, configureSms: false);
+            using var first = factory.CreateClient();
+            AddRegistrationCookie(first, fixture.SessionA);
+            for (var i = 0; i < 20; i++)
+            {
+                var response = await first.PostAsync("/api/v1/agent-registration/contact-verifications", null);
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+                Assert.Contains("capability_not_configured", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            }
+            Assert.Equal(HttpStatusCode.TooManyRequests,
+                (await first.PostAsync("/api/v1/agent-registration/contact-verifications", null)).StatusCode);
+            using var second = factory.CreateClient();
+            AddRegistrationCookie(second, fixture.SessionB);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable,
+                (await second.PostAsync("/api/v1/agent-registration/contact-verifications", null)).StatusCode);
+            await using var db = NewControlContext(fixture.Database);
+            Assert.Empty(await db.ContactVerifications.ToListAsync());
+        }
+        finally { await DropDatabaseAsync(fixture.Database); }
+    }
+
     [Fact]
     [Trait("Requirement", "REQ-4.10")]
     [Trait("Requirement", "REQ-4.11")]
@@ -95,6 +224,7 @@ public sealed class AgentRegistrationHostTests
                 Assert.True(photosJson.RootElement.GetProperty("registration").GetProperty("hasPhoto").GetBoolean());
             var draftEtag = photos.Headers.ETag!.Tag;
             Assert.NotEqual(draft.Headers.ETag!.Tag, draftEtag);
+            draftEtag = await VerifyPhoneAsync(applicant, factory.Sms.Messages);
 
             using var submitRequest = new HttpRequestMessage(
                 HttpMethod.Post, "/api/v1/agent-registration/submissions")
@@ -146,13 +276,14 @@ public sealed class AgentRegistrationHostTests
                 profile = new { schemaVersion = 1, firstName = "Corrected", lastName = "Applicant", personType = "Juristic", idNumber = "0105551234567", licenseNumber = "LIC-1", acceptedTermsAt = "2026-09-15T00:00:00Z" },
             });
             Assert.Equal(HttpStatusCode.OK, correctedDraft.StatusCode);
+            var verifiedEtag = await VerifyPhoneAsync(applicant, factory.Sms.Messages);
             using var secondSubmitRequest = new HttpRequestMessage(
                 HttpMethod.Post, "/api/v1/agent-registration/submissions")
             {
                 Content = JsonContent.Create(new { }),
             };
             secondSubmitRequest.Headers.TryAddWithoutValidation("Cookie", $"pol_registration_session={fixture.SessionA}");
-            secondSubmitRequest.Headers.TryAddWithoutValidation("If-Match", correctedDraft.Headers.ETag!.Tag);
+            secondSubmitRequest.Headers.TryAddWithoutValidation("If-Match", verifiedEtag);
             secondSubmitRequest.Headers.TryAddWithoutValidation("Idempotency-Key", "host-submit-2");
             var secondSubmit = await applicant.SendAsync(secondSubmitRequest);
             Assert.Equal(HttpStatusCode.Created, secondSubmit.StatusCode);
@@ -428,12 +559,45 @@ file sealed class RegistrationTestAdminScope(Guid merchantId, bool grantReview) 
     public AccessibleMerchants Accessible => Current.Accessible;
 }
 
-file sealed class RegistrationHostFactory(string appConnection, Guid merchantId, bool grantReview)
+file sealed class RegistrationErrorLog : ILoggerProvider
+{
+    public static readonly ConcurrentQueue<string> Messages = new();
+    public ILogger CreateLogger(string categoryName) => new ErrorLogger();
+    public void Dispose() { }
+    private sealed class ErrorLogger : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => level >= LogLevel.Error;
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(level) && exception is not null)
+                Messages.Enqueue(exception.ToString());
+        }
+    }
+}
+
+file sealed class RegistrationCaptureSmsSender : ISmsSenderPort
+{
+    public bool IsConfigured => true;
+    public ConcurrentDictionary<Guid, SmsDeliveryRequest> Messages { get; } = new();
+    public Task<DeliveryProviderResult> SendAsync(SmsDeliveryRequest request, CancellationToken ct)
+    {
+        Messages[request.DeliveryId] = request;
+        return Task.FromResult(new DeliveryProviderResult(DeliveryProviderOutcome.Accepted));
+    }
+}
+
+file sealed class RegistrationHostFactory(string appConnection, Guid merchantId, bool grantReview,
+    bool configureMerchant = true, bool configureSms = true)
     : WebApplicationFactory<ApiHost::Program>
 {
+    public RegistrationCaptureSmsSender Sms { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
+        builder.UseSetting("IdentityAccess:AgentMerchantId", configureMerchant ? merchantId.ToString("D") : "");
+        builder.ConfigureLogging(logging => logging.AddProvider(new RegistrationErrorLog()));
         builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.UseSetting("ConnectionStrings:App", appConnection);
         builder.UseSetting("ConnectionStrings:Admin", appConnection);
@@ -443,6 +607,7 @@ file sealed class RegistrationHostFactory(string appConnection, Guid merchantId,
         }));
         builder.ConfigureServices(services =>
         {
+            services.AddKeyedSingleton<ISmsSenderPort>("contact-verification", configureSms ? Sms : new NotConfiguredSmsSender());
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, RegistrationTestAdminAuthHandler>(
                     RegistrationTestAdminAuthHandler.SchemeName, _ => { });

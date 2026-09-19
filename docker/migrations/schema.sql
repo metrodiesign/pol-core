@@ -8527,3 +8527,338 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    SET QUOTED_IDENTIFIER ON;
+    IF EXISTS (
+        SELECT 1 FROM acct.AgentRegistrations
+        GROUP BY MerchantId, LOWER(TRIM(Email)) HAVING COUNT(*) > 1
+    )
+        THROW 51000, 'Agent registration email duplicates require operator resolution before migration.', 1;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DROP INDEX [IX_AgentRegistrations_Provider_TenantId_ExternalUserId] ON [acct].[AgentRegistrations];
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var18 nvarchar(max);
+    SELECT @var18 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[RegistrationSessions]') AND [c].[name] = N'TenantId');
+    IF @var18 IS NOT NULL EXEC(N'ALTER TABLE [acct].[RegistrationSessions] DROP CONSTRAINT ' + @var18 + ';');
+    ALTER TABLE [acct].[RegistrationSessions] ALTER COLUMN [TenantId] nvarchar(128) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var19 nvarchar(max);
+    SELECT @var19 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[RegistrationSessions]') AND [c].[name] = N'Provider');
+    IF @var19 IS NOT NULL EXEC(N'ALTER TABLE [acct].[RegistrationSessions] DROP CONSTRAINT ' + @var19 + ';');
+    ALTER TABLE [acct].[RegistrationSessions] ALTER COLUMN [Provider] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var20 nvarchar(max);
+    SELECT @var20 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[RegistrationSessions]') AND [c].[name] = N'ExternalUserId');
+    IF @var20 IS NOT NULL EXEC(N'ALTER TABLE [acct].[RegistrationSessions] DROP CONSTRAINT ' + @var20 + ';');
+    ALTER TABLE [acct].[RegistrationSessions] ALTER COLUMN [ExternalUserId] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    ALTER TABLE [acct].[RegistrationSessions] ADD [RegistrationId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var21 nvarchar(max);
+    SELECT @var21 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[AgentRegistrations]') AND [c].[name] = N'TenantId');
+    IF @var21 IS NOT NULL EXEC(N'ALTER TABLE [acct].[AgentRegistrations] DROP CONSTRAINT ' + @var21 + ';');
+    ALTER TABLE [acct].[AgentRegistrations] ALTER COLUMN [TenantId] nvarchar(128) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var22 nvarchar(max);
+    SELECT @var22 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[AgentRegistrations]') AND [c].[name] = N'Provider');
+    IF @var22 IS NOT NULL EXEC(N'ALTER TABLE [acct].[AgentRegistrations] DROP CONSTRAINT ' + @var22 + ';');
+    ALTER TABLE [acct].[AgentRegistrations] ALTER COLUMN [Provider] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var23 nvarchar(max);
+    SELECT @var23 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[AgentRegistrations]') AND [c].[name] = N'ExternalUserId');
+    IF @var23 IS NOT NULL EXEC(N'ALTER TABLE [acct].[AgentRegistrations] DROP CONSTRAINT ' + @var23 + ';');
+    ALTER TABLE [acct].[AgentRegistrations] ALTER COLUMN [ExternalUserId] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [AccountId] uniqueidentifier NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [EmailNormalized] nvarchar(320) NOT NULL DEFAULT N'';
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [PhoneVerifiedAt] datetime2 NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    ALTER TABLE [acct].[AgentRegistrations] ADD [PhoneVerifiedNumber] nvarchar(10) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var24 nvarchar(max);
+    SELECT @var24 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[AgentRegistrationAttempts]') AND [c].[name] = N'TenantId');
+    IF @var24 IS NOT NULL EXEC(N'ALTER TABLE [acct].[AgentRegistrationAttempts] DROP CONSTRAINT ' + @var24 + ';');
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ALTER COLUMN [TenantId] nvarchar(128) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var25 nvarchar(max);
+    SELECT @var25 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[AgentRegistrationAttempts]') AND [c].[name] = N'Provider');
+    IF @var25 IS NOT NULL EXEC(N'ALTER TABLE [acct].[AgentRegistrationAttempts] DROP CONSTRAINT ' + @var25 + ';');
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ALTER COLUMN [Provider] nvarchar(64) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    DECLARE @var26 nvarchar(max);
+    SELECT @var26 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[acct].[AgentRegistrationAttempts]') AND [c].[name] = N'ExternalUserId');
+    IF @var26 IS NOT NULL EXEC(N'ALTER TABLE [acct].[AgentRegistrationAttempts] DROP CONSTRAINT ' + @var26 + ';');
+    ALTER TABLE [acct].[AgentRegistrationAttempts] ALTER COLUMN [ExternalUserId] nvarchar(256) NULL;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    CREATE TABLE [acct].[ContactVerifications] (
+        [Id] uniqueidentifier NOT NULL,
+        [RegistrationId] uniqueidentifier NOT NULL,
+        [Recipient] nvarchar(10) NOT NULL,
+        [CodeHash] varbinary(32) NOT NULL,
+        [CreatedAt] datetime2 NOT NULL,
+        [ExpiresAt] datetime2 NOT NULL,
+        [ConfirmedAt] datetime2 NULL,
+        [Attempts] int NOT NULL,
+        [Version] bigint NOT NULL,
+        CONSTRAINT [PK_ContactVerifications] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_ContactVerifications_AgentRegistrations_RegistrationId] FOREIGN KEY ([RegistrationId]) REFERENCES [acct].[AgentRegistrations] ([Id]) ON DELETE NO ACTION
+    );
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    UPDATE acct.AgentRegistrations SET EmailNormalized = LOWER(TRIM(Email));
+    UPDATE registration SET AccountId = agent.AccountId
+    FROM acct.AgentRegistrations registration
+    INNER JOIN acct.AgentRegistrationAttempts attempt ON attempt.Id = registration.CurrentAttemptId
+        AND attempt.RegistrationId = registration.Id
+    INNER JOIN acct.Agents agent ON agent.MerchantId = registration.MerchantId
+        AND agent.SaleId = attempt.SaleId
+    WHERE registration.Status = 3;
+    IF EXISTS (SELECT 1 FROM acct.AgentRegistrations WHERE Status = 3 AND AccountId IS NULL)
+        THROW 51001, 'Approved agent registration account backfill is incomplete.', 1;
+    IF DATABASE_PRINCIPAL_ID(N'pol_app') IS NOT NULL
+        GRANT SELECT, INSERT, UPDATE ON OBJECT::acct.ContactVerifications TO pol_app;
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    CREATE INDEX [IX_RegistrationSessions_RegistrationId] ON [acct].[RegistrationSessions] ([RegistrationId]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_AgentRegistrations_AccountId] ON [acct].[AgentRegistrations] ([AccountId]) WHERE [AccountId] IS NOT NULL');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_AgentRegistrations_MerchantId_EmailNormalized] ON [acct].[AgentRegistrations] ([MerchantId], [EmailNormalized]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_AgentRegistrations_Provider_TenantId_ExternalUserId] ON [acct].[AgentRegistrations] ([Provider], [TenantId], [ExternalUserId]) WHERE [Provider] IS NOT NULL AND [TenantId] IS NOT NULL AND [ExternalUserId] IS NOT NULL');
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    CREATE INDEX [IX_ContactVerifications_Recipient_CreatedAt] ON [acct].[ContactVerifications] ([Recipient], [CreatedAt]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    CREATE INDEX [IX_ContactVerifications_RegistrationId_CreatedAt] ON [acct].[ContactVerifications] ([RegistrationId], [CreatedAt]);
+END;
+
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260919102405_AgentAnonymousRegistrationOtp'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260919102405_AgentAnonymousRegistrationOtp', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

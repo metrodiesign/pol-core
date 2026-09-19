@@ -90,7 +90,7 @@ public interface IRegistrationSessionStore
 
     Task<RegistrationSession> IssueAsync(
         ExternalIdentity identity, Guid merchantId, byte[] sessionReferenceHash, DateTime now, TimeSpan lifetime,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, Guid? registrationId = null);
 }
 
 public sealed record RegistrationSessionIssue(RegistrationSession Session, string RawReference);
@@ -116,7 +116,7 @@ public sealed class RegistrationSessionService(IRegistrationSessionStore store)
     public async Task<RegistrationSessionIssue> StartAsync(
         VerifiedHumanIdentity identity, Guid merchantId, DateTime now, TimeSpan lifetime,
         string expectedIssuer, string expectedTenantId, string expectedAudience,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Guid? registrationId = null)
     {
         var validation = HumanIdentityPolicy.Validate(
             identity, expectedIssuer, expectedTenantId, expectedAudience);
@@ -128,11 +128,9 @@ public sealed class RegistrationSessionService(IRegistrationSessionStore store)
             throw new IdentityAccessException("registration_identity_not_agent", "Workforce identities cannot use agent registration.");
         if (await store.HasApprovedAccountAsync(identity.Identity, cancellationToken))
             throw new IdentityAccessException("account_already_approved", "The identity already has an approved account.");
-        var rawReference = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-        var referenceHash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(rawReference));
+        var (rawReference, referenceHash) = RegistrationSessionReference.Create();
         var session = await store.IssueAsync(
-            identity.Identity, merchantId, referenceHash, now, lifetime, cancellationToken);
+            identity.Identity, merchantId, referenceHash, now, lifetime, cancellationToken, registrationId);
         return new RegistrationSessionIssue(session, rawReference);
     }
 }

@@ -399,9 +399,12 @@ public enum RegistrationSessionStatus
 public sealed class RegistrationSession : Entity<Guid>
 {
     public byte[] SessionReferenceHash { get; private set; } = default!;
-    public string Provider { get; private set; } = default!;
-    public string TenantId { get; private set; } = default!;
-    public string ExternalUserId { get; private set; } = default!;
+    public string? Provider { get; private set; }
+    public string? TenantId { get; private set; }
+    public string? ExternalUserId { get; private set; }
+    public Guid? RegistrationId { get; private set; }
+    public ExternalIdentity? Identity => Provider is not null && TenantId is not null && ExternalUserId is not null
+        ? new(Provider, TenantId, ExternalUserId) : null;
     public Guid MerchantId { get; private set; }
     public DateTime IssuedAt { get; private set; }
     public DateTime ExpiresAt { get; private set; }
@@ -409,8 +412,8 @@ public sealed class RegistrationSession : Entity<Guid>
 
     private RegistrationSession() { }
 
-    private RegistrationSession(Guid id, byte[] sessionReferenceHash, ExternalIdentity identity, Guid merchantId,
-        DateTime issuedAt, DateTime expiresAt) : base(id)
+    private RegistrationSession(Guid id, byte[] sessionReferenceHash, ExternalIdentity? identity, Guid merchantId,
+        DateTime issuedAt, DateTime expiresAt, Guid? registrationId) : base(id)
     {
         if (merchantId == Guid.Empty)
             throw new ArgumentException("MerchantId is required.", nameof(merchantId));
@@ -418,19 +421,22 @@ public sealed class RegistrationSession : Entity<Guid>
             throw new ArgumentException("ExpiresAt must be after IssuedAt.", nameof(expiresAt));
         if (sessionReferenceHash.Length != 32)
             throw new ArgumentException("SessionReferenceHash must be a 32-byte SHA-256 digest.", nameof(sessionReferenceHash));
+        if (registrationId == Guid.Empty || (identity is null && registrationId is null))
+            throw new ArgumentException("An anonymous session must be pinned to a registration.", nameof(registrationId));
+        RegistrationId = registrationId;
         SessionReferenceHash = sessionReferenceHash.ToArray();
-        Provider = identity.Provider;
-        TenantId = identity.TenantId;
-        ExternalUserId = identity.ExternalUserId;
+        Provider = identity?.Provider;
+        TenantId = identity?.TenantId;
+        ExternalUserId = identity?.ExternalUserId;
         MerchantId = merchantId;
         IssuedAt = issuedAt;
         ExpiresAt = expiresAt;
         Status = RegistrationSessionStatus.Active;
     }
 
-    public static RegistrationSession Issue(byte[] sessionReferenceHash, ExternalIdentity identity, Guid merchantId,
-        DateTime issuedAt, TimeSpan lifetime) =>
-        new(Guid.CreateVersion7(), sessionReferenceHash, identity, merchantId, issuedAt, issuedAt + lifetime);
+    public static RegistrationSession Issue(byte[] sessionReferenceHash, ExternalIdentity? identity, Guid merchantId,
+        DateTime issuedAt, TimeSpan lifetime, Guid? registrationId = null) =>
+        new(Guid.CreateVersion7(), sessionReferenceHash, identity, merchantId, issuedAt, issuedAt + lifetime, registrationId);
 
     public bool IsLiveAt(DateTime now) => Status == RegistrationSessionStatus.Active && now < ExpiresAt;
 

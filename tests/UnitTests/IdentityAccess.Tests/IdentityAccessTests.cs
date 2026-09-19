@@ -272,10 +272,10 @@ public sealed class IdentityAccessTests
             byte[] sessionReferenceHash,
             DateTime now,
             TimeSpan lifetime,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, Guid? registrationId = null)
         {
             Calls++;
-            return Task.FromResult(RegistrationSession.Issue(sessionReferenceHash, identity, merchantId, now, lifetime));
+            return Task.FromResult(RegistrationSession.Issue(sessionReferenceHash, identity, merchantId, now, lifetime, registrationId));
         }
     }
 

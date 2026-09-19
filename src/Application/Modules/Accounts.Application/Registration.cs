@@ -34,7 +34,8 @@ public sealed record RegistrationCaseView(
     string PhoneNumber,
     JsonElement Profile,
     bool HasPhoto,
-    bool HasKycPhoto);
+    bool HasKycPhoto,
+    bool PhoneVerified);
 
 public sealed record RegistrationAttemptView(
     Guid AttemptId,
@@ -60,8 +61,19 @@ public sealed record RegistrationDecisionResult(
     RegistrationAttemptView Attempt,
     bool Replayed);
 
+public sealed record ContactVerificationIssue(ContactVerification Verification, string Code);
+public sealed record ContactVerificationConfirmation(ContactVerificationOutcome Outcome, ContactVerification Verification, AgentRegistration Registration);
+
 public interface IAgentRegistrationStore
 {
+    Task<AgentRegistration> CreateAnonymousAsync(Guid merchantId, RegistrationDraftRequest draft,
+        byte[] referenceHash, DateTime now, TimeSpan lifetime, CancellationToken ct);
+    Task<ContactVerificationIssue> IssueContactVerificationAsync(RegistrationSession session, CancellationToken ct);
+    Task<ContactVerificationConfirmation> ConfirmContactVerificationAsync(RegistrationSession session,
+        Guid verificationId, string code, CancellationToken ct);
+    Task<AgentRegistration?> BindIdentityByEmailAsync(ExternalIdentity identity, string? email,
+        string? displayName, Guid merchantId, CancellationToken ct);
+
     Task<RegistrationSession?> FindSessionAsync(byte[] sessionReferenceHash, CancellationToken cancellationToken);
 
     Task<AgentRegistration?> FindCaseAsync(
@@ -99,6 +111,39 @@ public interface IAgentRegistrationStore
 /// <summary>Application boundary for the target registration lifecycle.</summary>
 public sealed class AgentRegistrationService(IAgentRegistrationStore store)
 {
+    public async Task<(AgentRegistration Registration, string RawReference)> StartAnonymousAsync(
+        Guid merchantId, RegistrationDraftRequest request, DateTime now, TimeSpan lifetime, CancellationToken ct)
+    {
+        ValidateDraft(request);
+        var (raw, hash) = RegistrationSessionReference.Create();
+        var registration = await store.CreateAnonymousAsync(merchantId, request, hash, now, lifetime, ct);
+        return (registration, raw);
+    }
+
+    public Task<ContactVerificationIssue> IssueContactVerificationAsync(RegistrationSession session, CancellationToken ct) =>
+        store.IssueContactVerificationAsync(session, ct);
+
+    public async Task<ContactVerificationConfirmation> ConfirmContactVerificationAsync(
+        RegistrationSession session, Guid verificationId, string code, CancellationToken ct)
+    {
+        if (code is null || code.Length != ContactVerificationPolicy.CodeLength || code.Any(c => c is < '0' or > '9'))
+            throw new InvalidRequestException("A six-digit code is required.", "validation_failed");
+        var result = await store.ConfirmContactVerificationAsync(session, verificationId, code, ct);
+        // The store commits failed attempts before the HTTP exception is raised.
+        return result.Outcome switch
+        {
+            ContactVerificationOutcome.Confirmed or ContactVerificationOutcome.AlreadyConfirmed => result,
+            ContactVerificationOutcome.Invalid => throw new InvalidRequestException("The verification code is invalid.", "verification_code_invalid"),
+            ContactVerificationOutcome.Expired => throw new ConflictException("The verification expired.", "verification_expired"),
+            ContactVerificationOutcome.AttemptsExceeded => throw new ConflictException("The verification attempt limit was reached.", "verification_attempts_exceeded"),
+            _ => throw new InvalidOperationException("Unknown verification outcome."),
+        };
+    }
+
+    public Task<AgentRegistration?> BindIdentityByEmailAsync(ExternalIdentity identity, string? email,
+        string? displayName, Guid merchantId, CancellationToken ct) =>
+        store.BindIdentityByEmailAsync(identity, email, displayName, merchantId, ct);
+
     public async Task<RegistrationSession?> ResolveSessionAsync(string? rawReference, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(rawReference))
@@ -108,9 +153,15 @@ public sealed class AgentRegistrationService(IAgentRegistrationStore store)
         return session is not null && session.IsLiveAt(DateTime.UtcNow) ? session : null;
     }
 
-    public Task<AgentRegistration?> GetCaseAsync(RegistrationSession session, CancellationToken ct) =>
-        store.FindCaseAsync(new ExternalIdentity(session.Provider, session.TenantId, session.ExternalUserId),
-            session.MerchantId, ct);
+    public async Task<AgentRegistration?> GetCaseAsync(RegistrationSession session, CancellationToken ct)
+    {
+        var registration = session.RegistrationId is { } id
+            ? await store.FindCaseByIdAsync(id, ct)
+            : session.Identity is { } identity
+                ? await store.FindCaseAsync(identity, session.MerchantId, ct)
+                : null;
+        return registration?.MerchantId == session.MerchantId ? registration : null;
+    }
 
     public Task<AgentRegistration?> GetCaseByIdAsync(Guid registrationId, CancellationToken ct) =>
         store.FindCaseByIdAsync(registrationId, ct);
@@ -174,7 +225,7 @@ public sealed class AgentRegistrationService(IAgentRegistrationStore store)
         new(registration.Id, registration.MerchantId, registration.Status, registration.CurrentAttemptNo,
             registration.CurrentAttemptId, rejectionReason, registration.Version,
             registration.SaleCode, registration.Email, registration.PhoneNumber, ParseProfile(registration.ProfileJson),
-            registration.PhotoObjectKey is not null, registration.KycPhotoObjectKey is not null);
+            registration.PhotoObjectKey is not null, registration.KycPhotoObjectKey is not null, registration.PhoneVerified);
 
     public static RegistrationAttemptView ToApplicantAttemptView(AgentRegistrationAttempt attempt) =>
         new(attempt.Id, attempt.AttemptNo, attempt.Status, attempt.SubmittedAt, attempt.RejectionReason,
@@ -206,14 +257,25 @@ public sealed class AgentRegistrationService(IAgentRegistrationStore store)
         if (!MailAddress.TryCreate(request.Email?.Trim(), out _)
             || request.Email.Trim().Length > 320)
             throw new InvalidRequestException("Email is invalid.", "validation_failed");
-        if (string.IsNullOrWhiteSpace(request.PhoneNumber) || request.PhoneNumber.Trim().Length > 64)
-            throw new InvalidRequestException("PhoneNumber is invalid.", "validation_failed");
+        ValidatePhone(request.PhoneNumber);
         if (request.Profile.ValueKind != JsonValueKind.Object)
             throw new InvalidRequestException("Profile must be a JSON object.", "validation_failed");
         var raw = request.Profile.GetRawText();
         if (raw.Length > 32_768)
             throw new InvalidRequestException("Profile is too large.", "validation_failed");
         ValidateProfile(request.Profile);
+    }
+
+    public static void ValidatePhone(string phoneNumber)
+    {
+        try
+        {
+            AgentRegistration.NormalizePhone(phoneNumber);
+        }
+        catch (ArgumentException)
+        {
+            throw new InvalidRequestException("PhoneNumber is invalid.", "phone_invalid");
+        }
     }
 
     private static void ValidateProfile(JsonElement profile)

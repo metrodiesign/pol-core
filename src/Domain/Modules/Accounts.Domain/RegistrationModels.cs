@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using SharedKernel;
 
 namespace Accounts.Domain;
@@ -17,13 +18,18 @@ public enum AgentRegistrationAttemptStatus
     Rejected = 3,
 }
 
-/// <summary>One immutable identity-scoped registration case. Attempts are the submission history.</summary>
+/// <summary>One merchant/email registration case. Identity may be bound after application.</summary>
 public sealed class AgentRegistration : AggregateRoot<Guid>
 {
     public Guid MerchantId { get; private set; }
-    public string Provider { get; private set; } = default!;
-    public string TenantId { get; private set; } = default!;
-    public string ExternalUserId { get; private set; } = default!;
+    public string? Provider { get; private set; }
+    public string? TenantId { get; private set; }
+    public string? ExternalUserId { get; private set; }
+    public string EmailNormalized { get; private set; } = default!;
+    public Guid? AccountId { get; private set; }
+    public string? PhoneVerifiedNumber { get; private set; }
+    public DateTime? PhoneVerifiedAt { get; private set; }
+    public bool PhoneVerified => PhoneVerifiedNumber is not null && PhoneVerifiedNumber == PhoneNumber;
     public Guid? CurrentAttemptId { get; private set; }
     public int CurrentAttemptNo { get; private set; }
     public AgentRegistrationStatus Status { get; private set; }
@@ -43,18 +49,19 @@ public sealed class AgentRegistration : AggregateRoot<Guid>
 
     private AgentRegistration() { }
 
-    private AgentRegistration(Guid id, Guid merchantId, ExternalIdentity identity, string saleCode,
+    private AgentRegistration(Guid id, Guid merchantId, ExternalIdentity? identity, string saleCode,
         string email, string phoneNumber, string profileJson, DateTime now) : base(id)
     {
         if (merchantId == Guid.Empty)
             throw new ArgumentException("MerchantId is required.", nameof(merchantId));
         MerchantId = merchantId;
-        Provider = identity.Provider;
-        TenantId = identity.TenantId;
-        ExternalUserId = identity.ExternalUserId;
+        Provider = identity?.Provider;
+        TenantId = identity?.TenantId;
+        ExternalUserId = identity?.ExternalUserId;
         SaleCode = Required(saleCode, nameof(saleCode), 64);
         Email = Required(email, nameof(email), 320);
-        PhoneNumber = Required(phoneNumber, nameof(phoneNumber), 64);
+        EmailNormalized = NormalizeEmail(Email);
+        PhoneNumber = NormalizePhone(phoneNumber);
         ProfileJson = Required(profileJson, nameof(profileJson), 32_768);
         Status = AgentRegistrationStatus.Draft;
         CreatedAt = now;
@@ -62,19 +69,83 @@ public sealed class AgentRegistration : AggregateRoot<Guid>
         Version = 1;
     }
 
-    public static AgentRegistration Create(Guid merchantId, ExternalIdentity identity, string saleCode,
+    public static AgentRegistration Create(Guid merchantId, ExternalIdentity? identity, string saleCode,
         string email, string phoneNumber, string profileJson, DateTime now) =>
         new(Guid.CreateVersion7(), merchantId, identity, saleCode, email, phoneNumber, profileJson, now);
 
-    public ExternalIdentity Identity => new(Provider, TenantId, ExternalUserId);
+    public ExternalIdentity? Identity => Provider is not null && TenantId is not null && ExternalUserId is not null
+        ? new(Provider, TenantId, ExternalUserId) : null;
+
+    public static string NormalizeEmail(string value) => Required(value, nameof(value), 320).ToLowerInvariant();
+
+    public void BindIdentity(ExternalIdentity identity, DateTime now)
+    {
+        identity = ExternalIdentity.Create(identity.Provider, identity.TenantId, identity.ExternalUserId);
+        if (Identity is { } existing)
+        {
+            if (existing != identity)
+                throw new InvalidOperationException("The registration is already bound to another identity.");
+            return;
+        }
+        if (Status == AgentRegistrationStatus.Draft && !PhoneVerified)
+        {
+            SaleCode = string.Empty;
+            PhoneNumber = string.Empty;
+            ProfileJson = "{}";
+            PhotoObjectKey = PhotoContentType = KycPhotoObjectKey = KycPhotoContentType = null;
+            PhoneVerifiedNumber = null;
+            PhoneVerifiedAt = null;
+        }
+        Provider = identity.Provider;
+        TenantId = identity.TenantId;
+        ExternalUserId = identity.ExternalUserId;
+        UpdatedAt = now;
+        Version++;
+    }
+
+    public void MarkPhoneVerified(string number, DateTime now)
+    {
+        if (NormalizePhone(number) != PhoneNumber)
+            throw new InvalidOperationException("The phone number has changed.");
+        if (PhoneVerified)
+            return;
+        PhoneVerifiedNumber = number;
+        PhoneVerifiedAt = now;
+        UpdatedAt = now;
+        Version++;
+    }
+
+    public void LinkAccount(Guid accountId)
+    {
+        if (accountId == Guid.Empty)
+            throw new ArgumentException("AccountId is required.", nameof(accountId));
+        if (AccountId is { } existing && existing != accountId)
+            throw new InvalidOperationException("The registration is already linked to another account.");
+        AccountId = accountId;
+    }
+
+    /// <summary>Accepts only a Thai mobile number in its exact local representation.</summary>
+    public static string NormalizePhone(string value)
+    {
+        if (value is null || !Regex.IsMatch(value, @"\A0[689][0-9]{8}\z", RegexOptions.CultureInvariant))
+            throw new ArgumentException("A Thai mobile number with exactly ten digits is required.", nameof(value));
+        return value;
+    }
 
     public void UpdateDraft(string saleCode, string email, string phoneNumber, string profileJson, DateTime now)
     {
         if (Status is AgentRegistrationStatus.Pending or AgentRegistrationStatus.Approved)
             throw new InvalidOperationException("A pending or approved registration cannot be edited.");
+        var validatedPhone = NormalizePhone(phoneNumber);
         SaleCode = Required(saleCode, nameof(saleCode), 64);
         Email = Required(email, nameof(email), 320);
-        PhoneNumber = Required(phoneNumber, nameof(phoneNumber), 64);
+        EmailNormalized = NormalizeEmail(Email);
+        if (PhoneNumber != validatedPhone)
+        {
+            PhoneVerifiedNumber = null;
+            PhoneVerifiedAt = null;
+        }
+        PhoneNumber = validatedPhone;
         ProfileJson = Required(profileJson, nameof(profileJson), 32_768);
         Status = AgentRegistrationStatus.Draft;
         UpdatedAt = now;
@@ -143,9 +214,9 @@ public sealed class AgentRegistrationAttempt : Entity<Guid>
     public Guid RegistrationId { get; private set; }
     public Guid MerchantId { get; private set; }
     public int AttemptNo { get; private set; }
-    public string Provider { get; private set; } = default!;
-    public string TenantId { get; private set; } = default!;
-    public string ExternalUserId { get; private set; } = default!;
+    public string? Provider { get; private set; }
+    public string? TenantId { get; private set; }
+    public string? ExternalUserId { get; private set; }
     public string SaleCode { get; private set; } = default!;
     public Guid SaleId { get; private set; }
     public Guid BranchId { get; private set; }
@@ -177,7 +248,7 @@ public sealed class AgentRegistrationAttempt : Entity<Guid>
     private AgentRegistrationAttempt() { }
 
     private AgentRegistrationAttempt(Guid id, Guid registrationId, Guid merchantId, int attemptNo,
-        ExternalIdentity identity, string saleCode, Guid saleId, Guid branchId, long saleVersion,
+        ExternalIdentity? identity, string saleCode, Guid saleId, Guid branchId, long saleVersion,
         long branchVersion, string email, string phoneNumber, string profileJson, string idempotencyKey,
         string intentHash, DateTime submittedAt) : base(id)
     {
@@ -188,16 +259,16 @@ public sealed class AgentRegistrationAttempt : Entity<Guid>
         RegistrationId = registrationId;
         MerchantId = merchantId;
         AttemptNo = attemptNo;
-        Provider = identity.Provider;
-        TenantId = identity.TenantId;
-        ExternalUserId = identity.ExternalUserId;
+        Provider = identity?.Provider;
+        TenantId = identity?.TenantId;
+        ExternalUserId = identity?.ExternalUserId;
         SaleCode = Required(saleCode, nameof(saleCode), 64);
         SaleId = saleId;
         BranchId = branchId;
         SaleVersion = saleVersion;
         BranchVersion = branchVersion;
         Email = Required(email, nameof(email), 320);
-        PhoneNumber = Required(phoneNumber, nameof(phoneNumber), 64);
+        PhoneNumber = AgentRegistration.NormalizePhone(phoneNumber);
         ProfileJson = Required(profileJson, nameof(profileJson), 32_768);
         IdempotencyKey = Required(idempotencyKey, nameof(idempotencyKey), 200);
         IntentHash = Required(intentHash, nameof(intentHash), 64);
@@ -207,7 +278,7 @@ public sealed class AgentRegistrationAttempt : Entity<Guid>
     }
 
     public static AgentRegistrationAttempt Create(Guid registrationId, Guid merchantId, int attemptNo,
-        ExternalIdentity identity, string saleCode, Guid saleId, Guid branchId, long saleVersion,
+        ExternalIdentity? identity, string saleCode, Guid saleId, Guid branchId, long saleVersion,
         long branchVersion, string email, string phoneNumber, string profileJson, string idempotencyKey,
         string intentHash, DateTime submittedAt,
         string? photoObjectKey = null, string? photoContentType = null,

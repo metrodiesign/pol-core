@@ -10,6 +10,7 @@ using Contracts;
 using Governance.Domain;
 using Iam.Domain.Roles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Persistence.ControlPlane.Governance;
@@ -22,6 +23,109 @@ internal sealed class AgentRegistrationStore(
     [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
     GovernanceSqlLockManager locks) : IAgentRegistrationStore
 {
+    public Task<AgentRegistration> CreateAnonymousAsync(Guid merchantId, RegistrationDraftRequest draft,
+        byte[] referenceHash, DateTime now, TimeSpan lifetime, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async cancellationToken =>
+        {
+            await EnsureEmailAvailableAsync(merchantId, AgentRegistration.NormalizeEmail(draft.Email), null, cancellationToken);
+            var registration = AgentRegistration.Create(merchantId, null, draft.SaleCode, draft.Email,
+                draft.PhoneNumber, draft.Profile.GetRawText(), now);
+            db.AgentRegistrations.Add(registration);
+            db.RegistrationSessions.Add(RegistrationSession.Issue(referenceHash, null, merchantId, now, lifetime, registration.Id));
+            await SaveRegistrationChangesAsync(cancellationToken);
+            return registration;
+        }, ct);
+
+    public Task<ContactVerificationIssue> IssueContactVerificationAsync(RegistrationSession session, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async cancellationToken =>
+        {
+            var registration = await LoadForSessionAsync(session, cancellationToken)
+                ?? throw new NotFoundException("Registration was not found.");
+            EnsureEditable(registration);
+            AgentRegistrationService.ValidatePhone(registration.PhoneNumber);
+            if (registration.PhoneVerified)
+                throw new ConflictException("The current phone is already verified.", "phone_already_verified");
+            var recipient = registration.PhoneNumber;
+            await locks.AcquireAsync($"agent-contact:{HashValue(recipient)}", cancellationToken);
+            var now = clock.UtcNow;
+            var cutoff = now - ContactVerificationPolicy.SendWindow;
+            var recent = db.ContactVerifications.Where(x => x.Recipient == recipient && x.CreatedAt > cutoff);
+            var latest = await recent.MaxAsync(x => (DateTime?)x.CreatedAt, cancellationToken);
+            if (latest is { } sent && now < sent + ContactVerificationPolicy.Cooldown)
+                throw new ConflictException("Wait before requesting another code.", "verification_cooldown");
+            if (await recent.CountAsync(cancellationToken) >= ContactVerificationPolicy.MaximumSendsPerHour)
+                throw new ConflictException("The hourly send limit was reached.", "verification_send_limit");
+            var (verification, code) = ContactVerification.Issue(registration.Id, recipient, now);
+            db.ContactVerifications.Add(verification);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return new ContactVerificationIssue(verification, code);
+        }, ct);
+
+    public Task<ContactVerificationConfirmation> ConfirmContactVerificationAsync(RegistrationSession session,
+        Guid verificationId, string code, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async cancellationToken =>
+        {
+            var registration = await LoadForSessionAsync(session, cancellationToken)
+                ?? throw new NotFoundException("Registration was not found.");
+            var verification = await db.ContactVerifications.SingleOrDefaultAsync(x => x.Id == verificationId
+                && x.RegistrationId == registration.Id, cancellationToken)
+                ?? throw new NotFoundException("Verification was not found.");
+            if (verification.Recipient != registration.PhoneNumber)
+                throw new ConflictException("The phone number has changed.", "phone_mismatch");
+            if (verification.ConfirmedAt is null)
+                EnsureEditable(registration);
+            var outcome = verification.TryConfirm(code, clock.UtcNow);
+            if (outcome == ContactVerificationOutcome.Confirmed)
+                registration.MarkPhoneVerified(verification.Recipient, clock.UtcNow);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return new ContactVerificationConfirmation(outcome, verification, registration);
+        }, ct);
+
+    public Task<AgentRegistration?> BindIdentityByEmailAsync(ExternalIdentity identity, string? email,
+        string? displayName, Guid merchantId, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async cancellationToken =>
+        {
+            await locks.AcquireAsync(IdentityLock(identity), cancellationToken);
+            // Identity-bound cases win even when a rejected applicant has edited their email.
+            var id = await db.AgentRegistrations.Where(x => x.Provider == identity.Provider
+                && x.TenantId == identity.TenantId && x.ExternalUserId == identity.ExternalUserId)
+                .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken);
+            var matchedByIdentity = id is not null;
+            var normalized = string.IsNullOrWhiteSpace(email) ? null : AgentRegistration.NormalizeEmail(email);
+            if (id is null && normalized is not null)
+            {
+                id = await db.AgentRegistrations.Where(x => x.MerchantId == merchantId && x.EmailNormalized == normalized)
+                    .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken);
+            }
+            if (id is null)
+                return null;
+            await locks.AcquireAsync(RegistrationLock(id.Value), cancellationToken);
+            var registration = await db.AgentRegistrations.SingleAsync(x => x.Id == id, cancellationToken);
+            if (!matchedByIdentity && registration.EmailNormalized != normalized)
+                return null;
+            if (registration.MerchantId != merchantId)
+                throw new IdentityAccessException("identity_already_bound", "The identity belongs to another merchant.");
+            if (registration.Identity is { } existingIdentity && existingIdentity != identity)
+                throw new IdentityAccessException("registration_identity_conflict", "The registration belongs to another identity.");
+            var login = await db.LoginAccounts.SingleOrDefaultAsync(x => x.Provider == identity.Provider
+                && x.TenantId == identity.TenantId && x.ExternalUserId == identity.ExternalUserId, cancellationToken);
+            if (login is not null && login.AccountId != registration.AccountId)
+                throw new IdentityAccessException("identity_already_bound", "The identity already has an account.");
+            registration.BindIdentity(identity, clock.UtcNow);
+            if (registration.Status == AgentRegistrationStatus.Approved)
+            {
+                if (registration.AccountId is not { } accountId)
+                    throw new IdentityAccessException("registration_account_missing", "The approved registration has no account.");
+                if (login is null)
+                {
+                    if (await db.LoginAccounts.AnyAsync(x => x.AccountId == accountId, cancellationToken))
+                        throw new IdentityAccessException("identity_already_bound", "The account already has another identity.");
+                    db.LoginAccounts.Add(LoginAccount.Create(accountId, identity, email, displayName, clock.UtcNow));
+                }
+            }
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return registration;
+        }, ct);
 
     public Task<RegistrationSession?> FindSessionAsync(
         byte[] sessionReferenceHash, CancellationToken cancellationToken) =>
@@ -41,16 +145,13 @@ internal sealed class AgentRegistrationStore(
         RegistrationSession session, RegistrationDraftRequest draft, long? expectedVersion,
         CancellationToken cancellationToken)
     {
-        var identity = new ExternalIdentity(session.Provider, session.TenantId, session.ExternalUserId);
         return await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            await locks.AcquireAsync(IdentityLock(identity), ct);
-            var registration = await db.AgentRegistrations.SingleOrDefaultAsync(x =>
-                x.Provider == identity.Provider && x.TenantId == identity.TenantId
-                && x.ExternalUserId == identity.ExternalUserId, ct);
+            var registration = await LoadForSessionAsync(session, ct);
+            await EnsureEmailAvailableAsync(session.MerchantId, AgentRegistration.NormalizeEmail(draft.Email), registration?.Id, ct);
             if (registration is null)
             {
-                registration = AgentRegistration.Create(session.MerchantId, identity, draft.SaleCode,
+                registration = AgentRegistration.Create(session.MerchantId, session.Identity, draft.SaleCode,
                     draft.Email, draft.PhoneNumber, draft.Profile.GetRawText(), clock.UtcNow);
                 db.AgentRegistrations.Add(registration);
             }
@@ -64,7 +165,7 @@ internal sealed class AgentRegistrationStore(
                     draft.Profile.GetRawText(), clock.UtcNow);
             }
 
-            await unitOfWork.SaveChangesAsync(ct);
+            await SaveRegistrationChangesAsync(ct);
             return registration;
         }, cancellationToken);
     }
@@ -73,13 +174,9 @@ internal sealed class AgentRegistrationStore(
         RegistrationSession session, RegistrationPhotos photos, long? expectedVersion,
         CancellationToken cancellationToken)
     {
-        var identity = new ExternalIdentity(session.Provider, session.TenantId, session.ExternalUserId);
         return await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            await locks.AcquireAsync(IdentityLock(identity), ct);
-            var registration = await db.AgentRegistrations.SingleOrDefaultAsync(x =>
-                x.Provider == identity.Provider && x.TenantId == identity.TenantId
-                && x.ExternalUserId == identity.ExternalUserId, ct)
+            var registration = await LoadForSessionAsync(session, ct)
                 ?? throw new NotFoundException("Registration draft was not found.");
             if (registration.MerchantId != session.MerchantId)
                 throw new ConflictException("The registration is bound to another merchant.", "registration_merchant_mismatch");
@@ -105,13 +202,9 @@ internal sealed class AgentRegistrationStore(
         RegistrationSession session, string idempotencyKey, long? expectedVersion,
         CancellationToken cancellationToken)
     {
-        var identity = new ExternalIdentity(session.Provider, session.TenantId, session.ExternalUserId);
         return await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            await locks.AcquireAsync(IdentityLock(identity), ct);
-            var registration = await db.AgentRegistrations.SingleOrDefaultAsync(x =>
-                x.Provider == identity.Provider && x.TenantId == identity.TenantId
-                && x.ExternalUserId == identity.ExternalUserId, ct)
+            var registration = await LoadForSessionAsync(session, ct)
                 ?? throw new NotFoundException("Registration draft was not found.");
             if (registration.MerchantId != session.MerchantId)
                 throw new ConflictException("The registration is bound to another merchant.", "registration_merchant_mismatch");
@@ -134,10 +227,13 @@ internal sealed class AgentRegistrationStore(
 
             if (registration.PhotoObjectKey is null)
                 throw new InvalidRequestException("Photo is required.", "photo_required");
+            AgentRegistrationService.ValidatePhone(registration.PhoneNumber);
+            if (!registration.PhoneVerified)
+                throw new InvalidRequestException("Verify the current phone before submission.", "phone_verification_required");
             var sale = await ReadCurrentSaleAsync(registration.MerchantId, registration.SaleCode, ct)
                 ?? throw new ConflictException("The sale is not available for this registration.", "registration_sale_invalid");
             var attempt = AgentRegistrationAttempt.Create(
-                registration.Id, registration.MerchantId, registration.CurrentAttemptNo + 1, identity,
+                registration.Id, registration.MerchantId, registration.CurrentAttemptNo + 1, registration.Identity,
                 registration.SaleCode, sale.SaleId, sale.BranchId, sale.SaleVersion, sale.BranchVersion,
                 registration.Email, registration.PhoneNumber, registration.ProfileJson, idempotencyKey,
                 intentHash, clock.UtcNow,
@@ -179,8 +275,9 @@ internal sealed class AgentRegistrationStore(
                 throw new ConflictException("The sale or branch changed after submit.", "registration_context_changed");
             if (await db.Agents.AnyAsync(x => x.SaleId == sale.SaleId, ct))
                 throw new ConflictException("The sale is already assigned to another agent.", "sale_already_bound");
-            if (await db.LoginAccounts.AnyAsync(x => x.Provider == attempt.Provider
-                    && x.TenantId == attempt.TenantId && x.ExternalUserId == attempt.ExternalUserId, ct))
+            var identity = registration.Identity;
+            if (identity is { } bound && await db.LoginAccounts.AnyAsync(x => x.Provider == bound.Provider
+                    && x.TenantId == bound.TenantId && x.ExternalUserId == bound.ExternalUserId, ct))
                 throw new ConflictException("The identity already has an account.", "identity_already_bound");
 
             var role = await db.Roles.SingleOrDefaultAsync(x =>
@@ -195,9 +292,9 @@ internal sealed class AgentRegistrationStore(
             var displayName = DisplayName(attempt.ProfileJson, attempt.Email);
             var account = Account.Create(AccountType.Agent, displayName, now);
             db.Accounts.Add(account);
-            db.LoginAccounts.Add(LoginAccount.Create(account.Id,
-                new ExternalIdentity(attempt.Provider, attempt.TenantId, attempt.ExternalUserId),
-                attempt.Email, displayName, now));
+            registration.LinkAccount(account.Id);
+            if (identity is { } loginIdentity)
+                db.LoginAccounts.Add(LoginAccount.Create(account.Id, loginIdentity, attempt.Email, displayName, now));
             db.Agents.Add(Agent.Create(account.Id, attempt.MerchantId, attempt.SaleId, attempt.ProfileJson));
             var access = MerchantAccess.Create(account.Id, attempt.MerchantId, DataScope.Self);
             db.AccountMerchantAccess.Add(access);
@@ -289,6 +386,55 @@ internal sealed class AgentRegistrationStore(
             attempt.MerchantId, AgentRegistrationDecidedV1.EventType, AgentRegistrationDecidedV1.SchemaVersion,
             payload, now);
     }
+
+    private async Task<AgentRegistration?> LoadForSessionAsync(RegistrationSession session, CancellationToken ct)
+    {
+        if (session.RegistrationId is { } id)
+        {
+            await locks.AcquireAsync(RegistrationLock(id), ct);
+            var pinned = await db.AgentRegistrations.SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (pinned is not null && pinned.MerchantId != session.MerchantId)
+                throw new ConflictException("The registration is bound to another merchant.", "registration_merchant_mismatch");
+            return pinned;
+        }
+        if (session.Identity is not { } identity)
+            throw new AccessDeniedException("Registration session has no identity or case.");
+        await locks.AcquireAsync(IdentityLock(identity), ct);
+        var idByIdentity = await db.AgentRegistrations.Where(x =>
+            x.Provider == identity.Provider && x.TenantId == identity.TenantId
+            && x.ExternalUserId == identity.ExternalUserId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (idByIdentity is null)
+            return null;
+        await locks.AcquireAsync(RegistrationLock(idByIdentity.Value), ct);
+        var registration = await db.AgentRegistrations.SingleAsync(x => x.Id == idByIdentity, ct);
+        if (registration.MerchantId != session.MerchantId)
+            throw new ConflictException("The registration is bound to another merchant.", "registration_merchant_mismatch");
+        return registration;
+    }
+
+    private async Task SaveRegistrationChangesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await unitOfWork.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException sql
+            && sql.Number is 2601 or 2627
+            && sql.Message.Contains("IX_AgentRegistrations_MerchantId_EmailNormalized", StringComparison.Ordinal))
+        {
+            throw new ConflictException("This email is already registered. Sign in to continue.", "email_already_registered");
+        }
+    }
+
+    private async Task EnsureEmailAvailableAsync(Guid merchantId, string emailNormalized, Guid? excludeId, CancellationToken ct)
+    {
+        await locks.AcquireAsync($"agent-email:{merchantId:N}:{HashValue(emailNormalized)}", ct);
+        if (await db.AgentRegistrations.AnyAsync(x => x.MerchantId == merchantId && x.EmailNormalized == emailNormalized
+            && (excludeId == null || x.Id != excludeId), ct))
+            throw new ConflictException("This email is already registered. Sign in to continue.", "email_already_registered");
+    }
+
+    private static string HashValue(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
     private static string IdentityLock(ExternalIdentity identity) =>
         $"agent-registration:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(

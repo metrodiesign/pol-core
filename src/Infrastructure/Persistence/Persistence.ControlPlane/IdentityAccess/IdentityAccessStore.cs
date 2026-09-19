@@ -171,10 +171,10 @@ internal sealed class IdentityAccessStore
 
     public async Task<RegistrationSession> IssueAsync(
         ExternalIdentity identity, Guid merchantId, byte[] sessionReferenceHash, DateTime now, TimeSpan lifetime,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Guid? registrationId = null)
     {
         var session = RegistrationSession.Issue(
-            sessionReferenceHash, identity, merchantId, now, lifetime);
+            sessionReferenceHash, identity, merchantId, now, lifetime, registrationId);
         db.RegistrationSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
         return session;

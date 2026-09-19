@@ -1,6 +1,7 @@
 # คู่มือปฏิบัติการ Platform API v1
 
-เอกสารนี้เป็นคู่มือใช้งานและดูแล API contract รุ่น v1 สำหรับทีมที่เรียก API, ดูแลระบบ และตรวจเหตุการณ์ production. แหล่ง inventory เดียวคือ [api-scope.json](../../.ai/specs/platform-restructure-v1/api-scope.json) ซึ่งมี 116 แถว: เปิดใน v1 จำนวน 111 รายการ และ deferred จำนวน 5 รายการคือ `API-033`, `API-034`, `API-108`, `API-109`, `API-110`. กฎ contract และ DTO อ้างอิงจาก [design.md](../../.ai/specs/platform-restructure-v1/design.md) และ [tasks.md](../../.ai/specs/platform-restructure-v1/tasks.md); route legacy ที่อยู่นอก 111 รายการยังไม่ใช่ canonical v1 และอยู่ในบัญชีสำหรับ Task10.
+เอกสารนี้เป็นคู่มือดูแล API contract รุ่น v1 แหล่ง inventory เดียวคือ [api-scope.json](../../.ai/specs/platform-restructure-v1/api-scope.json): 116 แถว แบ่งเป็น v1 จำนวน 109, deferred จำนวน 3 และ retired จำนวน 4 รายการ
+registration OTP (Issue #274) เปิด API-033/034 แล้ว เหลือ deferred เฉพาะ API-108–110; ข้อกำหนดฟีเจอร์อยู่ใน Issue #274 และ ADR 0002
 
 ## บริบทผู้เรียก
 
@@ -65,10 +66,62 @@ PSP webhook ต้องตรวจ provider/account/environment/reference แ�
 - Entra tenant/client, PSP sandbox contract, SMS vendor และ production business endpoint ยังไม่มี credential/allowlist ที่ใช้ทดสอบ live ได้; local SQL Server, capture verifier/sender และ capability disabled เป็นหลักฐานทดแทน
 - SMS ที่ไม่มี vendor ต้องเป็น `BLOCKED_NOT_CONFIGURED` และไม่เรียก provider
 - PSP connection test เป็น probe authentication ไม่ใช่ channel certification และไม่สร้าง charge
-- Notification template routes `API-108–110` และ registration contact verification `API-033–034` ยัง deferred และต้องคง absent จาก v1
+- Notification template routes `API-108–110` ยัง deferred; API-033/034 เปิดใน v1 แล้ว โดย SMS ใน Development/Testing ใช้ log เท่านั้น ส่วน environment อื่นตอบ 503 จนกว่าจะมี vendor
 - legacy extras ใน EndpointDataSource/OpenAPI ไม่ใช่ approval ให้ client ใช้; การ retire ต้องรอ Task10 พร้อม evidence ของ dependency และ replacement
 
-เมื่อเพิ่มหรือเปลี่ยน route ให้แก้ `api-scope.json`, operation matrix, OpenAPI metadata และ runtime evidence ในชุดเดียวกัน แล้วรัน comparator ที่ยืนยัน expected111/overlap111/missing0/deferred0 ก่อนส่ง review.
+เมื่อเปลี่ยน route ให้แก้ inventory, operation matrix, OpenAPI metadata และ runtime evidence แล้วรัน comparator ยืนยัน expected109/overlap109/missing0/deferred0
+
+## การลงทะเบียนตัวแทนและ OTP — Issue #274
+
+anonymous PUT สร้างเคสใต้ merchant ที่ตั้งใน `IdentityAccess:AgentMerchantId` และออก cookie อายุ 30 นาทีโดยค่าเริ่มต้น
+cookie หมดอายุแล้ว email ซ้ำตอบ 409 ให้เข้าสู่ระบบ Microsoft ด้วย email เดิมเพื่อกลับมา ไม่ใช่เริ่มเคสใหม่
+
+| ขั้นตอน | พฤติกรรม |
+|---|---|
+| PUT draft | มือถือไทย local 10 หลัก prefix 06/08/09 เท่านั้น รูปแบบอื่นตอบ 400 phone_invalid |
+| POST contact-verifications | ใช้เบอร์ใน draft ไม่รับเบอร์จาก body; คืน 202 พร้อม masked recipient และเวลา resend |
+| POST confirm | รหัส 6 หลัก อายุ 5 นาที ผิดได้ 5 ครั้ง; success คืน 200 และ ETag ใหม่ |
+| POST submissions | ต้องมีรูปและยืนยันเบอร์ปัจจุบันก่อนจึงได้ 201 |
+| Reviewer approve | สร้าง Account; ถ้าไม่มี ExternalIdentity ยังไม่สร้าง LoginAccount |
+| Microsoft callback | หา LoginAccount แล้ว registration ด้วย identity ก่อน fallback email; Approved ผูก LoginAccount, ที่เหลือ pin session ไป /register |
+
+### การส่ง SMS และข้อจำกัด
+
+- Development/Testing ใช้ keyed sender `contact-verification` ที่ log รหัสระดับ Information เฉพาะ local; ห้ามส่ง log รหัสไปหลักฐานหรือระบบรวม log production
+- environment อื่นใช้ not-configured sender ตอบ 503 capability_not_configured ก่อนสร้าง challenge; unkeyed sender ของ notification เดิมไม่เปลี่ยน
+- cooldown 60 วินาทีและ 5 sends/ชั่วโมงใช้เบอร์ persisted ร่วมทุกเคส; lockout อาจต้องรอประมาณ 1 ชั่วโมง ไม่มี support bypass
+- rate limiter ใช้ SHA256 ของ registration cookie เมื่อมี ไม่เก็บ raw cookie ใน key/log; request แรกไม่มี cookie ใช้ IP
+- operator ต้องตั้ง trusted proxy/ForwardedHeaders ให้ถูกต้อง; limiter ของ UserAuth เดิมมีข้อจำกัด proxy IP เดียวเช่นกัน แต่ไม่แก้ใน Issue นี้
+- ยังไม่มี prune job ของ registration sessions และ contact verifications
+- ยังไม่มี vendor adapter ที่แปลง E.164: เมื่อเพิ่มให้แปลงเฉพาะขอบเขตส่ง SMS ห้ามแก้ persisted phone
+
+### Transaction inventory
+
+`AgentRegistrationStore` มี 9 transactions ทั้งหมดใช้ ControlPlaneDbContext เดียวและ admin UoW เดิม
+5 เส้นทางเดิมคือ draft/photos/submit/approve/reject เพิ่ม anonymous create + session, OTP issue, OTP confirm และ identity bind
+OTP issue ล็อกทั้งเคสและ hash ของเบอร์; confirm บันทึกจำนวนครั้งก่อนแปลงผลเป็น HTTP error
+SMS ส่งหลัง commit challenge จึงไม่เปิด transaction ค้างระหว่างเรียก provider และการส่งล้มเหลวยังนับโควตา
+
+### Migration และ rollback
+
+migration `20260919102405_AgentAnonymousRegistrationOtp` หยุดด้วย THROW เมื่อ email ซ้ำต่อ merchant
+หรือ backfill Approved แล้วหา Account ไม่ได้ ห้ามเลือก winner, dedupe หรือลบข้อมูลอัตโนมัติ
+operator รัน pre-check ต่อไปนี้ผ่านช่องทางที่ได้รับอนุญาตก่อน deploy; output มี email จึงห้ามแนบ log สาธารณะ
+
+```sql
+SELECT MerchantId, LOWER(TRIM(Email)) AS EmailNormalized,
+       STRING_AGG(CONVERT(nvarchar(max), Id), N',') AS RegistrationIds,
+       STRING_AGG(CONVERT(nvarchar(max), Status), N',') AS Statuses
+FROM acct.AgentRegistrations
+GROUP BY MerchantId, LOWER(TRIM(Email))
+HAVING COUNT(*) > 1;
+```
+
+ใช้ EF database update สำหรับ local ที่มีข้อมูล และใช้ schema.sql เฉพาะ fresh DB ตาม local-dev runbook
+script แยก backfill ออกจาก AddColumn ด้วย GO และต้องเปิด QUOTED_IDENTIFIER (sqlcmd -I)
+ก่อน deploy ต้องสำรองข้อมูล; rollback หลังมี anonymous rows ถูกปฏิเสธโดย Down guard ให้ restore backup ก่อน migration หรือ roll forward
+การถอย application โดยไม่ถอย DB ใช้ไม่ได้กับ nullable identity contract; rollout pol-merchant ต้องตาม backend contract นี้
+
 
 ## Migration readiness ของ Task 9
 

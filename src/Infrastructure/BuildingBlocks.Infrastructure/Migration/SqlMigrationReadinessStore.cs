@@ -166,9 +166,9 @@ public sealed class SqlMigrationReadinessStore(DbConnection connection)
                     await ExecuteAsync(transaction, """
                         INSERT INTO acct.AgentRegistrations
                             (Id, MerchantId, Provider, TenantId, ExternalUserId, CurrentAttemptId, CurrentAttemptNo,
-                             Status, SaleCode, Email, PhoneNumber, ProfileJson, CreatedAt, UpdatedAt, Version)
+                             Status, SaleCode, Email, EmailNormalized, PhoneNumber, ProfileJson, CreatedAt, UpdatedAt, Version)
                         SELECT @registrationId, @merchantId, @provider, @tenant, @externalId, @attemptId, 1,
-                               @registrationStatus, @saleCode, @email, @phone, N'{}', @at, @at, 1
+                               @registrationStatus, @saleCode, @email, LOWER(TRIM(@email)), @phone, N'{}', @at, @at, 1
                         WHERE NOT EXISTS (SELECT 1 FROM acct.AgentRegistrations WHERE Id = @registrationId);
                         INSERT INTO acct.AgentRegistrationAttempts
                             (Id, RegistrationId, MerchantId, AttemptNo, Provider, TenantId, ExternalUserId, SaleCode,
