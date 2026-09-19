@@ -751,10 +751,13 @@ internal sealed class IdentityAccessStore
             throw new InvalidRequestException("Role is outside the target Merchant scope.", "cross_merchant_role");
         foreach (var branchId in replace.BranchIds.Distinct())
         {
-            var owner = await db.Database.SqlQueryRaw<Guid>(
+            var owners = await db.Database.SqlQueryRaw<Guid>(
                     "SELECT TOP(1) [Id] AS [Value] FROM [merch].[Branches] WHERE [Id] = {0} AND [MerchantId] = {1}",
                     branchId, replace.MerchantId)
-                .FirstOrDefaultAsync(cancellationToken);
+                // TOP(1) and the ownership filter are already in the raw SQL; select in memory so EF does not
+                // compose FirstOrDefault over SqlQueryRaw and emit FirstWithoutOrderByAndFilterWarning.
+                .ToListAsync(cancellationToken);
+            var owner = owners.FirstOrDefault();
             if (owner != branchId)
                 throw new InvalidRequestException("Branch is outside the target Merchant scope.", "cross_merchant_branch");
         }
