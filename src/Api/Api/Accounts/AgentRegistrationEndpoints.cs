@@ -1,4 +1,8 @@
 using Accounts.Application;
+using Api.IdentityAccess;
+using BuildingBlocks.Application;
+using Microsoft.Extensions.Options;
+using Notifications.Application;
 using global::Accounts.Domain;
 using Admins.Application;
 using Api.Iam;
@@ -11,6 +15,7 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Api.Accounts;
 
+public sealed record ContactVerificationConfirmRequest(string Code);
 public sealed record AgentRegistrationApproveRequest(string ContactEvidenceReference);
 public sealed record AgentRegistrationRejectRequest(string RejectionReason, string? InternalReviewNote);
 
@@ -31,6 +36,7 @@ internal static class AgentRegistrationEndpoints
         applicant.MapGet("", GetApplicantCase)
             .AllowAnonymous().WithName("GetAgentRegistration").WithTags("Agent registration");
         applicant.MapPut("", SaveApplicantDraft)
+            .RequireRateLimiting(AgentRegistrationRateLimiting.PolicyName)
             .AllowAnonymous().WithMetadata(new EtagResponseMarker("200"))
             .WithName("SaveAgentRegistrationDraft").WithTags("Agent registration");
         applicant.MapPut("/photos", SaveApplicantPhotos)
@@ -40,6 +46,13 @@ internal static class AgentRegistrationEndpoints
             .WithSummary("อัปโหลดรูปถ่ายผู้สมัคร (photo บังคับ, kycPhoto ไม่บังคับ)")
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+        applicant.MapPost("/contact-verifications", SendContactVerification)
+            .AllowAnonymous().RequireRateLimiting(AgentRegistrationRateLimiting.PolicyName)
+            .WithName("CreateAgentContactVerification").WithTags("Agent registration");
+        applicant.MapPost("/contact-verifications/{verificationId:guid}/confirm", ConfirmContactVerification)
+            .AllowAnonymous().RequireRateLimiting(AgentRegistrationRateLimiting.PolicyName)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithName("ConfirmAgentContactVerification").WithTags("Agent registration");
         applicant.MapPost("/submissions", SubmitApplicantDraft)
             .AllowAnonymous().WithMetadata(new IfMatchMutationMarker("201"), new IdempotencyMutationMarker())
             .WithName("SubmitAgentRegistration").WithTags("Agent registration");
@@ -91,15 +104,68 @@ internal static class AgentRegistrationEndpoints
     }
 
     private static async Task<IResult> SaveApplicantDraft(
-        HttpContext http, RegistrationDraftRequest body, AgentRegistrationService service, CancellationToken ct)
+        HttpContext http, RegistrationDraftRequest body, AgentRegistrationService service,
+        IOptions<IdentityAccessOptions> options, CancellationToken ct)
+    {
+        var session = await Session(http, service, ct);
+        AgentRegistration registration;
+        if (session is null)
+        {
+            if (options.Value.AgentMerchantId is not { } merchantId || merchantId == Guid.Empty)
+                return CapabilityNotConfigured();
+            var lifetime = TimeSpan.FromMinutes(options.Value.RegistrationSessionMinutes);
+            var created = await service.StartAnonymousAsync(merchantId, body, DateTime.UtcNow, lifetime, ct);
+            RegistrationSessionCookie.Append(http, created.RawReference, lifetime);
+            registration = created.Registration;
+        }
+        else
+            registration = await service.SaveDraftAsync(session, body, OptionalVersion(http), ct);
+        VersionEtags.Set(http, registration.Version);
+        return Results.Ok(ApplicantCase(registration, null));
+    }
+
+    private static IResult CapabilityNotConfigured() => Results.Problem(
+        statusCode: StatusCodes.Status503ServiceUnavailable, title: "Registration capability is not configured.",
+        extensions: new Dictionary<string, object?> { ["code"] = "capability_not_configured" });
+
+    private static async Task<IResult> SendContactVerification(HttpContext http, AgentRegistrationService service,
+        [FromKeyedServices("contact-verification")] ISmsSenderPort sms, CancellationToken ct)
     {
         var session = await Session(http, service, ct);
         if (session is null)
             return Results.Unauthorized();
-        var version = OptionalVersion(http);
-        var registration = await service.SaveDraftAsync(session, body, version, ct);
-        VersionEtags.Set(http, registration.Version);
-        return Results.Ok(ApplicantCase(registration, null));
+        if (!sms.IsConfigured)
+            return CapabilityNotConfigured();
+        var issued = await service.IssueContactVerificationAsync(session, ct);
+        var verification = issued.Verification;
+        var outcome = await sms.SendAsync(new SmsDeliveryRequest(verification.Recipient,
+            $"รหัสยืนยัน POL: {issued.Code} (ใช้ได้ 5 นาที)", "agent-registration-otp.v1", verification.Id), ct);
+        if (outcome.Outcome is not (DeliveryProviderOutcome.Accepted or DeliveryProviderOutcome.Delivered))
+            throw new DependencyUnavailableException("SMS delivery is unavailable.", new InvalidOperationException("SMS delivery was not accepted."));
+        return Results.Accepted(value: new
+        {
+            verificationId = verification.Id,
+            channel = "sms",
+            recipientMasked = $"{verification.Recipient[..2]}X-XXX-XX{verification.Recipient[^2..]}",
+            expiresAt = verification.ExpiresAt,
+            resendAvailableAt = verification.CreatedAt + ContactVerificationPolicy.Cooldown,
+        });
+    }
+
+    private static async Task<IResult> ConfirmContactVerification(Guid verificationId, ContactVerificationConfirmRequest body,
+        HttpContext http, AgentRegistrationService service, CancellationToken ct)
+    {
+        var session = await Session(http, service, ct);
+        if (session is null)
+            return Results.Unauthorized();
+        var result = await service.ConfirmContactVerificationAsync(session, verificationId, body.Code, ct);
+        VersionEtags.Set(http, result.Registration.Version);
+        return Results.Ok(new
+        {
+            verificationId = result.Verification.Id,
+            confirmedAt = result.Verification.ConfirmedAt,
+            registration = ApplicantCase(result.Registration, null),
+        });
     }
 
     /// <summary>Multipart photo upload: bytes are validated (jpeg/png/webp, magic bytes, size) and stored BEFORE the

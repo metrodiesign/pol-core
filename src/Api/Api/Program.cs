@@ -293,6 +293,12 @@ else
     builder.Services.AddSingleton<global::Notifications.Application.IEmailSenderPort, SmtpNotificationEmailSender>();
 builder.Services.AddSingleton<global::Notifications.Application.ISmsSenderPort,
     global::Notifications.Application.NotConfiguredSmsSender>();
+if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+    builder.Services.AddKeyedSingleton<global::Notifications.Application.ISmsSenderPort,
+        Api.Notifications.LoggingSmsSender>("contact-verification");
+else
+    builder.Services.AddKeyedSingleton<global::Notifications.Application.ISmsSenderPort,
+        global::Notifications.Application.NotConfiguredSmsSender>("contact-verification");
 builder.Services.AddSingleton<global::Notifications.Application.INotificationReceiptVerifier,
     global::Notifications.Application.NoVendorNotificationReceiptVerifier>();
 builder.Services.AddMerchantsIdentity();
@@ -577,6 +583,7 @@ builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks(appConnString);
 builder.Services.AddWebhookRateLimiter();
 builder.Services.AddMerchantUserAuthRateLimiter();
+builder.Services.AddAgentRegistrationRateLimiter();
 builder.Services.AddCustomerPaymentRateLimiter();
 
 // Dev-only HTTP req/res logging incl. response headers (esp. Location on a 302 — see where the OIDC callback /

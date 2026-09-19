@@ -235,6 +235,7 @@ internal enum IdentityLoginKind
 internal sealed class IdentityBffLoginService(
     EmployeeJitService employeeJit,
     RegistrationSessionService registrationSessions,
+    AgentRegistrationService registrations,
     IIdentityAccessQuery identities,
     IOptions<IdentityAccessOptions> options)
 {
@@ -280,6 +281,16 @@ internal sealed class IdentityBffLoginService(
         var approved = await registrationSessions.FindApprovedAccountAsync(
             verified, settings.AgentIssuer, settings.AgentTenantId, settings.AgentAudience,
             context.HttpContext.RequestAborted);
+        var merchantId = ParseMerchant(properties.GetString("identity.merchant_id"));
+        AgentRegistration? bound = null;
+        if (approved is null)
+        {
+            bound = await registrations.BindIdentityByEmailAsync(verified.Identity, verified.Email,
+                verified.DisplayName, merchantId, context.HttpContext.RequestAborted);
+            if (bound?.AccountId is { } accountId)
+                approved = await identities.FindAccountAsync(accountId, context.HttpContext.RequestAborted)
+                    ?? throw new IdentityAccessException("registration_account_missing", "The approved account was not found.");
+        }
         if (approved is not null)
         {
             if (approved.Status != AccountStatus.Active)
@@ -301,17 +312,15 @@ internal sealed class IdentityBffLoginService(
 
         var session = await registrationSessions.StartAsync(
             verified,
-            ParseMerchant(properties.GetString("identity.merchant_id")),
+            merchantId,
             DateTime.UtcNow,
             TimeSpan.FromMinutes(settings.RegistrationSessionMinutes),
             settings.AgentIssuer,
             settings.AgentTenantId,
             settings.AgentAudience,
-            context.HttpContext.RequestAborted);
-        context.HttpContext.Response.Cookies.Append(
-            "pol_registration_session",
-            session.RawReference,
-            new CookieOptions { HttpOnly = true, Secure = context.HttpContext.Request.IsHttps, Path = "/" });
+            context.HttpContext.RequestAborted, bound?.Id);
+        Api.Accounts.RegistrationSessionCookie.Append(context.HttpContext, session.RawReference,
+            TimeSpan.FromMinutes(settings.RegistrationSessionMinutes));
         context.HttpContext.Response.Redirect(ToWebApp("/register", settings.AgentWebAppBaseUrl));
         context.HandleResponse();
     }

@@ -48,6 +48,7 @@ using AssertionReplay = Accounts.Domain.AssertionReplay;
 using RegistrationSession = Accounts.Domain.RegistrationSession;
 using AgentRegistration = Accounts.Domain.AgentRegistration;
 using AgentRegistrationAttempt = Accounts.Domain.AgentRegistrationAttempt;
+using ContactVerification = Accounts.Domain.ContactVerification;
 using AccountMerchantAccess = Access.Domain.MerchantAccess;
 using AccessRole = Access.Domain.AccessRole;
 using BranchAccess = Access.Domain.BranchAccess;
@@ -327,7 +328,7 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         typeof(SystemClient), typeof(ClientKeyPolicy), typeof(AssertionReplay),
         typeof(RegistrationSession), typeof(AccountMerchantAccess), typeof(AccessRole), typeof(BranchAccess),
         typeof(PlatformAccess), typeof(PlatformAccessRole), typeof(SystemClientScope), typeof(MerchantAccessMethod),
-        typeof(AgentRegistration), typeof(AgentRegistrationAttempt),
+        typeof(AgentRegistration), typeof(AgentRegistrationAttempt), typeof(ContactVerification),
         // Control Plane merchant master, provider configuration and vault rows moved here in Task10.
         typeof(MerchantEntity), typeof(Branch), typeof(Sale), typeof(Originator),
         typeof(Connection), typeof(MerchantProviderAccountMethod),
@@ -363,6 +364,9 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         (typeof(AgentRegistration), WriteOperation.Insert),
         (typeof(AgentRegistration), WriteOperation.Update),
         (typeof(AgentRegistrationAttempt), WriteOperation.Insert),
+        // Registration cookie scope and per-case/per-phone locks are enforced by AgentRegistrationStore.
+        (typeof(ContactVerification), WriteOperation.Insert),
+        (typeof(ContactVerification), WriteOperation.Update),
         (typeof(AssertionReplay), WriteOperation.Insert),
         (typeof(OpenIddictEntityFrameworkCoreApplication), WriteOperation.Insert),
         (typeof(OpenIddictEntityFrameworkCoreApplication), WriteOperation.Update),

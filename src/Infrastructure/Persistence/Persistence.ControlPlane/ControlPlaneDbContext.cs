@@ -129,6 +129,7 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
     public DbSet<RegistrationSession> RegistrationSessions => Set<RegistrationSession>();
     public DbSet<AgentRegistration> AgentRegistrations => Set<AgentRegistration>();
     public DbSet<AgentRegistrationAttempt> AgentRegistrationAttempts => Set<AgentRegistrationAttempt>();
+    public DbSet<ContactVerification> ContactVerifications => Set<ContactVerification>();
 
     public DbSet<AccountMerchantAccess> AccountMerchantAccess => Set<AccountMerchantAccess>();
     public DbSet<AccessRole> AccessRoles => Set<AccessRole>();
@@ -216,6 +217,7 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext, IMerchant
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.RegistrationSessionConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.AgentRegistrationConfiguration());
         modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.AgentRegistrationAttemptConfiguration());
+        modelBuilder.ApplyConfiguration(new Accounts.Infrastructure.Persistence.ContactVerificationConfiguration());
         modelBuilder.ApplyConfiguration(new Access.Infrastructure.Persistence.MerchantAccessConfiguration());
         modelBuilder.ApplyConfiguration(new Access.Infrastructure.Persistence.AccessRoleConfiguration());
         modelBuilder.ApplyConfiguration(new Access.Infrastructure.Persistence.BranchAccessConfiguration());

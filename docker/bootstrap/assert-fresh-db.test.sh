@@ -45,7 +45,7 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 53 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 54 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
 grep -qE '20260911160508_ReviewFixOrderVersionedMetadata' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion metadata migration head missing"
@@ -61,6 +61,8 @@ grep -qE '20260917151749_DropEmployeeIdColumn' docker/bootstrap/assert-fresh-db.
   || fail "fresh assertion drop employee id column migration head missing"
 grep -qE '20260918014926_DropAgentIdColumn' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion drop agent id column migration head missing"
+grep -qE '20260919102405_AgentAnonymousRegistrationOtp' docker/bootstrap/assert-fresh-db.sql \
+  || fail "fresh assertion anonymous registration migration head missing"
 grep -qE 'iam\.Permissions expected 25 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"
 grep -qE 'iam\.RolePermissions expected 36 rows' docker/bootstrap/assert-fresh-db.sql \
@@ -109,7 +111,7 @@ ddl_line="$(grep -nE 'CREATE SCHEMA \[admin\]' "$tmp_script" | head -1 | cut -d:
 
 if [ -n "${POL_SA_PASSWORD:-}" ]; then
   command -v sqlcmd >/dev/null || fail "POL_SA_PASSWORD set but sqlcmd unavailable"
-  sqlcmd -S "${POL_SQL_SERVER:-localhost,11433}" -U sa -P "$POL_SA_PASSWORD" -C -b \
+  sqlcmd -S "${POL_SQL_SERVER:-localhost,11433}" -U sa -P "$POL_SA_PASSWORD" -C -b -I \
     -v DbName="${POL_DB:-VCentralPay}" \
     -i docker/bootstrap/assert-fresh-db.sql
 fi

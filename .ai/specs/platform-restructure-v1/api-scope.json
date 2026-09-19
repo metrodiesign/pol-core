@@ -3,8 +3,8 @@
   "feature": "platform-restructure-v1",
   "sourceSha256": "5e65de360108d8d8de03ea932a0ff300b1e46c993a594ee653a3aec8317c6015",
   "source": "pol-platform-latest/sources/api-endpoints.json",
-  "v1Count": 107,
-  "deferredCount": 5,
+  "v1Count": 109,
+  "deferredCount": 3,
   "operations": [
     {
       "id": "API-001",
@@ -524,11 +524,11 @@
       "method": "POST",
       "path": "/api/v1/agent-registration/contact-verifications",
       "callerAndPermission": "R — Registration session",
-      "purpose": "ส่งรหัสยืนยัน Email หรือ SMS ของผู้สมัคร — เป็นข้อเสนอเพิ่มเติม ไม่ใช่เงื่อนไขที่ผู้ใช้ยืนยันแล้ว",
-      "rules": "ข้อเสนอความปลอดภัย: rate limit, expiry, cooldown; ไม่เปิดเป็น public SMS relay; ผลปกติ 202",
-      "contractStatus": "PROPOSED",
-      "release": "deferred",
-      "releaseReason": "OTP เลื่อนจากรุ่นแรก",
+      "purpose": "ส่ง OTP ทาง SMS ไปยังเบอร์มือถือไทยที่บันทึกในใบสมัคร",
+      "rules": "registration cookie; ไม่มี request body; expiry 5 นาที, cooldown 60 วินาที, 5 ครั้งต่อชั่วโมงต่อเบอร์; ไม่คืนรหัส; ผลปกติ 202",
+      "contractStatus": "IMPLEMENTED",
+      "release": "v1",
+      "releaseReason": "Issue #274: ยืนยันเบอร์ก่อนส่งใบสมัคร; production ไม่มี vendor ตอบ 503",
       "requirements": [
         "REQ-4",
         "REQ-10"
@@ -540,11 +540,11 @@
       "method": "POST",
       "path": "/api/v1/agent-registration/contact-verifications/{verificationId}/confirm",
       "callerAndPermission": "R — Registration session",
-      "purpose": "ยืนยันข้อมูลติดต่อของผู้สมัครเมื่อใช้นโยบาย OTP ที่เสนอ",
-      "rules": "ผูก identity + recipient + channel; จำกัดจำนวนครั้ง; ไม่ใช้ contact เป็น identity; ผลปกติ 200",
-      "contractStatus": "PROPOSED",
-      "release": "deferred",
-      "releaseReason": "OTP เลื่อนจากรุ่นแรก",
+      "purpose": "ยืนยัน OTP ของเบอร์ปัจจุบันในใบสมัคร",
+      "rules": "registration cookie; code 6 หลัก; ผูก registration และเบอร์; ผิดได้ 5 ครั้ง; ผลปกติ 200 พร้อม ETag ใหม่",
+      "contractStatus": "IMPLEMENTED",
+      "release": "v1",
+      "releaseReason": "Issue #274: ยืนยันเบอร์ก่อนส่งใบสมัคร",
       "requirements": [
         "REQ-4",
         "REQ-10"

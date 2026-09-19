@@ -35,8 +35,8 @@ public sealed class ApiOperationsContractTests
         var deferred = scope.Where(x => x.Release != "v1").Select(x => Key(x.Method, x.Path)).ToHashSet();
 
         // 4 BFF-session rows (API-006/010/011/012) are retired since the employee JWT flow (2026-09-14).
-        Assert.Equal(107, expected.Count);
-        Assert.Equal(9, deferred.Count);
+        Assert.Equal(109, expected.Count);
+        Assert.Equal(7, deferred.Count);
         var missing = expected.Except(actual.Keys).Order(StringComparer.Ordinal).ToArray();
         var exposedDeferred = deferred.Intersect(actual.Keys).Order(StringComparer.Ordinal).ToArray();
         Console.WriteLine($"API_COMPARATOR expected={expected.Count} actual={actual.Count} overlap={expected.Intersect(actual.Keys).Count()} missing={missing.Length} deferred={exposedDeferred.Length}");
@@ -142,6 +142,7 @@ public sealed class ApiOperationsContractTests
             ["API-087"] = "RotatePaymentLinkRequest",
             ["API-088"] = "RevokePaymentLinkRequest",
             ["API-089"] = "CheckoutAccessRequest",
+            ["API-034"] = "ContactVerificationConfirmRequest",
             ["API-092"] = "CheckoutConfirmRequest",
             ["API-099"] = "CanonicalTransactionReviewRequest",
             ["API-107"] = "CanonicalNotificationRetryRequest",
