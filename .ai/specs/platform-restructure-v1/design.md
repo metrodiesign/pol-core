@@ -104,9 +104,15 @@ sequenceDiagram
 
     Note over A,CP: Phase A — draft และ submit
     A->>API: PUT /api/v1/agent-registration
-    API->>ACC: SaveDraft verified identity และ Merchant
-    ACC->>CP: Upsert Registration ไม่มี Attempt
-    CP-->>A: 200 + ETag
+    API->>ACC: SaveDraft anonymous หรือ pinned session ใต้ Merchant ที่ตั้งไว้
+    ACC->>CP: Upsert Registration ไม่มี Attempt และสร้าง session เมื่อจำเป็น
+    CP-->>A: 200 + ETag + cookie เมื่อสร้าง session
+    A->>API: POST contact-verifications
+    API->>ACC: ส่ง SMS OTP ไปยังเบอร์ใน draft
+    ACC-->>A: 202 พร้อม expiry และ resendAvailableAt
+    A->>API: POST contact-verifications/id/confirm
+    API->>ACC: ยืนยัน OTP ของ registration และเบอร์ปัจจุบัน
+    ACC-->>A: 200 + ETag ใหม่
     A->>API: POST /api/v1/agent-registration/submissions
     API->>ACC: Submit Idempotency-Key + If-Match
     ACC->>CP: Create immutable Attempt และ current pending
@@ -120,7 +126,7 @@ sequenceDiagram
         CP-->>API: conflict
         API-->>R: 409 registration_context_changed
     else ผ่านและ contact evidence ครบ
-        ACC->>CP: Atomic Account Login Agent Access decision outbox
+        ACC->>CP: Atomic Account Agent Access decision outbox และ LoginAccount เฉพาะมี identity
         CP-->>API: committed
         API-->>R: 200 APPROVED
         CP-->>N: Outbox AgentRegistrationDecidedV1
@@ -128,9 +134,18 @@ sequenceDiagram
     end
 ```
 
-Registration unique ด้วย `(Provider, TenantId, ExternalUserId)` สำหรับ Agent หนึ่ง identity เท่านั้น `MerchantId` ถูกตรึงเมื่อสร้าง case หาก context ต่อมาคนละ Merchant ให้ `409 registration_merchant_mismatch` การแก้ draft ไม่สร้าง Attempt; draft เริ่ม `CurrentAttemptNo = 0` และ Submit เท่านั้นที่สร้าง snapshot ใหม่
+หลัง PR #275 ตาม Issue #274: Registration unique ด้วย `(MerchantId, EmailNormalized)` ทุก status ส่วน identity index เป็น unique filtered สำหรับค่าที่ไม่เป็น NULL
+MerchantId ถูกตรึงเมื่อสร้าง case การแก้ draft ไม่สร้าง Attempt; Submit สร้าง snapshot ใหม่หลังมีรูปและยืนยันเบอร์แล้ว
 
-รุ่นแรกไม่มี OTP Reviewer ต้องยืนยัน contact snapshot กับ official business record แล้วบันทึก `ContactEvidenceReference`, `ContactVerifiedByAccountId` และ `ContactVerifiedAt` บน Attempt ก่อน approve การผ่าน format validation อย่างเดียวไม่ถือว่ายืนยันเจ้าของ contact
+มือถือรับเฉพาะ local 10 หลัก prefix 06/08/09 ไม่ trim หรือแปลงรูปแบบ; เปลี่ยนเบอร์ล้าง verification
+OTP อายุ 5 นาที, cooldown 60 วินาทีต่อเบอร์, 5 sends ต่อชั่วโมงต่อเบอร์ และผิดได้ 5 ครั้งต่อ verification
+Development/Testing log code เฉพาะ local ส่วน production ไม่มี vendor ตอบ 503 และไม่มี code ใน response
+Reviewer ยังคงบันทึก ContactEvidenceReference, ContactVerifiedByAccountId และ ContactVerifiedAt บน Attempt ก่อน approve
+
+Approved หมายถึงมี Account แต่ LoginAccount อาจยังไม่มี callback หา LoginAccount ก่อน ตามด้วย registration ที่ bind identity แล้ว
+เฉพาะไม่เจอจึง fallback email; bind Draft ที่ยังไม่ผ่าน OTP ต้องล้าง profile/phone/photo เหลือ email
+Pending/Rejected/Draft ออก session ที่ pin RegistrationId ไป /register ส่วน Approved สร้าง LoginAccount แล้วเข้าสู่ OAuth flow
+รายละเอียดและข้อยกเว้นยึด [Issue #274](https://github.com/metrodiesign/pol-core/issues/274) และ ADR 0002 ไม่สร้าง requirements ชุดใหม่ที่นี่
 
 ### Create, issue and confirm payment
 
@@ -498,10 +513,10 @@ Protected raw-token replay ของ idempotency และ outbox มี owner, 
 
 | API group | IDs | v1/deferred | Application owner |
 |---|---|---|---|
-| Authentication | API-001–013 | 13/0 | Account + OpenIddict |
+| Authentication | API-001–013 | 9/0 (retired 4) | Account + OpenIddict |
 | Account | API-014–020 | 7/0 | Account |
 | System Client | API-021–028 | 8/0 | Account + Access |
-| Agent Registration | API-029–039 | 9/2 | Account |
+| Agent Registration | API-029–039 | 11/0 | Account |
 | Access | API-040–051 | 12/0 | Access |
 | Merchant | API-052–061 | 10/0 | Merchant |
 | Provider Configuration | API-062–077 | 16/0 | Merchant |
@@ -511,7 +526,8 @@ Protected raw-token replay ของ idempotency และ outbox มี owner, 
 | Notification | API-103–113 | 8/3 | Notification |
 | Operations | API-114–116 | 3/0 | Platform Core |
 
-API-033, API-034 และ API-108–110 ไม่ map route ใน v1 Exact route semantics ใช้ record เดิมใน `api-scope.json`; contract test ต้องยืนยัน 111 v1 operations และ 5 deferred operations โดยไม่มี duplicate method/path
+หลัง PR #275 API-033/034 เปิดใน v1 แล้ว เหลือ API-108–110 ที่ deferred
+Exact route semantics ใช้ record เดิมใน api-scope.json; contract test ยืนยัน v1 109 รายการ, deferred 3 และ retired 4 โดยไม่มี duplicate method/path
 
 | Shared contract | แบบที่เลือก |
 |---|---|
@@ -682,7 +698,9 @@ Worker ใช้ lease/rowversion และ idempotent state reducer Crash ก�
 
 Integration suite ต้องครอบ JIT race, registration approve/reject race, cross-Merchant read/write/child/history/export, permission revocation ระหว่าง request, two-tab checkout, issue/cancel race, two different Idempotency-Keys, PSP timeout, duplicate/out-of-order callback, late success หลัง cancel และเงินจริงสำเร็จซ้ำสองรายการ
 
-Contract tests โหลด `api-scope.json` แล้วตรวจ IDs API-001–116, method/path unique, v1 count 111, deferred count 5, route metadata/caller policy ครบ และยืนยันว่า API-033/034/108–110 ไม่มี route Mapping tests ตรวจว่า runtime contexts กับ migration composition ใช้ configuration types เดียวกันและ migration model ไม่มี table owner ซ้ำ
+Contract tests โหลด api-scope.json แล้วตรวจ IDs API-001–116, method/path unique, v1 count 109, deferred count 3 และ retired count 4
+API-033/034 ต้องมี route และ confirm request schema; API-108–110 และ retired operations ต้องไม่มี route
+Mapping tests ตรวจว่า runtime contexts กับ migration composition ใช้ configuration types เดียวกันและ migration model ไม่มี table owner ซ้ำ
 
 Migration rehearsal สำหรับ external acceptance ต้องเริ่มจาก sanitized backup ที่มีเจ้าของและ chain of custody ตรวจ count ต่อ legacy kind, mapping completeness, Order IDs, `Session.Id -> Transaction.Id`, provider references, amount sums แยก currency, snapshot provenance, pending callbacks และ zero generated external side effects. Local synthetic backup ที่ใช้แทนใน Task 9 ระบุเป็น implementation/local tests complete เท่านั้น และไม่ยกสถานะเป็น production/cutover ready. การพบ unknown/conflict ต้องทำ rehearsal fail
 
