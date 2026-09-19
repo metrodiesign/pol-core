@@ -53,7 +53,7 @@ internal sealed class WebhookDeliveryDispatcher(
         WebhookDelivery? row;
         if (db.Database.IsSqlServer())
         {
-            row = await db.WebhookDeliveries.FromSqlRaw(
+            var rows = await db.WebhookDeliveries.FromSqlRaw(
                 """
                 SELECT TOP (1) *
                 FROM admin.WebhookDeliveries WITH (READPAST, UPDLOCK, ROWLOCK)
@@ -61,7 +61,10 @@ internal sealed class WebhookDeliveryDispatcher(
                     OR (Status = {2} AND LeaseExpiresAt < {1}))
                 ORDER BY NextAttemptAt, CreatedAt, Id
                 """, (int)DeliveryStatus.Pending, clock.UtcNow, (int)DeliveryStatus.Processing)
-                .FirstOrDefaultAsync(cancellationToken);
+                // The SQL already owns TOP/ORDER BY; materialize before selecting to avoid EF composing
+                // FirstOrDefault over raw SQL and emitting FirstWithoutOrderByAndFilterWarning.
+                .ToListAsync(cancellationToken);
+            row = rows.FirstOrDefault();
         }
         else
         {

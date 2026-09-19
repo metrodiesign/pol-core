@@ -1,0 +1,9 @@
+<Project>
+
+  <!-- .NET SDK 10.0.300 can leave a Windows separator in IntermediateOutputPath on Unix.
+       dotnet watch passes that value to the static-web-assets manifest reader verbatim. -->
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <IntermediateOutputPath>$([System.String]::Copy('$(IntermediateOutputPath)').Replace('\', '/'))</IntermediateOutputPath>
+  </PropertyGroup>
+
+</Project>
