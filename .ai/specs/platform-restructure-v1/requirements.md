@@ -16,13 +16,16 @@
 | ชื่อ project และ assembly | ใช้ชื่อ `Api`, `Application`, `Domain`, `Infrastructure`, `UnitTests`, `ArchitectureTests` และ `IntegrationTests` โดยตัด legacy brand prefix ออกจาก path, project, assembly, script และเอกสาร; คง `PolDbContext` และ runtime database identifiers เดิม |
 | ผู้ใช้ | Employee, Agent, System และลูกค้าแบบ capability โดยไม่สร้าง Account ลูกค้า |
 | Access | หนึ่ง active MerchantAccess ต่อ Account/Merchant; DataScope อยู่ Access; PlatformAccess แยกสำหรับ Employee |
-| Agent | หนึ่ง Account ผูก Sale เดียวใน Merchant เดียว; case การสมัครตรึง identity และ Merchant |
+| Agent | หนึ่ง Account ผูก Sale เดียวใน Merchant เดียว; case ใช้ MerchantId + EmailNormalized และ bind ExternalIdentity ภายหลังตาม Issue #274 / ADR 0002 |
 | SYSTEM | หนึ่ง Client ต่อ SYSTEM Account แต่ Merchant มีหลาย Client ได้; Client ผูก Merchant/environment เดียว |
 | การชำระ | เต็มยอด Order สกุลเดียว ไม่มี partial/split payment, wallet, ledger, refund/void/capture/settlement APIs |
-| API | 111 รายการตาม api-scope.json; defer API-033, API-034 และ API-108 ถึง API-110 |
+| API | หลัง PR #275: v1 109 รายการ, retired 4 รายการ, defer เฉพาะ API-108 ถึง API-110; API-033/034 เปิดเป็น registration OTP ตาม Issue #274 |
 | การแจ้งเตือน | Email และ SMS สำหรับผลสมัคร, business webhook หนึ่งปลายทางต่อ Merchant; templates อยู่ใน release ที่ versioned |
 | การย้าย | รักษาข้อมูล ใช้ maintenance cutover แบบควบคุม ไม่ทำ rolling dual writers และไม่ reset DB |
-| งานที่ไม่ทำ | OTP engine, template/rule designer, future PSP, Microservices, message broker/Redis ใหม่ และการออกกรมธรรม์ |
+| งานที่ไม่ทำ | SMS vendor จริงใน production, template/rule designer, future PSP, Microservices, message broker/Redis ใหม่ และการออกกรมธรรม์ |
+
+ส่วน registration ถูกปรับโดย [Issue #274](https://github.com/metrodiesign/pol-core/issues/274) และ implementation PR #275
+Issue เป็น source of truth ของ anonymous registration, phone OTP และ identity-first/email-fallback; ไม่สร้าง spec ฟีเจอร์ซ้ำ
 
 ## REQ-1: โครงสร้างและความรับผิดชอบ
 
