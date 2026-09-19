@@ -2,7 +2,8 @@
 > Status: approved 2026-09-19
 
 - [x] 1. ทำให้ `IntermediateOutputPath` ใช้ path separator แบบ Unix บน macOS/Linux
-  Satisfies: F1, B1, B4. Verify: ตรวจค่า MSBuild property และรัน `dotnet watch` smoke check โดยไม่ให้เกิด static-web-assets path warning.
+  Satisfies: F-1, B-1, B-4
+  Verify: ตรวจค่า MSBuild property และรัน `dotnet watch` smoke check โดยไม่ให้เกิด static-web-assets path warning.
 
   Evidence:
 
@@ -13,7 +14,8 @@
   - deviations: ไม่มี
 
 - [x] 2. แก้ raw SQL terminal query ที่ทำให้ EF Core แสดง `EventId 10103`
-  Satisfies: F2, B2, B3, B5. Verify: build/test และตรวจ runtime log ของ API หลัง background dispatcher ทำงาน.
+  Satisfies: F-2, B-2, B-3, B-5
+  Verify: build/test และตรวจ runtime log ของ API หลัง background dispatcher ทำงาน.
 
   Evidence:
 
